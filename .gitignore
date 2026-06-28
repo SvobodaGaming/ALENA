@@ -1,0 +1,33 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+.venv/
+venv/
+env/
+
+# Generated reports (runtime output)
+reports/*.html
+reports/*.pdf
+
+# Persistent memory store (runtime data — not code)
+memory/store.json
+
+# Uploaded/temporary files
+uploads/
+tmp/
+*.zip
+
+# Environment (contains passwords — never commit)
+.env
+
+# macOS
+.DS_Store
+
+# IDE
+.idea/
+.vscode/
+*.swp

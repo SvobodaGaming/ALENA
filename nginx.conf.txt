@@ -1,0 +1,63 @@
+# nginx reverse proxy для au-report-checker
+#
+# Место:      /etc/nginx/sites-available/au-report
+# Активация:  ln -s /etc/nginx/sites-available/au-report /etc/nginx/sites-enabled/
+# Проверка:   nginx -t && systemctl reload nginx
+
+# Защита /login от брутфорса (объявить в http-блоке nginx.conf, если ещё нет)
+# limit_req_zone $binary_remote_addr zone=login:10m rate=5r/m;
+
+# ---------------------------------------------------------------------------
+# HTTP → HTTPS (Certbot дописывает этот блок сам)
+# ---------------------------------------------------------------------------
+server {
+    listen 80;
+    listen [::]:80;
+    server_name report.mxd3v.tech;
+
+    location / {
+        return 301 https://$host$request_uri;
+    }
+}
+
+# ---------------------------------------------------------------------------
+# HTTPS
+# ---------------------------------------------------------------------------
+server {
+    listen 443 ssl;
+    listen [::]:443 ssl;
+    server_name report.mxd3v.tech;
+
+    # SSL, управляется Certbot, не трогать руками
+    ssl_certificate     /etc/letsencrypt/live/report.mxd3v.tech/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/report.mxd3v.tech/privkey.pem;
+
+    # Лимит загрузки, совпадает с MAX_CONTENT_LENGTH в app.py
+    client_max_body_size 620m;
+
+    # Таймауты с запасом на обработку 150+ PDF
+    proxy_connect_timeout  60s;
+    proxy_send_timeout    300s;
+    proxy_read_timeout    300s;
+
+    # Заголовки для Flask
+    proxy_set_header Host              $host;
+    proxy_set_header X-Real-IP         $remote_addr;
+    proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_http_version 1.1;
+
+    # Не буферизовать тело запроса на диск (важно для больших ZIP)
+    proxy_request_buffering off;
+
+    # Экспорт PDF может идти дольше, отдельный таймаут
+    location ^~ /export/ {
+        proxy_read_timeout 600s;
+        proxy_pass http://10.30.0.17:5000;
+    }
+
+    # Всё остальное
+    location / {
+        proxy_pass http://10.30.0.17:5000;
+    }
+}

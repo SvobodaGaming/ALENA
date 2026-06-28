@@ -1,0 +1,1040 @@
+<!DOCTYPE html>
+<html lang="ru">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>АЛЁНА — проверка студенческих отчётов</title>
+  <style>
+    *,
+    *::before,
+    *::after {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    :root {
+      --primary: #015D1E;
+      --primary-dark: #014818;
+      --primary-mid: #027a28;
+      --primary-bg: #e8f5eb;
+      --primary-lite: #f0faf2;
+      --bg: #f4f7f5;
+      --surface: #ffffff;
+      --border: #d0e4d5;
+      --border-mid: #b8d4be;
+      --text: #1a2e1d;
+      --muted: #5a7a61;
+      --amber: #b45309;
+      --amber-bg: #fef3c7;
+      --red: #dc2626;
+      --red-bg: #fee2e2;
+      --green: #015D1E;
+      --radius: 12px;
+      --shadow: 0 1px 4px rgba(1, 93, 30, .08), 0 4px 16px rgba(1, 93, 30, .06);
+    }
+
+    body {
+      font-family: 'Segoe UI', system-ui, Arial, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* Header */
+    .header {
+      background: var(--surface);
+      border-bottom: 2px solid var(--primary);
+      padding: 0 32px;
+    }
+
+    .header-inner {
+      max-width: 960px;
+      margin: 0 auto;
+      display: flex;
+      align-items: center;
+      gap: 20px;
+      padding: 16px 0;
+    }
+
+    .logo-wrap {
+      flex-shrink: 0;
+    }
+
+    .logo-wrap img {
+      height: 56px;
+      width: 56px;
+      object-fit: contain;
+      display: block;
+    }
+
+    .header-text {
+      flex: 1;
+    }
+
+    .header-text h1 {
+      font-size: clamp(1.1rem, 3vw, 1.55rem);
+      font-weight: 800;
+      color: var(--primary);
+      letter-spacing: -0.3px;
+      line-height: 1.2;
+    }
+
+    .header-text .tagline {
+      font-size: 0.82rem;
+      color: var(--muted);
+      margin-top: 3px;
+    }
+
+    .pills {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-top: 8px;
+    }
+
+    .pill {
+      background: var(--primary-bg);
+      border: 1px solid #a8d4b0;
+      color: var(--primary);
+      font-size: 0.73rem;
+      font-weight: 600;
+      padding: 3px 10px;
+      border-radius: 999px;
+    }
+
+    /* Main */
+    .main {
+      flex: 1;
+      max-width: 880px;
+      margin: 0 auto;
+      padding: 28px 20px;
+      width: 100%;
+    }
+
+    /* Card */
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 26px 28px;
+      margin-bottom: 18px;
+      box-shadow: var(--shadow);
+    }
+
+    .card-title {
+      font-size: 1rem;
+      font-weight: 700;
+      color: var(--primary);
+      margin-bottom: 18px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    /* Drop zone */
+    .drop-zone {
+      border: 2px dashed var(--border-mid);
+      border-radius: 10px;
+      padding: 40px 24px;
+      text-align: center;
+      cursor: pointer;
+      transition: border-color .2s, background .2s;
+      background: var(--primary-lite);
+    }
+
+    .drop-zone:hover,
+    .drop-zone.drag-over {
+      border-color: var(--primary);
+      background: var(--primary-bg);
+    }
+
+    .drop-zone.has-files {
+      border-color: var(--primary);
+      background: var(--primary-bg);
+    }
+
+    .drop-icon {
+      font-size: 2.5rem;
+      margin-bottom: 10px;
+    }
+
+    .drop-label {
+      font-size: 1rem;
+      font-weight: 600;
+      color: var(--text);
+      margin-bottom: 5px;
+    }
+
+    .drop-sub {
+      color: var(--muted);
+      font-size: 0.84rem;
+    }
+
+    #file-input {
+      display: none;
+    }
+
+    /* File list */
+    .file-list {
+      margin-top: 14px;
+      display: none;
+    }
+
+    .file-item {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 7px 12px;
+      background: var(--primary-lite);
+      border: 1px solid var(--border);
+      border-radius: 7px;
+      margin-bottom: 5px;
+      font-size: 0.84rem;
+    }
+
+    .file-item .fname {
+      flex: 1;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      color: var(--text);
+    }
+
+    .file-item .fsize {
+      color: var(--muted);
+      white-space: nowrap;
+      font-size: 0.78rem;
+    }
+
+    .file-badge {
+      display: inline-block;
+      background: var(--primary);
+      color: white;
+      font-size: 0.68rem;
+      font-weight: 700;
+      padding: 2px 7px;
+      border-radius: 4px;
+      flex-shrink: 0;
+    }
+
+    .file-badge.zip {
+      background: #6d28d9;
+    }
+
+    .file-count {
+      text-align: center;
+      color: var(--muted);
+      font-size: 0.8rem;
+      margin-top: 6px;
+    }
+
+    /* Settings */
+    .settings {
+      margin-top: 20px;
+    }
+
+    .setting-row {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      margin-bottom: 6px;
+    }
+
+    .setting-row label {
+      font-size: 0.88rem;
+      color: var(--muted);
+      min-width: 210px;
+    }
+
+    .setting-row label strong {
+      color: var(--text);
+    }
+
+    input[type="range"] {
+      flex: 1;
+      -webkit-appearance: none;
+      height: 5px;
+      background: var(--border);
+      border-radius: 3px;
+      outline: none;
+    }
+
+    input[type="range"]::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      width: 18px;
+      height: 18px;
+      border-radius: 50%;
+      background: var(--primary);
+      cursor: pointer;
+      border: 2px solid white;
+      box-shadow: 0 0 0 1px var(--primary);
+    }
+
+    .thresh-val {
+      font-size: 1rem;
+      font-weight: 700;
+      color: var(--primary);
+      min-width: 42px;
+      text-align: right;
+    }
+
+    .setting-hint {
+      color: var(--muted);
+      font-size: 0.78rem;
+      margin-top: 4px;
+      padding-left: 2px;
+    }
+
+    /* Button */
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 11px 26px;
+      border-radius: 8px;
+      font-size: 0.92rem;
+      font-weight: 700;
+      cursor: pointer;
+      border: none;
+      text-decoration: none;
+      transition: background .15s, transform .1s, box-shadow .15s;
+    }
+
+    .btn:active {
+      transform: scale(.98);
+    }
+
+    .btn:disabled {
+      opacity: .4;
+      cursor: not-allowed;
+    }
+
+    .btn-primary {
+      background: var(--primary);
+      color: white;
+      box-shadow: 0 2px 8px rgba(1, 93, 30, .3);
+    }
+
+    .btn-primary:hover:not(:disabled) {
+      background: var(--primary-dark);
+      box-shadow: 0 4px 12px rgba(1, 93, 30, .35);
+    }
+
+    .btn-success {
+      background: var(--primary);
+      color: white;
+    }
+
+    .btn-success:hover {
+      background: var(--primary-dark);
+    }
+
+    .btn-outline {
+      background: transparent;
+      color: var(--primary);
+      border: 1.5px solid var(--primary);
+      font-size: 0.84rem;
+      padding: 8px 16px;
+    }
+
+    .btn-outline:hover {
+      background: var(--primary-bg);
+    }
+
+    .btn-full {
+      width: 100%;
+      justify-content: center;
+      margin-top: 18px;
+    }
+
+    /* Progress */
+    #progress-section {
+      display: none;
+    }
+
+    .progress-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      margin-bottom: 10px;
+    }
+
+    .progress-step {
+      color: var(--text);
+      font-size: 0.9rem;
+      font-weight: 500;
+    }
+
+    .progress-pct {
+      color: var(--primary);
+      font-size: 1.2rem;
+      font-weight: 800;
+    }
+
+    .progress-track {
+      height: 10px;
+      background: var(--primary-bg);
+      border-radius: 5px;
+      overflow: hidden;
+      margin-bottom: 14px;
+      border: 1px solid var(--border);
+    }
+
+    .progress-fill {
+      height: 100%;
+      background: linear-gradient(90deg, var(--primary) 0%, var(--primary-mid) 100%);
+      border-radius: 5px;
+      width: 0%;
+      transition: width .5s ease;
+    }
+
+    .progress-fill.pulse {
+      animation: pulse-bar 1.5s ease-in-out infinite;
+    }
+
+    @keyframes pulse-bar {
+
+      0%,
+      100% {
+        opacity: 1
+      }
+
+      50% {
+        opacity: .65
+      }
+    }
+
+    .progress-stats {
+      display: flex;
+      gap: 20px;
+      flex-wrap: wrap;
+      margin-top: 4px;
+    }
+
+    .stat-chip {
+      font-size: 0.8rem;
+      color: var(--muted);
+      background: var(--primary-lite);
+      border: 1px solid var(--border);
+      border-radius: 5px;
+      padding: 4px 10px;
+    }
+
+    .stat-chip b {
+      color: var(--primary);
+    }
+
+    /* Result */
+    #result-section {
+      display: none;
+    }
+
+    .result-ok {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      background: var(--primary-bg);
+      border: 1.5px solid #a8d4b0;
+      border-radius: 9px;
+      padding: 16px 20px;
+      margin-bottom: 16px;
+    }
+
+    .result-ok .ri {
+      font-size: 1.8rem;
+    }
+
+    .result-ok .rt {
+      font-weight: 700;
+      font-size: 0.95rem;
+      color: var(--primary);
+    }
+
+    .result-ok .rs {
+      font-size: 0.8rem;
+      color: var(--muted);
+      margin-top: 2px;
+    }
+
+    .result-error {
+      background: var(--red-bg);
+      border: 1px solid #fca5a5;
+      border-radius: 9px;
+      padding: 14px 18px;
+      color: var(--red);
+      font-size: 0.85rem;
+      margin-bottom: 16px;
+    }
+
+    /* History */
+    #history-section {
+      display: none;
+    }
+
+    .history-title {
+      font-size: 0.88rem;
+      font-weight: 700;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: .5px;
+      margin-bottom: 12px;
+      padding-left: 2px;
+    }
+
+    .history-item {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 11px 16px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 9px;
+      margin-bottom: 7px;
+      font-size: 0.84rem;
+      box-shadow: var(--shadow);
+    }
+
+    .h-date {
+      color: var(--muted);
+      white-space: nowrap;
+      font-size: 0.78rem;
+    }
+
+    .h-info {
+      flex: 1;
+    }
+
+    .h-info b {
+      color: var(--text);
+    }
+
+    /* Badges */
+    .badge {
+      display: inline-block;
+      padding: 2px 9px;
+      border-radius: 999px;
+      font-size: 0.72rem;
+      font-weight: 700;
+    }
+
+    .badge-green {
+      background: var(--primary-bg);
+      color: var(--primary);
+      border: 1px solid #a8d4b0;
+    }
+
+    .badge-red {
+      background: var(--red-bg);
+      color: var(--red);
+    }
+
+    .badge-amber {
+      background: var(--amber-bg);
+      color: var(--amber);
+    }
+
+    /* Memory section */
+    .memory-entry {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 9px 14px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      margin-bottom: 6px;
+      font-size: 0.83rem;
+      box-shadow: 0 1px 3px rgba(1,93,30,.05);
+    }
+
+    .mem-ver {
+      display: inline-block;
+      background: #fef3c7;
+      color: #92400e;
+      font-size: 0.68rem;
+      font-weight: 700;
+      padding: 1px 7px;
+      border-radius: 4px;
+      flex-shrink: 0;
+    }
+
+    .mem-name {
+      flex: 1;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .mem-meta {
+      font-size: 0.76rem;
+      color: var(--muted);
+      white-space: nowrap;
+    }
+
+    .btn-del {
+      background: transparent;
+      border: 1px solid #fca5a5;
+      color: var(--red);
+      border-radius: 5px;
+      font-size: 0.72rem;
+      padding: 3px 9px;
+      cursor: pointer;
+      flex-shrink: 0;
+    }
+
+    .btn-del:hover {
+      background: var(--red-bg);
+    }
+
+    .section-toggle {
+      cursor: pointer;
+      user-select: none;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .section-toggle .arrow {
+      font-size: 0.7rem;
+      color: var(--muted);
+      transition: transform .2s;
+    }
+
+    .section-toggle.open .arrow {
+      transform: rotate(180deg);
+    }
+
+    /* Footer */
+    .footer {
+      background: var(--primary);
+      color: rgba(255, 255, 255, .7);
+      text-align: center;
+      font-size: 0.8rem;
+      padding: 14px 20px;
+      margin-top: auto;
+    }
+
+    .footer strong {
+      color: white;
+      font-weight: 700;
+    }
+
+    /* Spinner */
+    .spinner {
+      display: inline-block;
+      width: 16px;
+      height: 16px;
+      border: 2px solid rgba(255, 255, 255, .4);
+      border-top-color: white;
+      border-radius: 50%;
+      animation: spin .7s linear infinite;
+    }
+
+    @keyframes spin {
+      to {
+        transform: rotate(360deg);
+      }
+    }
+  </style>
+</head>
+
+<body>
+
+  <!-- Header -->
+  <header class="header">
+    <div class="header-inner">
+      <div class="logo-wrap">
+        <img src="/au_logo.png" alt="AU Logo">
+      </div>
+      <div class="header-text">
+        <h1><span title="Автоматический Ловец Ёрничества, Небрежности и Аутентичности">АЛЁНА</span> <span style="font-weight:600;font-size:.85rem;opacity:.7;">· Проверка студенческих отчётов</span></h1>
+        <div class="tagline">Жан-Жак Руссо: "Всякий праздный гражданин является вором"</div>
+      </div>
+      <form method="post" action="/logout" style="margin-left:auto;flex-shrink:0;">
+        <button type="submit" style="
+          background:transparent;border:1.5px solid rgba(1,93,30,.35);
+          color:var(--primary);padding:6px 14px;border-radius:7px;
+          font-size:0.78rem;font-weight:600;cursor:pointer;font-family:inherit;
+          white-space:nowrap;
+        ">Выйти</button>
+      </form>
+    </div>
+  </header>
+
+  <!-- Main -->
+  <div class="main">
+
+    <!-- Upload card -->
+    <div class="card" id="upload-card">
+      <div class="card-title">Загрузка отчётов</div>
+
+      <div class="drop-zone" id="drop-zone">
+        <input type="file" id="file-input" multiple accept=".pdf,.zip">
+        <div class="drop-icon" id="drop-icon">📁</div>
+        <div class="drop-label" id="drop-label">Перетащите файлы сюда</div>
+        <div class="drop-sub">ZIP-архив с отчётами или несколько PDF-файлов</div>
+      </div>
+
+      <div class="file-list" id="file-list"></div>
+
+      <div class="settings">
+        <div class="setting-row">
+          <label>Порог заимствования: <strong id="thresh-display">60%</strong></label>
+          <input type="range" id="threshold" min="10" max="90" value="60" step="5">
+          <span class="thresh-val" id="thresh-val">60%</span>
+        </div>
+        <div class="setting-hint">
+          Какой процент заимствования в отчёте допускается (не будет выделен цветом)?.
+        </div>
+      </div>
+
+      <button class="btn btn-primary btn-full" id="start-btn" disabled>
+        Начать проверку
+      </button>
+    </div>
+
+    <!-- Progress card -->
+    <div class="card" id="progress-section">
+      <div class="card-title">⚙️ Обработка</div>
+      <div class="progress-header">
+        <span class="progress-step" id="prog-step">Старт…</span>
+        <span class="progress-pct" id="prog-pct">0%</span>
+      </div>
+      <div class="progress-track">
+        <div class="progress-fill pulse" id="prog-bar"></div>
+      </div>
+      <div class="progress-stats">
+        <span class="stat-chip">Файлов: <b id="ps-files">,</b></span>
+        <span class="stat-chip">Пар текста: <b id="ps-tpairs">,</b></span>
+        <span class="stat-chip">Дублей изображений: <b id="ps-ipairs">,</b></span>
+      </div>
+    </div>
+
+    <!-- Result card -->
+    <div class="card" id="result-section">
+      <div class="card-title">Результат</div>
+      <div class="result-ok" id="result-ok" style="display:none;">
+        <span class="ri">🎉</span>
+        <div>
+          <div class="rt">Отчёт успешно сформирован</div>
+          <div class="rs" id="result-summary"></div>
+        </div>
+      </div>
+      <div class="result-error" id="result-err" style="display:none;"></div>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;" id="result-btns">
+        <a id="report-link" href="#" target="_blank" class="btn btn-primary" style="display:none;">
+          📊 Открыть отчёт
+        </a>
+        <a id="pdf-link" href="#" class="btn btn-outline" style="display:none;">
+          📄 Скачать PDF
+        </a>
+        <button class="btn btn-outline" id="new-check-btn" style="display:none;">
+          + Новая проверка
+        </button>
+      </div>
+    </div>
+
+    <!-- History -->
+    <div id="history-section">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
+        <div class="history-title" style="margin-bottom:0;">История проверок</div>
+        <button class="btn btn-outline" id="clear-btn"
+          style="padding:5px 14px;font-size:0.78rem;color:var(--red);border-color:var(--red);">
+          Очистить историю и базу
+        </button>
+      </div>
+      <div id="history-list"></div>
+    </div>
+
+    <!-- Memory / stored reports base -->
+    <div id="memory-section" style="display:none;margin-top:10px;">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
+        <div class="section-toggle" id="memory-toggle">
+          <div class="history-title" style="margin-bottom:0;">
+            База отчётов&nbsp;<span id="memory-count-badge" class="badge badge-amber" style="vertical-align:middle;"></span>
+          </div>
+          <span class="arrow">▼</span>
+        </div>
+      </div>
+      <div id="memory-list" style="display:none;"></div>
+    </div>
+
+  </div><!-- /main -->
+
+  <!-- Footer -->
+  <footer class="footer">
+    <strong>#au-team</strong> &nbsp;·&nbsp; АЛЁНА &nbsp;·&nbsp; Проверка студенческих отчётов
+  </footer>
+
+  <script>
+    (function () {
+      'use strict';
+
+      const dropZone = document.getElementById('drop-zone');
+      const fileInput = document.getElementById('file-input');
+      const fileList = document.getElementById('file-list');
+      const startBtn = document.getElementById('start-btn');
+      const dropIcon = document.getElementById('drop-icon');
+      const dropLabel = document.getElementById('drop-label');
+
+      let selectedFiles = [];
+
+      dropZone.addEventListener('click', () => fileInput.click());
+      dropZone.addEventListener('dragover', e => {e.preventDefault(); dropZone.classList.add('drag-over');});
+      dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag-over'));
+      dropZone.addEventListener('drop', e => {
+        e.preventDefault();
+        dropZone.classList.remove('drag-over');
+        handleFiles(Array.from(e.dataTransfer.files));
+      });
+      fileInput.addEventListener('change', () => {handleFiles(Array.from(fileInput.files)); fileInput.value = '';});
+
+      function handleFiles(files) {
+        const valid = files.filter(f => /\.(pdf|zip)$/i.test(f.name));
+        if (valid.length) {selectedFiles = valid; renderFileList();}
+      }
+
+      function fmtSize(b) {
+        return b < 1048576 ? (b / 1024).toFixed(0) + ' KB' : (b / 1048576).toFixed(1) + ' MB';
+      }
+
+      function renderFileList() {
+        const ok = selectedFiles.length > 0;
+        dropZone.classList.toggle('has-files', ok);
+        startBtn.disabled = !ok;
+        if (!ok) {fileList.style.display = 'none'; dropIcon.textContent = '📁'; dropLabel.textContent = 'Перетащите файлы сюда'; return;}
+
+        const hasZip = selectedFiles.some(f => /\.zip$/i.test(f.name));
+        dropIcon.textContent = hasZip ? '🗜️' : '📄';
+        dropLabel.textContent = `Выбрано: ${selectedFiles.length} файл(ов)`;
+
+        let html = '';
+        selectedFiles.slice(0, 14).forEach(f => {
+          const isZip = /\.zip$/i.test(f.name);
+          html += `<div class="file-item">
+      <span class="file-badge${isZip ? ' zip' : ''}">${isZip ? 'ZIP' : 'PDF'}</span>
+      <span class="fname">${esc(f.name)}</span>
+      <span class="fsize">${fmtSize(f.size)}</span>
+    </div>`;
+        });
+        if (selectedFiles.length > 14) html += `<div class="file-count">… и ещё ${selectedFiles.length - 14} файлов</div>`;
+        if (hasZip) html += `<div class="file-count" style="color:var(--primary);">ℹ️ PDF-файлы будут извлечены из ZIP автоматически</div>`;
+        fileList.innerHTML = html;
+        fileList.style.display = 'block';
+      }
+
+      // Threshold slider
+      const slider = document.getElementById('threshold');
+      const tDisp = document.getElementById('thresh-display');
+      const tVal = document.getElementById('thresh-val');
+      slider.addEventListener('input', () => {const v = slider.value + '%'; tDisp.textContent = v; tVal.textContent = v;});
+
+      // Upload & poll
+      let jobId = null, pollTimer = null;
+
+      startBtn.addEventListener('click', async () => {
+        if (!selectedFiles.length) return;
+
+        const fd = new FormData();
+        selectedFiles.forEach(f => fd.append('files', f));
+        fd.append('threshold', (parseInt(slider.value) / 100).toFixed(2));
+
+        document.getElementById('upload-card').style.display = 'none';
+        document.getElementById('result-section').style.display = 'none';
+        showProgress();
+
+        try {
+          const r = await fetch('/upload', {method: 'POST', body: fd});
+          const d = await r.json();
+          if (!r.ok || d.error) {showError(d.error || 'Ошибка загрузки'); return;}
+          jobId = d.job_id;
+          pollTimer = setInterval(() => poll(jobId), 1500);
+        } catch (e) {showError('Сетевая ошибка: ' + e.message);}
+      });
+
+      async function poll(id) {
+        try {
+          const r = await fetch('/status/' + id);
+          if (!r.ok) return;
+          const j = await r.json();
+          setProgress(j.progress, j.step, j);
+          if (j.status === 'done') {clearInterval(pollTimer); showDone(id, j); loadHistory();}
+          if (j.status === 'error') {clearInterval(pollTimer); showError(j.step || 'Ошибка');}
+        } catch (_) { }
+      }
+
+      function showProgress() {
+        document.getElementById('progress-section').style.display = 'block';
+        setProgress(0, 'Загрузка файлов…', {});
+      }
+
+      function setProgress(pct, step, j) {
+        document.getElementById('prog-step').textContent = step;
+        document.getElementById('prog-pct').textContent = pct + '%';
+        const bar = document.getElementById('prog-bar');
+        bar.style.width = pct + '%';
+        bar.classList.toggle('pulse', pct < 100);
+        if (j.total) document.getElementById('ps-files').textContent = (j.done_files || 0) + '/' + j.total;
+        if (j.text_pairs != null) document.getElementById('ps-tpairs').textContent = j.text_pairs;
+        if (j.img_pairs != null) document.getElementById('ps-ipairs').textContent = j.img_pairs;
+      }
+
+      function showDone(id, j) {
+        document.getElementById('progress-section').style.display = 'none';
+        const sec = document.getElementById('result-section');
+        sec.style.display = 'block';
+        document.getElementById('result-ok').style.display = 'flex';
+        document.getElementById('result-err').style.display = 'none';
+        document.getElementById('result-summary').textContent =
+          `Отчётов: ${j.total} · Пар текста: ${j.text_pairs || 0} · Дублей изображений: ${j.img_pairs || 0}`;
+
+        const lnk = document.getElementById('report-link');
+        lnk.href = '/report/' + id;
+        lnk.style.display = 'inline-flex';
+
+        const pdfLnk = document.getElementById('pdf-link');
+        pdfLnk.href = '/export/' + id;
+        pdfLnk.style.display = 'inline-flex';
+
+        document.getElementById('new-check-btn').style.display = 'inline-flex';
+        setTimeout(() => window.open('/report/' + id, '_blank'), 700);
+      }
+
+      function showError(msg) {
+        document.getElementById('progress-section').style.display = 'none';
+        const sec = document.getElementById('result-section');
+        sec.style.display = 'block';
+        document.getElementById('result-ok').style.display = 'none';
+        document.getElementById('result-err').style.display = 'block';
+        document.getElementById('result-err').textContent = '❌ ' + msg;
+        document.getElementById('new-check-btn').style.display = 'inline-flex';
+      }
+
+      document.getElementById('new-check-btn').addEventListener('click', () => {
+        selectedFiles = [];
+        renderFileList();
+        document.getElementById('upload-card').style.display = 'block';
+        document.getElementById('progress-section').style.display = 'none';
+        document.getElementById('result-section').style.display = 'none';
+      });
+
+      async function loadHistory() {
+        try {
+          const entries = Object.entries(await (await fetch('/jobs')).json())
+            .sort((a, b) => b[1].created_at.localeCompare(a[1].created_at));
+          if (!entries.length) {document.getElementById('history-section').style.display = 'none';}
+          else {
+            document.getElementById('history-section').style.display = 'block';
+            let html = '';
+            entries.forEach(([id, j]) => {
+              const badge = j.status === 'done'
+                ? `<span class="badge badge-green">Готово</span>`
+                : j.status === 'error'
+                  ? `<span class="badge badge-red">Ошибка</span>`
+                  : `<span class="badge badge-amber">Обработка</span>`;
+              const extras = [
+                j.text_pairs != null ? `${j.text_pairs} пар текста` : '',
+                j.img_pairs != null ? `${j.img_pairs} дублей изобр.` : '',
+              ].filter(Boolean).join(' · ');
+              const lnk = j.status === 'done'
+                ? `<a href="/report/${id}" target="_blank" class="btn btn-outline" style="padding:5px 12px;font-size:0.76rem;">Открыть</a>
+             <a href="/export/${id}" class="btn btn-outline" style="padding:5px 12px;font-size:0.76rem;">PDF</a>`
+                : '';
+              html += `<div class="history-item">
+          <div class="h-date">${j.created_at}</div>
+          <div class="h-info"><b>${j.total || '?'} отчётов</b>${extras ? ` <span style="color:var(--muted);font-size:0.78rem;">· ${esc(extras)}</span>` : ''}</div>
+          ${badge} ${lnk}
+        </div>`;
+            });
+            document.getElementById('history-list').innerHTML = html;
+          }
+        } catch (_) { }
+        loadMemory();
+      }
+
+      async function loadMemory() {
+        try {
+          const entries = await (await fetch('/memory')).json();
+          const sec = document.getElementById('memory-section');
+          const list = document.getElementById('memory-list');
+          if (!entries.length) { sec.style.display = 'none'; return; }
+          sec.style.display = 'block';
+          document.getElementById('memory-count-badge').textContent = entries.length + ' отчётов';
+          list.innerHTML = '';
+          entries.forEach(e => {
+            const s = e.student || {};
+            const name = s.name || e.filename || e.key;
+            const groupSpan = s.group ? ` <span style="color:var(--muted);">${esc(s.group)}</span>` : '';
+            const imgNote = e.image_count ? ` · ${e.image_count} изобр.` : '';
+            const row = document.createElement('div');
+            row.className = 'memory-entry';
+            row.innerHTML =
+              `<span class="mem-ver">v${e.version}</span>` +
+              `<span class="mem-name"><b>${esc(name)}</b>${groupSpan}</span>` +
+              `<span class="mem-meta">${esc(e.added_at)} · ${e.pages_count} стр.${imgNote}</span>` +
+              `<button class="btn-del" type="button">✕</button>`;
+            row.querySelector('.btn-del').addEventListener('click', async function () {
+              this.disabled = true;
+              try {
+                const resp = await fetch('/memory/delete', {
+                  method: 'POST',
+                  headers: {'Content-Type': 'application/json'},
+                  body: JSON.stringify({key: e.key})
+                });
+                if (resp.ok) {
+                  row.remove();
+                  const left = list.querySelectorAll('.memory-entry').length;
+                  if (!left) { sec.style.display = 'none'; return; }
+                  document.getElementById('memory-count-badge').textContent = left + ' отчётов';
+                } else {
+                  this.disabled = false;
+                  alert('Не удалось удалить запись');
+                }
+              } catch (err) {
+                this.disabled = false;
+                alert('Ошибка: ' + err.message);
+              }
+            });
+            list.appendChild(row);
+          });
+        } catch (_) { }
+      }
+
+      // Memory section toggle
+      document.getElementById('memory-toggle').addEventListener('click', function() {
+        const list = document.getElementById('memory-list');
+        const isOpen = list.style.display !== 'none';
+        list.style.display = isOpen ? 'none' : 'block';
+        this.classList.toggle('open', !isOpen);
+      });
+
+      // Clear history + memory base
+      document.getElementById('clear-btn').addEventListener('click', async () => {
+        if (!confirm('Удалить всю историю проверок, сохранённые отчёты и базу студентов?\n\nЭто действие нельзя отменить.')) return;
+        try {
+          const r = await fetch('/jobs/clear', {method: 'POST'});
+          const d = await r.json();
+          if (d.ok) {
+            document.getElementById('history-section').style.display = 'none';
+            document.getElementById('history-list').innerHTML = '';
+            document.getElementById('memory-section').style.display = 'none';
+            document.getElementById('memory-list').innerHTML = '';
+          }
+        } catch (e) {alert('Ошибка: ' + e.message);}
+      });
+
+      function esc(s) {
+        return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+      }
+
+
+      loadHistory();
+    })();
+  </script>
+</body>
+
+</html>

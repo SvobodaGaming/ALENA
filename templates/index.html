@@ -642,7 +642,7 @@
       border-radius: 8px;
       margin-bottom: 6px;
       font-size: 0.83rem;
-      box-shadow: 0 1px 3px rgba(1,93,30,.05);
+      box-shadow: 0 1px 3px rgba(1, 93, 30, .05);
     }
 
     .mem-ver {
@@ -745,7 +745,9 @@
         <img src="/au_logo.png" alt="AU Logo">
       </div>
       <div class="header-text">
-        <h1><span title="Автоматический Ловец Ёрничества, Небрежности и Аутентичности">АЛЁНА</span> <span style="font-weight:600;font-size:.85rem;opacity:.7;">· Проверка студенческих отчётов</span></h1>
+        <h1><span title="Автоматический Ловец Ёрничества, Небрежности и Аутентичности">АЛЁНА</span> <span
+            style="font-weight:600;font-size:.85rem;opacity:.7;">· Проверка студенческих отчётов</span></h1>
+        <div class="tagline">Автоматический Ловец Ёрничества, Небрежности и Аутентичности</div>
         <div class="tagline">Жан-Жак Руссо: "Всякий праздный гражданин является вором"</div>
       </div>
       <form method="post" action="/logout" style="margin-left:auto;flex-shrink:0;">
@@ -883,7 +885,8 @@
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
         <div class="section-toggle" id="memory-toggle">
           <div class="history-title" style="margin-bottom:0;">
-            База отчётов&nbsp;<span id="memory-count-badge" class="badge badge-amber" style="vertical-align:middle;"></span>
+            База отчётов&nbsp;<span id="memory-count-badge" class="badge badge-amber"
+              style="vertical-align:middle;"></span>
           </div>
           <span class="arrow">▼</span>
         </div>
@@ -1118,7 +1121,7 @@
           const entries = await (await fetch('/memory')).json();
           const sec = document.getElementById('memory-section');
           const list = document.getElementById('memory-list');
-          if (!entries.length) { sec.style.display = 'none'; return; }
+          if (!entries.length) {sec.style.display = 'none'; return;}
           sec.style.display = 'block';
           document.getElementById('memory-count-badge').textContent = entries.length + ' отчётов';
           list.innerHTML = '';
@@ -1145,7 +1148,7 @@
                 if (resp.ok) {
                   row.remove();
                   const left = list.querySelectorAll('.memory-entry').length;
-                  if (!left) { sec.style.display = 'none'; return; }
+                  if (!left) {sec.style.display = 'none'; return;}
                   document.getElementById('memory-count-badge').textContent = left + ' отчётов';
                 } else {
                   this.disabled = false;
@@ -1162,7 +1165,7 @@
       }
 
       // Memory section toggle
-      document.getElementById('memory-toggle').addEventListener('click', function() {
+      document.getElementById('memory-toggle').addEventListener('click', function () {
         const list = document.getElementById('memory-list');
         const isOpen = list.style.display !== 'none';
         list.style.display = isOpen ? 'none' : 'block';

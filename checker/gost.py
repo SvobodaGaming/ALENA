@@ -29,7 +29,36 @@ class Check:
         }
 
 
-def check_gost(report: dict) -> list:
+# Canonical list of all checks (code, name, group) — single source of truth for
+# the UI checkboxes. Keep the codes/names in sync with the Check() instances
+# created below. 'structure' = структурные элементы, 'format' = оформление.
+GOST_CHECKS = [
+    ('S1', 'Титульный лист',           'structure'),
+    ('S2', 'Реферат',                  'structure'),
+    ('S3', 'Содержание',               'structure'),
+    ('S4', 'Введение / Цель',          'structure'),
+    ('S5', 'Заключение',               'structure'),
+    ('S6', 'Список источников',        'structure'),
+    ('F1', 'Нумерация страниц',        'format'),
+    ('F2', 'Нумерация разделов',       'format'),
+    ('F3', 'Подписи рисунков',         'format'),
+    ('F4', 'Подписи таблиц',           'format'),
+    ('F5', 'Точки в конце заголовков', 'format'),
+    ('F6', 'Цитирование [N]',          'format'),
+    ('F7', 'Шрифт Times New Roman',    'format'),
+    ('F8', 'Размер шрифта ≥12пт',      'format'),
+    ('F9', 'Поля страницы',            'format'),
+]
+
+ALL_CODES = [c[0] for c in GOST_CHECKS]
+
+
+def check_gost(report: dict, enabled=None) -> list:
+    """Run all GOST checks, optionally keeping only a subset.
+
+    enabled: iterable of check codes (e.g. {'S1', 'F7'}) to include. When None
+    (the default) every check is returned, preserving prior behaviour.
+    """
     text_by_page = report.get('text_by_page', [])
     full_text = report.get('full_text', '')
     font_info = report.get('font_info', {})
@@ -53,7 +82,11 @@ def check_gost(report: dict) -> list:
         _font_size(font_info),
         _margins(margin_info),
     ]
-    return [c.to_dict() for c in checks]
+    results = [c.to_dict() for c in checks]
+    if enabled is not None:
+        allow = set(enabled)
+        results = [c for c in results if c['code'] in allow]
+    return results
 
 
 def _title_page(text_by_page: list) -> Check:

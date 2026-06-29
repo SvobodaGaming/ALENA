@@ -237,6 +237,100 @@
       margin-top: 20px;
     }
 
+    /* GOST criteria selector */
+    .gost-select {
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 14px 16px;
+      background: var(--primary-lite);
+    }
+
+    .gost-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 12px;
+    }
+
+    .gost-title {
+      font-size: 0.88rem;
+      font-weight: 700;
+      color: var(--text);
+    }
+
+    .gost-actions {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      flex-shrink: 0;
+    }
+
+    .gost-link {
+      background: none;
+      border: none;
+      color: var(--primary);
+      font-size: 0.8rem;
+      font-weight: 600;
+      cursor: pointer;
+      padding: 0;
+      font-family: inherit;
+    }
+
+    .gost-link:hover {
+      text-decoration: underline;
+    }
+
+    .gost-sep {
+      color: var(--border-mid);
+    }
+
+    .gost-groups {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px 24px;
+    }
+
+    @media (max-width: 560px) {
+      .gost-groups {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    .gost-group-title {
+      font-size: 0.72rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: .4px;
+      color: var(--muted);
+      margin-bottom: 6px;
+    }
+
+    .gost-check {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 3px 0;
+      font-size: 0.85rem;
+      color: var(--text);
+      cursor: pointer;
+      min-width: 0;
+    }
+
+    .gost-check input {
+      width: 15px;
+      height: 15px;
+      accent-color: var(--primary);
+      cursor: pointer;
+      flex-shrink: 0;
+    }
+
+    .gost-check span {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
     .setting-row {
       display: flex;
       align-items: center;
@@ -682,7 +776,41 @@
       <div class="file-list" id="file-list"></div>
 
       <div class="settings">
-        <div class="setting-row">
+        <div class="gost-select">
+          <div class="gost-head">
+            <span class="gost-title">Критерии ГОСТ для проверки</span>
+            <div class="gost-actions">
+              <button type="button" class="gost-link" id="gost-all">Все</button>
+              <span class="gost-sep">·</span>
+              <button type="button" class="gost-link" id="gost-none">Снять все</button>
+            </div>
+          </div>
+          <div class="gost-groups">
+            <div class="gost-group">
+              <div class="gost-group-title">Структурные элементы</div>
+              {% for code, name, group in gost_checks if group == 'structure' %}
+              <label class="gost-check">
+                <input type="checkbox" class="gost-cb" value="{{ code }}" checked>
+                <span>{{ name }}</span>
+              </label>
+              {% endfor %}
+            </div>
+            <div class="gost-group">
+              <div class="gost-group-title">Оформление</div>
+              {% for code, name, group in gost_checks if group == 'format' %}
+              <label class="gost-check">
+                <input type="checkbox" class="gost-cb" value="{{ code }}" checked>
+                <span>{{ name }}</span>
+              </label>
+              {% endfor %}
+            </div>
+          </div>
+          <div class="setting-hint" id="gost-hint">
+            Проверяться и учитываться в оценке будут только отмеченные критерии.
+          </div>
+        </div>
+
+        <div class="setting-row" style="margin-top:18px;">
           <label>Порог заимствования: <strong id="thresh-display">60%</strong></label>
           <input type="range" id="threshold" min="10" max="90" value="60" step="5">
           <span class="thresh-val" id="thresh-val">60%</span>
@@ -802,10 +930,38 @@
         return b < 1048576 ? (b / 1024).toFixed(0) + ' KB' : (b / 1048576).toFixed(1) + ' MB';
       }
 
+      // GOST criteria selection
+      const gostBoxes = Array.from(document.querySelectorAll('.gost-cb'));
+      const gostHint = document.getElementById('gost-hint');
+
+      function selectedGostCodes() {
+        return gostBoxes.filter(c => c.checked).map(c => c.value);
+      }
+
+      function updateStartState() {
+        const codes = selectedGostCodes();
+        startBtn.disabled = !(selectedFiles.length > 0 && codes.length > 0);
+        if (!codes.length) {
+          gostHint.textContent = 'Выберите хотя бы один критерий ГОСТ.';
+          gostHint.style.color = 'var(--red)';
+        } else {
+          gostHint.textContent = `Проверяться и учитываться в оценке будут только отмеченные критерии (${codes.length}).`;
+          gostHint.style.color = '';
+        }
+      }
+
+      gostBoxes.forEach(c => c.addEventListener('change', updateStartState));
+      document.getElementById('gost-all').addEventListener('click', () => {
+        gostBoxes.forEach(c => c.checked = true); updateStartState();
+      });
+      document.getElementById('gost-none').addEventListener('click', () => {
+        gostBoxes.forEach(c => c.checked = false); updateStartState();
+      });
+
       function renderFileList() {
         const ok = selectedFiles.length > 0;
         dropZone.classList.toggle('has-files', ok);
-        startBtn.disabled = !ok;
+        updateStartState();
         if (!ok) {fileList.style.display = 'none'; dropIcon.textContent = '📁'; dropLabel.textContent = 'Перетащите файлы сюда'; return;}
 
         const hasZip = selectedFiles.some(f => /\.zip$/i.test(f.name));
@@ -842,6 +998,7 @@
         const fd = new FormData();
         selectedFiles.forEach(f => fd.append('files', f));
         fd.append('threshold', (parseInt(slider.value) / 100).toFixed(2));
+        fd.append('gost', selectedGostCodes().join(','));
 
         document.getElementById('upload-card').style.display = 'none';
         document.getElementById('result-section').style.display = 'none';

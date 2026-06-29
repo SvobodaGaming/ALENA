@@ -36,7 +36,7 @@ except Exception:
 
 from checker import db
 from checker.extractor        import extract_report
-from checker.gost             import check_gost
+from checker.gost             import check_gost, GOST_CHECKS, ALL_CODES
 from checker.text_plagiarism  import check_text_plagiarism
 from checker.image_plagiarism import check_image_plagiarism
 from checker.reporter         import generate_html_report
@@ -129,7 +129,21 @@ def logo():
 @app.route('/')
 @login_required
 def index():
-    return render_template('index.html', username=_AU_USERNAME)
+    return render_template('index.html', username=_AU_USERNAME,
+                           gost_checks=GOST_CHECKS)
+
+
+def _parse_enabled_checks(raw):
+    """Translate the form's `gost` value into a list of check codes.
+
+    raw is None when the field is absent (legacy clients / API) -> None means
+    "all checks". A comma-separated string -> only those (valid) codes, order
+    preserved as in GOST_CHECKS.
+    """
+    if raw is None:
+        return None
+    picked = {c.strip().upper() for c in raw.split(',') if c.strip()}
+    return [c for c in ALL_CODES if c in picked]
 
 
 # Shared job helpers, used by both the UI routes and the /api/v1 layer
@@ -139,8 +153,10 @@ def _public_job(job: dict) -> dict:
     return {k: v for k, v in job.items() if k != 'report_html'}
 
 
-def _start_job(uploaded, threshold: float):
+def _start_job(uploaded, threshold: float, enabled_checks=None):
     """Validate uploaded files and spawn the processing thread.
+
+    enabled_checks: list of GOST check codes to evaluate, or None for all.
 
     Returns (job_id, error_message, http_status). On success error_message is
     None; on failure job_id is None.
@@ -198,7 +214,7 @@ def _start_job(uploaded, threshold: float):
 
     threading.Thread(
         target=_process_job,
-        args=(job_id, pdf_paths, tmp_dir, threshold),
+        args=(job_id, pdf_paths, tmp_dir, threshold, enabled_checks),
         daemon=True,
     ).start()
 
@@ -296,7 +312,9 @@ def _all_jobs():
 @login_required
 def upload():
     threshold = float(request.form.get('threshold', 0.6))
-    job_id, error, status_code = _start_job(request.files.getlist('files'), threshold)
+    enabled = _parse_enabled_checks(request.form.get('gost'))
+    job_id, error, status_code = _start_job(
+        request.files.getlist('files'), threshold, enabled)
     if error:
         return jsonify({'error': error}), status_code
     return jsonify({'job_id': job_id})
@@ -355,7 +373,8 @@ def _update(job_id: str, **kwargs):
         db.jobs_save(job_id, snapshot)
 
 
-def _process_job(job_id: str, pdf_paths: list, tmp_dir: str, threshold: float):
+def _process_job(job_id: str, pdf_paths: list, tmp_dir: str, threshold: float,
+                 enabled_checks=None):
     try:
         from checker.memory_store import load_store, to_virtual_report, upsert_report, save_store
 
@@ -378,7 +397,7 @@ def _process_job(job_id: str, pdf_paths: list, tmp_dir: str, threshold: float):
         # 2. GOST
         _update(job_id, progress=49, step='Проверка ГОСТ 7.32-2017…')
         for r in reports:
-            r['gost_results'] = check_gost(r)
+            r['gost_results'] = check_gost(r, enabled_checks)
 
         # 3. Build historical list, excluding students present in this batch.
         #    Without this, a student's new report would match their own stored
@@ -460,9 +479,12 @@ def api_health():
 @api.route('/jobs', methods=['POST'])
 @api_auth_required
 def api_create_job():
-    """Start a check. Multipart form: files=<pdf|zip>… , threshold=0.0-1.0."""
+    """Start a check. Multipart form: files=<pdf|zip>… , threshold=0.0-1.0,
+    gost=<comma-separated check codes> (optional; omit for all checks)."""
     threshold = float(request.form.get('threshold', 0.6))
-    job_id, error, status_code = _start_job(request.files.getlist('files'), threshold)
+    enabled = _parse_enabled_checks(request.form.get('gost'))
+    job_id, error, status_code = _start_job(
+        request.files.getlist('files'), threshold, enabled)
     if error:
         return jsonify({'error': error}), status_code
     return jsonify({

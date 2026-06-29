@@ -46,6 +46,7 @@ Start a check. `multipart/form-data`:
 |-------|------|-------|
 | `files` | file(s) | One or more `.pdf` files, or a `.zip` of PDFs. Repeat the field for several files. |
 | `threshold` | float | Text-similarity threshold, `0.0`-`1.0` (default `0.6`). |
+| `gost` | string | Optional comma-separated GOST check codes to evaluate, e.g. `S1,S3,F7,F9`. Omit the field to run all 15 checks; an empty value runs none. Codes: `S1`-`S6` (structural elements), `F1`-`F9` (formatting). |
 
 `201 Created`:
 

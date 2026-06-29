@@ -12,21 +12,19 @@ def _esc(s: str) -> str:
 def _cell_inline_style(sim: float, threshold: float) -> str:
     """Compute inline background for matrix cell, works in PDF (no JS needed)."""
     if sim >= threshold:
-        intensity = min(1.0, 0.3 + (sim - threshold) /
-                        max(1 - threshold, 0.001) * 0.7)
+        intensity = min(1.0, 0.3 + (sim - threshold) / max(1 - threshold, 0.001) * 0.7)
         text_color = 'white' if intensity > 0.55 else '#1e293b'
         return (f'background:rgba(239,68,68,{intensity:.2f});'
                 f'color:{text_color};font-weight:600;')
     if sim >= threshold * 0.55:
-        intensity = (sim - threshold * 0.55) / \
-            (threshold * 0.45 + 0.001) * 0.45
+        intensity = (sim - threshold * 0.55) / (threshold * 0.45 + 0.001) * 0.45
         return f'background:rgba(245,158,11,{intensity:.2f});'
     return ''
 
 
 def _display_name(report: dict) -> str:
     s = report.get('student', {})
-    name = s.get('name',  '')
+    name  = s.get('name',  '')
     group = s.get('group', '')
     if name and group:
         return f'{name} ({group})'
@@ -45,7 +43,7 @@ def _display_name(report: dict) -> str:
 def _short_name(report: dict) -> str:
     """Abbreviated name for matrix labels (row/column headers)."""
     s = report.get('student', {})
-    name = s.get('name',  '')
+    name  = s.get('name',  '')
     group = s.get('group', '')
     if name:
         parts = name.split()
@@ -54,8 +52,7 @@ def _short_name(report: dict) -> str:
     else:
         path = report.get('path', '')
         fname = report.get('filename', '')
-        stem = Path(fname).stem if fname else (
-            path[9:] if path.startswith('memory://') else Path(path).stem)
+        stem = Path(fname).stem if fname else (path[9:] if path.startswith('memory://') else Path(path).stem)
         base = stem[:25]
     if report.get('is_historical'):
         base += f' (v{report.get("historical_version", "?")})'
@@ -117,8 +114,7 @@ def _render_matrix(new_reports: list, historical_relevant: list,
             if p1 == p2:
                 cells.append('<td class="cell-self">·</td>')
             elif p1 in hist_paths and p2 in hist_paths:
-                cells.append(
-                    '<td class="cell-self" style="color:#cbd5e1;">·</td>')
+                cells.append('<td class="cell-self" style="color:#cbd5e1;">·</td>')
             else:
                 sim = matrix.get(p1, {}).get(p2, 0.0)
                 pct = int(sim * 100)
@@ -234,9 +230,9 @@ def _render_gost_table(gost_results: list) -> str:
 
 
 def _render_text_plag_for_report(path: str, text_plagiarism: dict, threshold: float,
-                                 report_by_path: dict) -> str:
+                                  report_by_path: dict) -> str:
     matrix = text_plagiarism.get('matrix', {})
-    pairs = text_plagiarism.get('pairs', [])
+    pairs  = text_plagiarism.get('pairs', [])
 
     sims = [
         (other, sim)
@@ -260,27 +256,26 @@ def _render_text_plag_for_report(path: str, text_plagiarism: dict, threshold: fl
     for other_path, sim in sims[:5]:
         if sim < threshold * 0.3:
             continue
-        other_rep = report_by_path.get(other_path, {'path': other_path})
-        other_name = _esc(_display_name(other_rep))
-        is_hist = other_rep.get('is_historical', False)
+        other_rep   = report_by_path.get(other_path, {'path': other_path})
+        other_name  = _esc(_display_name(other_rep))
+        is_hist     = other_rep.get('is_historical', False)
 
         if is_hist:
-            hist_ver = other_rep.get('historical_version', '?')
+            hist_ver  = other_rep.get('historical_version', '?')
             hist_date = other_rep.get('historical_date', '')
             badge_cls = 'badge-red' if sim >= threshold else 'badge-amber'
-            label = 'ИЗ БАЗЫ' if sim >= threshold else 'База (близко)'
-            ref_html = (
+            label     = 'ИЗ БАЗЫ' if sim >= threshold else 'База (близко)'
+            ref_html  = (
                 f'<span style="color:#92400e;">{other_name}</span> '
                 f'<span style="color:#b45309;font-size:0.78rem;">'
                 f'(база v{hist_ver}, {hist_date})</span>'
             )
             alert_style = 'background:#fffbeb;border-color:#fde68a;'
         else:
-            anchor = _anchor(other_rep)
+            anchor    = _anchor(other_rep)
             badge_cls = 'badge-red' if sim >= threshold else 'badge-amber'
-            label = 'ЗАИМСТВОВАНИЕ' if sim >= threshold else 'Близко'
-            ref_html = f'<a href="#{
-                anchor}" style="color:#be123c;">{other_name}</a>'
+            label     = 'ЗАИМСТВОВАНИЕ' if sim >= threshold else 'Близко'
+            ref_html  = f'<a href="#{anchor}" style="color:#be123c;">{other_name}</a>'
             alert_style = ''
 
         passages_html = ''
@@ -291,13 +286,11 @@ def _render_text_plag_for_report(path: str, text_plagiarism: dict, threshold: fl
                         f'<div class="passage">{_esc(p[:280])}…</div>'
                         for p in pair['passages'][:3]
                     )
-                    passages_html = f'<div style="margin-top:8px;">{
-                        items}</div>'
+                    passages_html = f'<div style="margin-top:8px;">{items}</div>'
                 break
 
         parts.append(
-            f'<div class="plagiarism-alert" style="margin-bottom:8px;{
-                alert_style}">'
+            f'<div class="plagiarism-alert" style="margin-bottom:8px;{alert_style}">'
             f'<span class="badge {badge_cls}">{label}</span> '
             f'<strong>{sim:.0%}</strong> совпадений с '
             f'{ref_html}'
@@ -311,7 +304,7 @@ def _render_text_plag_for_report(path: str, text_plagiarism: dict, threshold: fl
 
 
 def _render_img_plag_for_report(path: str, image_plagiarism: dict,
-                                report_by_path: dict) -> str:
+                                 report_by_path: dict) -> str:
     my_pairs = [
         p for p in image_plagiarism.get('pairs', [])
         if p['report1'] == path or p['report2'] == path
@@ -323,14 +316,14 @@ def _render_img_plag_for_report(path: str, image_plagiarism: dict,
     for p in my_pairs:
         is_mine_first = p['report1'] == path
         other_path = p['report2'] if is_mine_first else p['report1']
-        other_page = p['page2'] if is_mine_first else p['page1']
-        my_page = p['page1'] if is_mine_first else p['page2']
-        my_img = p['img1'] if is_mine_first else p['img2']
-        other_img = p['img2'] if is_mine_first else p['img1']
+        other_page = p['page2']   if is_mine_first else p['page1']
+        my_page    = p['page1']   if is_mine_first else p['page2']
+        my_img     = p['img1']    if is_mine_first else p['img2']
+        other_img  = p['img2']    if is_mine_first else p['img1']
 
-        other_rep = report_by_path.get(other_path, {'path': other_path})
+        other_rep  = report_by_path.get(other_path, {'path': other_path})
         other_name = _esc(_display_name(other_rep))
-        is_hist = other_rep.get('is_historical', False)
+        is_hist    = other_rep.get('is_historical', False)
 
         if is_hist:
             v = other_rep.get('historical_version', '?')
@@ -338,8 +331,7 @@ def _render_img_plag_for_report(path: str, image_plagiarism: dict,
             other_label = (
                 f'{other_name} '
                 f'<span style="background:#fef3c7;color:#92400e;'
-                f'padding:1px 5px;border-radius:3px;font-size:0.72rem;">база v{
-                    v}</span>'
+                f'padding:1px 5px;border-radius:3px;font-size:0.72rem;">база v{v}</span>'
                 f'<br>стр.{other_page}'
             )
         else:
@@ -378,7 +370,7 @@ def _render_card(report: dict, text_plagiarism: dict, image_plagiarism: dict,
     max_sim, _ = _max_sim(path, matrix)
 
     has_text_plag = max_sim >= threshold
-    has_img_plag = any(
+    has_img_plag  = any(
         p['report1'] == path or p['report2'] == path
         for p in image_plagiarism.get('pairs', [])
     )
@@ -398,12 +390,9 @@ def _render_card(report: dict, text_plagiarism: dict, image_plagiarism: dict,
 
     s = report.get('student', {})
     meta_parts = []
-    if s.get('group'):
-        meta_parts.append(f'Группа: <b>{_esc(s["group"])}</b>')
-    if s.get('year'):
-        meta_parts.append(f'Год: {_esc(s["year"])}')
-    if s.get('work_title'):
-        meta_parts.append(_esc(s['work_title'][:80]))
+    if s.get('group'):      meta_parts.append(f'Группа: <b>{_esc(s["group"])}</b>')
+    if s.get('year'):       meta_parts.append(f'Год: {_esc(s["year"])}')
+    if s.get('work_title'): meta_parts.append(_esc(s['work_title'][:80]))
     meta = ' &nbsp;|&nbsp; '.join(meta_parts)
 
     scan_warn = ''
@@ -428,10 +417,8 @@ def _render_card(report: dict, text_plagiarism: dict, image_plagiarism: dict,
 </div>'''
 
     gost_table = _render_gost_table(gost_results)
-    text_plag = _render_text_plag_for_report(
-        path, text_plagiarism, threshold, report_by_path)
-    img_plag = _render_img_plag_for_report(
-        path, image_plagiarism, report_by_path)
+    text_plag  = _render_text_plag_for_report(path, text_plagiarism, threshold, report_by_path)
+    img_plag   = _render_img_plag_for_report(path, image_plagiarism, report_by_path)
 
     return f'''
 <div class="report-card" id="{_anchor(report)}">
@@ -488,11 +475,11 @@ def generate_html_report(reports: list, historical: list,
         text_plagiarism, image_plagiarism: results from checker modules
         threshold: similarity threshold (0-1)
     """
-    now = datetime.now().strftime('%d.%m.%Y %H:%M')
-    n = len(reports)
-    thr_pct = int(threshold * 100)
+    now      = datetime.now().strftime('%d.%m.%Y %H:%M')
+    n        = len(reports)
+    thr_pct  = int(threshold * 100)
 
-    new_paths = {r['path'] for r in reports}
+    new_paths  = {r['path'] for r in reports}
     hist_paths = {h['path'] for h in historical}
 
     # Filter historical to only those that have at least one relevant match
@@ -512,6 +499,7 @@ def generate_html_report(reports: list, historical: list,
     historical_relevant = [h for h in historical if _hist_has_match(h)]
     all_reports = reports + historical_relevant
     report_by_path = {r['path']: r for r in all_reports}
+
 
     flagged_text = len({
         p for pair in text_plagiarism.get('pairs', [])
@@ -541,16 +529,18 @@ def generate_html_report(reports: list, historical: list,
             cross_session.add(pair['report1'])
     cross_session_count = len(cross_session)
 
-    matrix_html = _render_matrix(
-        reports, historical_relevant, text_plagiarism, threshold)
+
+    matrix_html = _render_matrix(reports, historical_relevant, text_plagiarism, threshold)
+
 
     img_summary = _render_image_summary(image_plagiarism, report_by_path)
 
+
     cards = ''.join(
-        _render_card(r, text_plagiarism, image_plagiarism,
-                     threshold, report_by_path)
+        _render_card(r, text_plagiarism, image_plagiarism, threshold, report_by_path)
         for r in reports
     )
+
 
     def _row_class(r):
         path = r['path']
@@ -559,10 +549,8 @@ def generate_html_report(reports: list, historical: list,
             p['report1'] == path or p['report2'] == path for p in img_pairs
         )
         p, t = _gost_score(r.get('gost_results', []))
-        if has_plag:
-            return 'tr-red'
-        if p < t * 0.7:
-            return 'tr-amber'
+        if has_plag:       return 'tr-red'
+        if p < t * 0.7:   return 'tr-amber'
         return 'tr-green'
 
     summary_rows = []
@@ -576,13 +564,11 @@ def generate_html_report(reports: list, historical: list,
             d = other_rep.get('historical_date', '')
             other_name_html = (
                 f'{_esc(_display_name(other_rep))} '
-                f'<span style="color:#d97706;font-size:0.75rem;">(база v{v}, {
-                    d})</span>'
+                f'<span style="color:#d97706;font-size:0.75rem;">(база v{v}, {d})</span>'
             )
         elif other_rep:
             anc = _anchor(other_rep)
-            other_name_html = f'<a href="#{anc}">{
-                _esc(_display_name(other_rep))}</a>'
+            other_name_html = f'<a href="#{anc}">{_esc(_display_name(other_rep))}</a>'
         else:
             other_name_html = ','
 
@@ -596,8 +582,7 @@ def generate_html_report(reports: list, historical: list,
                       f'<span style="color:#64748b;">{sim:.0%}</span>')
         gost_badge = (
             f'<span class="badge badge-green">{p}/{t}</span>' if p == t else
-            f'<span class="badge {"badge-amber" if p >=
-                                  t * 0.7 else "badge-red"}">{p}/{t}</span>'
+            f'<span class="badge {"badge-amber" if p >= t * 0.7 else "badge-red"}">{p}/{t}</span>'
         )
         img_badge = (f'<span class="badge badge-red">{img_count} дублей</span>'
                      if img_count else '<span style="color:#16a34a;">,</span>')
@@ -624,6 +609,7 @@ def generate_html_report(reports: list, historical: list,
   <tbody>{"".join(summary_rows)}</tbody>
 </table>'''
 
+
     cross_card = ''
     if historical:
         cross_card = f'''
@@ -632,11 +618,12 @@ def generate_html_report(reports: list, historical: list,
     <div class="stat-lbl">Совпадений с базой ({len(historical)} в базе)</div>
   </div>'''
 
+
     if job_id:
-        dl_btn = f'<a href="/export/{
-            job_id}" class="print-btn">&#11015; Скачать PDF</a>'
+        dl_btn = f'<a href="/export/{job_id}" class="print-btn">&#11015; Скачать PDF</a>'
     else:
         dl_btn = ''
+
 
     page_rule = f'''@page {{
   size: A4 portrait;

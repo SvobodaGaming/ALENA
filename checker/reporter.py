@@ -91,16 +91,36 @@ def _render_matrix(new_reports: list, historical_relevant: list,
     hist_paths = {r['path'] for r in historical_relevant}
     report_by_path = {r['path']: r for r in all_reports}
     paths = [r['path'] for r in all_reports]
+    n = len(paths)
+
+    # Server-side sizing so the matrix always fits the PDF page width.
+    # A4 portrait content width ≈ 645px (210mm − 2×20mm margins at 96dpi).
+    AVAIL = 645
+    label_w = 150 if n <= 14 else (120 if n <= 22 else 96)
+    col_w = max(15, min(30, (AVAIL - label_w) // n))
+    show_pct = col_w >= 22
+    cell_font = 8 if col_w >= 19 else 7
+    row_font = 10 if label_w >= 120 else 8
+
+    # Rotated column labels: cap length so they fit the header band height.
+    col_label = {p: _short_name(report_by_path[p]) for p in paths}
+    max_len = min(20, max((len(s) for s in col_label.values()), default=4))
+    header_h = min(150, max(64, 26 + int(max_len * 6.0)))
+    col_font = 9 if max_len <= 16 else 8
+
+    def _clip(s: str, k: int) -> str:
+        return s if len(s) <= k else s[:k - 1] + '…'
 
     def _th_style(p):
         if p in hist_paths:
             return ' style="background:#fef3c7;color:#92400e;"'
         return ''
 
+    # Column headers: name rotated 90° (reads bottom-to-top), narrow fixed cell.
     headers = ''.join(
-        f'<th title="{_esc(_display_name(report_by_path[p]))}"'
-        f'{_th_style(p)}>'
-        f'{_esc(_short_name(report_by_path[p]))}</th>'
+        f'<th class="mh"{_th_style(p)} '
+        f'title="{_esc(_display_name(report_by_path[p]))}">'
+        f'<span>{_esc(_clip(col_label[p], max_len))}</span></th>'
         for p in paths
     )
 
@@ -112,17 +132,30 @@ def _render_matrix(new_reports: list, historical_relevant: list,
         cells = []
         for p2 in paths:
             if p1 == p2:
-                cells.append('<td class="cell-self">·</td>')
+                cells.append('<td class="mc cell-self">·</td>')
             elif p1 in hist_paths and p2 in hist_paths:
-                cells.append('<td class="cell-self" style="color:#cbd5e1;">·</td>')
+                cells.append('<td class="mc cell-self" style="color:#cbd5e1;">·</td>')
             else:
                 sim = matrix.get(p1, {}).get(p2, 0.0)
                 pct = int(sim * 100)
                 style = _cell_inline_style(sim, threshold)
-                cells.append(
-                    f'<td class="matrix-cell" style="{style}">{pct}%</td>'
-                )
-        rows.append(f'<tr><th{row_th_style}>{name1}</th>{"".join(cells)}</tr>')
+                txt = f'{pct}%' if show_pct else f'{pct}'
+                cells.append(f'<td class="mc matrix-cell" style="{style}">{txt}</td>')
+        rows.append(
+            f'<tr><th class="rh" title="{name1}"{row_th_style}>{name1}</th>'
+            f'{"".join(cells)}</tr>'
+        )
+
+    # Per-matrix dimensions (depend on N) injected as a scoped style block.
+    dims = (
+        '<style>'
+        f'.matrix-table thead th.mh{{width:{col_w}px;height:{header_h}px;}}'
+        f'.matrix-table thead th.mh>span{{font-size:{col_font}px;}}'
+        f'.matrix-table td.mc{{width:{col_w}px;font-size:{cell_font}px;}}'
+        f'.matrix-table th.rh,.matrix-table th.corner{{width:{label_w}px;}}'
+        f'.matrix-table th.rh{{font-size:{row_font}px;}}'
+        '</style>'
+    )
 
     hist_note = ''
     if historical_relevant:
@@ -132,10 +165,10 @@ def _render_matrix(new_reports: list, historical_relevant: list,
             f' Строки/столбцы на жёлтом, отчёты из базы предыдущих сессий &nbsp;'
         )
 
-    return f'''
+    return f'''{dims}
 <div class="matrix-scroll">
 <table class="matrix-table">
-  <thead><tr><th></th>{headers}</tr></thead>
+  <thead><tr><th class="corner"></th>{headers}</tr></thead>
   <tbody>{"".join(rows)}</tbody>
 </table>
 </div>
@@ -678,12 +711,15 @@ a:hover { text-decoration: underline; }
 .badge-blue  { background: #dbeafe; color: #1d4ed8; }
 
 .matrix-scroll { overflow-x: auto; }
-.matrix-table { border-collapse: collapse; font-size: 0.72rem; }
-.matrix-table th, .matrix-table td { padding: 5px 7px; border: 1px solid #e2e8f0; text-align: center; white-space: nowrap; }
-.matrix-table thead th { background: #f8fafc; font-weight: 600; max-width: 120px; overflow: hidden; text-overflow: ellipsis; writing-mode: vertical-rl; transform: rotate(180deg); height: 90px; }
-.matrix-table tbody th { text-align: left; font-weight: 500; background: #f8fafc; max-width: 150px; overflow: hidden; text-overflow: ellipsis; }
+.matrix-table { border-collapse: collapse; table-layout: fixed; }
+.matrix-table th, .matrix-table td { border: 1px solid #e2e8f0; }
+.matrix-table td.mc { text-align: center; padding: 0; height: 18px; line-height: 1.1; overflow: hidden; }
+.matrix-table thead th.mh { position: relative; background: #f8fafc; vertical-align: bottom; padding: 0; overflow: hidden; }
+.matrix-table thead th.mh > span { position: absolute; bottom: 4px; left: 50%; transform-origin: left bottom; transform: rotate(-90deg); white-space: nowrap; font-weight: 600; line-height: 1; }
+.matrix-table thead th.corner { background: #f8fafc; }
+.matrix-table tbody th.rh { text-align: left; font-weight: 500; background: #f8fafc; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 2px 6px; }
 .cell-self { background: #e2e8f0 !important; }
-.matrix-cell { transition: background 0.15s; }
+.matrix-cell { }
 
 .report-card { background: white; border-radius: 12px; box-shadow: 0 1px 3px rgba(0,0,0,.08); margin-bottom: 14px; overflow: hidden; }
 .report-header { padding: 14px 18px; display: flex; align-items: center; gap: 10px; cursor: pointer; }

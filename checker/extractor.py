@@ -7,6 +7,8 @@ import pdfplumber
 import fitz  # PyMuPDF
 from PIL import Image
 
+from checker.image_plagiarism import image_meta
+
 # Points per mm
 PT_PER_MM = 2.834645669
 A4_W_PT = 595.28
@@ -126,12 +128,14 @@ def extract_report(pdf_path: str) -> dict:
                     pil_img = Image.open(io.BytesIO(
                         base_image['image'])).convert('RGB')
                     if pil_img.width >= 50 and pil_img.height >= 50:
+                        # Hashes/thumbnail now, full image dropped right away:
+                        # keeping thousands of decoded PILs for the whole job
+                        # is what used to OOM the host on large batches.
                         result['images'].append({
                             'page': page_num + 1,
-                            'pil': pil_img,
-                            'w': pil_img.width,
-                            'h': pil_img.height,
+                            **image_meta(pil_img),
                         })
+                    pil_img.close()
                 except Exception:
                     pass
         doc.close()

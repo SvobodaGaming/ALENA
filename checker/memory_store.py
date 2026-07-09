@@ -117,13 +117,25 @@ def _make_thumb(pil_img) -> str:
     return 'data:image/jpeg;base64,' + base64.b64encode(buf.getvalue()).decode()
 
 
+def _shrink_thumb(data_uri: str) -> str:
+    """Re-encode the report-sized thumbnail (200×160) down to the compact
+    store size (120×96) so the persistent store does not grow."""
+    if not data_uri:
+        return ''
+    try:
+        from PIL import Image
+        raw = base64.b64decode(data_uri.split(',', 1)[1])
+        return _make_thumb(Image.open(io.BytesIO(raw)))
+    except Exception:
+        return data_uri
+
+
 def upsert_report(store: dict, report: dict, job_id: str) -> None:
     """
     Add report to store as a new version (v1, v2, …).
     Mutates `store` in-place; caller must call save_store() afterwards.
     """
     from checker.text_plagiarism import normalize_text
-    from checker.image_plagiarism import _compute_hashes, _is_ui_like
 
     key_base = _student_key(report)
 
@@ -135,19 +147,15 @@ def upsert_report(store: dict, report: dict, job_id: str) -> None:
 
     image_data = []
     for img_info in report.get('images', []):
-        pil = img_info.get('pil')
-        if pil is None:
+        hashes = img_info.get('hashes')
+        if not hashes:
             continue
-        try:
-            hashes = _compute_hashes(pil)
-            image_data.append({
-                'page':   img_info.get('page', 0),
-                'hashes': [str(h) for h in hashes],
-                'thumb':  _make_thumb(pil),
-                'is_ui':  _is_ui_like(pil),
-            })
-        except Exception:
-            pass
+        image_data.append({
+            'page':   img_info.get('page', 0),
+            'hashes': [str(h) for h in hashes],
+            'thumb':  _shrink_thumb(img_info.get('thumb', '')),
+            'is_ui':  img_info.get('is_ui', False),
+        })
 
     store[f'{key_base}|v{next_version}'] = {
         'key_base':        key_base,

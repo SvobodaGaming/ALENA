@@ -83,6 +83,28 @@ def _to_b64(img: Image.Image) -> str:
     return 'data:image/jpeg;base64,' + base64.b64encode(buf.getvalue()).decode()
 
 
+# pHash normalizes to a 48px grid, so hashing a downscaled copy of a huge
+# image gives the same result while avoiding multi-megapixel crops.
+MAX_META_PIXELS = 4_000_000
+
+
+def image_meta(pil_img: Image.Image) -> dict:
+    """Everything the pipeline needs from one image: hashes, thumbnail,
+    UI flag. Computed once at extraction time so the caller can drop the
+    PIL object immediately — keeping big batches within RAM."""
+    img = pil_img
+    if img.width * img.height > MAX_META_PIXELS:
+        img = img.copy()
+        img.thumbnail((2048, 2048), Image.LANCZOS)
+    return {
+        'w':      pil_img.width,
+        'h':      pil_img.height,
+        'hashes': _compute_hashes(img),
+        'thumb':  _to_b64(img),
+        'is_ui':  _is_ui_like(img),
+    }
+
+
 def check_image_plagiarism(reports: list) -> dict:
     """
     Find identical / near-identical / cropped-copy images across reports.
@@ -118,21 +140,17 @@ def check_image_plagiarism(reports: list) -> dict:
                 })
         else:
             for img_info in r.get('images', []):
-                pil = img_info['pil']
-                try:
-                    hashes = _compute_hashes(pil)
-                    all_imgs.append({
-                        'report':      r['path'],
-                        'page':        img_info['page'],
-                        'hashes':      hashes,
-                        'thumb':       None,
-                        'pil':         pil,
-                        'is_hist':     False,
-                        'is_ui':       _is_ui_like(pil),
-                        'student_key': sk,
-                    })
-                except Exception:
-                    pass
+                if not img_info.get('hashes'):
+                    continue
+                all_imgs.append({
+                    'report':      r['path'],
+                    'page':        img_info.get('page', 0),
+                    'hashes':      img_info['hashes'],
+                    'thumb':       img_info.get('thumb'),
+                    'is_hist':     False,
+                    'is_ui':       img_info.get('is_ui', False),
+                    'student_key': sk,
+                })
 
     pairs = []
     seen: set = set()
@@ -176,11 +194,7 @@ def check_image_plagiarism(reports: list) -> dict:
             seen.add(key)
 
             def _thumb(entry):
-                if entry.get('thumb'):
-                    return entry['thumb']
-                if entry.get('pil'):
-                    return _to_b64(entry['pil'])
-                return ''
+                return entry.get('thumb') or ''
 
             pairs.append({
                 'report1':  a['report'],

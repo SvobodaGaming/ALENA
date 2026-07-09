@@ -427,7 +427,8 @@ def _process_job(job_id: str, pdf_paths: list, tmp_dir: str, threshold: float,
         _update(job_id, progress=81,
                 step=f'Анализ изображений ({total_imgs} шт.)…')
         img_plag = check_image_plagiarism(reports + historical)
-        img_flagged = len(img_plag.get('pairs', []))
+        img_flagged = len([p for p in img_plag.get('pairs', [])
+                           if not p.get('ui_review')])
         _update(job_id, img_pairs=img_flagged)
 
         # 6. Generate HTML report

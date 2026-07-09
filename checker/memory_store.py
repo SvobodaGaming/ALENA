@@ -123,7 +123,7 @@ def upsert_report(store: dict, report: dict, job_id: str) -> None:
     Mutates `store` in-place; caller must call save_store() afterwards.
     """
     from checker.text_plagiarism import normalize_text
-    from checker.image_plagiarism import _compute_hashes
+    from checker.image_plagiarism import _compute_hashes, _is_ui_like
 
     key_base = _student_key(report)
 
@@ -144,6 +144,7 @@ def upsert_report(store: dict, report: dict, job_id: str) -> None:
                 'page':   img_info.get('page', 0),
                 'hashes': [str(h) for h in hashes],
                 'thumb':  _make_thumb(pil),
+                'is_ui':  _is_ui_like(pil),
             })
         except Exception:
             pass
@@ -176,6 +177,7 @@ def to_virtual_report(entry_key: str, entry: dict) -> dict:
                 'page':   item.get('page', 0),
                 'hashes': hashes,
                 'thumb':  item.get('thumb'),
+                'is_ui':  item.get('is_ui', False),
             })
         except Exception:
             pass

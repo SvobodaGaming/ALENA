@@ -13,6 +13,39 @@ A4_W_PT = 595.28
 A4_H_PT = 841.89
 
 
+def _median(values: list) -> float:
+    values = sorted(values)
+    mid = len(values) // 2
+    if len(values) % 2:
+        return values[mid]
+    return (values[mid - 1] + values[mid]) / 2
+
+
+def _content_bounds(page):
+    """Bounding box (x0, x1, top, bottom) of the page's text body, in points.
+
+    Standalone short numbers near the top/bottom edge are page numbers: they
+    live inside the required margin and must not shrink the measured one.
+    Returns None when the page has no qualifying words.
+    """
+    try:
+        words = page.extract_words() or []
+    except Exception:
+        return None
+    h = float(page.height)
+    content = [
+        w for w in words
+        if not (w['text'].strip().isdigit() and len(w['text'].strip()) <= 4
+                and (w['top'] < 0.1 * h or w['bottom'] > 0.9 * h))
+    ]
+    if not content:
+        return None
+    return (min(w['x0'] for w in content),
+            max(w['x1'] for w in content),
+            min(w['top'] for w in content),
+            max(w['bottom'] for w in content))
+
+
 def extract_report(pdf_path: str) -> dict:
     result = {
         'path': pdf_path,
@@ -32,12 +65,16 @@ def extract_report(pdf_path: str) -> dict:
         with pdfplumber.open(pdf_path) as pdf:
             result['pages_count'] = len(pdf.pages)
             all_body_chars = []
+            page_bounds = []
 
             for i, page in enumerate(pdf.pages):
                 text = page.extract_text() or ''
                 result['text_by_page'].append(text)
                 if i > 0:  # skip title page for margin/font analysis
                     all_body_chars.extend(page.chars or [])
+                    bounds = _content_bounds(page)
+                    if bounds:
+                        page_bounds.append(bounds)
 
             result['full_text'] = '\n'.join(result['text_by_page'])
 
@@ -55,27 +92,18 @@ def extract_report(pdf_path: str) -> dict:
                 font_counts[key] = font_counts.get(key, 0) + 1
             result['font_info'] = font_counts
 
-            # Margin info: use percentile-based bounds to exclude outliers
-            if all_body_chars:
-                x0s = sorted(c['x0']
-                             for c in all_body_chars if c.get('x0') is not None)
-                x1s = sorted(c['x1']
-                             for c in all_body_chars if c.get('x1') is not None)
-                tops = sorted(c['top']
-                              for c in all_body_chars if c.get('top') is not None)
-                bots = sorted(c['bottom']
-                              for c in all_body_chars if c.get('bottom') is not None)
-                n = len(x0s)
-                p5 = max(n // 20, 0)
-
+            # Margin info: per-page text-body bounding boxes (page numbers
+            # excluded), then the median across pages so a single page with a
+            # wide table or figure caption does not skew the result.
+            if page_bounds:
                 ref_page = pdf.pages[1] if len(pdf.pages) > 1 else pdf.pages[0]
                 result['margin_info'] = {
                     'page_w': float(ref_page.width),
                     'page_h': float(ref_page.height),
-                    'x0': x0s[p5] if x0s else None,
-                    'x1': x1s[-(p5 + 1)] if x1s else None,
-                    'top': tops[p5] if tops else None,
-                    'bottom': bots[-(p5 + 1)] if bots else None,
+                    'x0':     _median([b[0] for b in page_bounds]),
+                    'x1':     _median([b[1] for b in page_bounds]),
+                    'top':    _median([b[2] for b in page_bounds]),
+                    'bottom': _median([b[3] for b in page_bounds]),
                 }
 
     except Exception as e:
@@ -132,17 +160,47 @@ def _identify_student(text_by_page: list, pdf_path: str) -> dict:
             student['org'] = m.group(1).strip()[:120]
             break
 
-    # Full name from title page
+    # Full name from title page.
+    # Case-sensitive name classes (keywords are (?i:...)-insensitive locally):
+    # a global IGNORECASE would make [А-ЯЁ][а-яё]+ match any word.
+    NAME3   = r'[А-ЯЁ][а-яё]+(?:\s+[А-ЯЁ][а-яё]+){1,2}'    # Фамилия Имя [Отчество]
+    NAME_UP = r'[А-ЯЁ]{2,}(?:\s+[А-ЯЁ]{2,}){1,2}'          # ФАМИЛИЯ ИМЯ [ОТЧЕСТВО]
+    FAM_IO  = r'[А-ЯЁ][а-яё]+\s+[А-ЯЁ]\.\s*(?:[А-ЯЁ]\.)?'  # Фамилия И.[О.]
+    IO_FAM  = r'[А-ЯЁ]\.\s*(?:[А-ЯЁ]\.)?\s*[А-ЯЁ][а-яё]+'  # И.[О.] Фамилия
+    DOER    = r'(?i:выполнил[аи]?|подготовил[аи]?|разработал[аи]?|студент(?:ка)?|автор)'
+
+    _STOP = {
+        'работа', 'работы', 'работу', 'отчет', 'отчёт', 'группа', 'группы',
+        'курс', 'курса', 'факультет', 'кафедра', 'дисциплина', 'дисциплине',
+        'вариант', 'проверил', 'проверила', 'преподаватель', 'руководитель',
+        'доцент', 'профессор', 'лабораторная', 'практическая', 'курсовая',
+        'института', 'университета', 'направление', 'специальность',
+    }
+
+    def _plausible(cand: str) -> bool:
+        return not any(w.lower().strip('.') in _STOP for w in cand.split())
+
     name_found = False
     for pat in [
-        r'(?:Выполнил[аи]?|студент[а]?)[^\n]{0,30}\n[^\n]{0,30}\n\s*([А-ЯЁ][а-яё]+\s+[А-ЯЁ][а-яё]+\s+[А-ЯЁ][а-яё]+)',
-        r'(?:Выполнил[аи]?|студент[а]?)\s*[:\n]\s*([А-ЯЁ][а-яё]+\s+[А-ЯЁ][а-яё]+\s+[А-ЯЁ][а-яё]+)',
-        r'([А-ЯЁ][а-яё]+\s+[А-ЯЁ][а-яё]+\s+[А-ЯЁ][а-яё]+)\s*\n[^\n]{0,30}(?:группы?|курс)',
+        # «Выполнил: Иванов И.И.», «Студент группы АБ-21-04 Иванов Иван Иванович»
+        rf'{DOER}[^\n]{{0,40}}?[:\s]\s*({FAM_IO}|{IO_FAM}|{NAME3}|{NAME_UP})\s*$',
+        # ФИО на одной-двух строках ниже ключевого слова
+        rf'{DOER}[^\n]{{0,40}}\n(?:[^\n]{{0,40}}\n)?\s*({FAM_IO}|{IO_FAM}|{NAME3}|{NAME_UP})\s*$',
+        # ФИО строкой выше упоминания группы/курса
+        rf'({NAME3})\s*,?\s*\n[^\n]{{0,30}}(?i:групп[аы]?|курс)',
+        # ФИО сразу после номера группы
+        rf'(?i:групп[аы]?)\s+[А-ЯЁA-Za-z]{{1,5}}[-–]\d{{2}}[-–]\d{{2,3}}[,\s]*\n?\s*({NAME3}|{FAM_IO})',
     ]:
-        m = re.search(pat, title_text, re.IGNORECASE | re.MULTILINE)
-        if m and len(m.group(1).split()) >= 2:
-            student['name'] = m.group(1).strip()
+        for m in re.finditer(pat, title_text, re.MULTILINE):
+            cand = re.sub(r'\s+', ' ', m.group(1).strip())
+            if not _plausible(cand):
+                continue
+            if cand.isupper():
+                cand = ' '.join(w.capitalize() for w in cand.split())
+            student['name'] = cand
             name_found = True
+            break
+        if name_found:
             break
 
     # Fallback: extract name from filename

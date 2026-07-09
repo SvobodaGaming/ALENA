@@ -162,7 +162,7 @@ def _render_matrix(new_reports: list, historical_relevant: list,
         hist_note = (
             f'<span style="display:inline-block;width:14px;height:14px;'
             f'background:#fef3c7;border:1px solid #fcd34d;border-radius:2px;vertical-align:middle;"></span>'
-            f' Строки/столбцы на жёлтом, отчёты из базы предыдущих сессий &nbsp;'
+            f' Строки/столбцы на жёлтом — отчёты из базы предыдущих сессий &nbsp;'
         )
 
     return f'''{dims}
@@ -173,18 +173,34 @@ def _render_matrix(new_reports: list, historical_relevant: list,
 </table>
 </div>
 <p style="font-size:0.78rem;color:#94a3b8;margin-top:8px;">
-  <span style="display:inline-block;width:14px;height:14px;background:#fca5a5;border-radius:2px;vertical-align:middle;"></span> ≥{threshold_pct}%, заимствование &nbsp;
-  <span style="display:inline-block;width:14px;height:14px;background:#fde68a;border-radius:2px;vertical-align:middle;"></span> {int(threshold_pct*0.6)}-{threshold_pct}%, близко &nbsp;
+  <span style="display:inline-block;width:14px;height:14px;background:#fca5a5;border-radius:2px;vertical-align:middle;"></span> ≥{threshold_pct}% — заимствование &nbsp;
+  <span style="display:inline-block;width:14px;height:14px;background:#fde68a;border-radius:2px;vertical-align:middle;"></span> {int(threshold_pct*0.55)}–{threshold_pct}% — близко &nbsp;
   {hist_note}
 </p>'''
 
 
 def _render_image_summary(image_plagiarism: dict, report_by_path: dict) -> str:
     pairs = image_plagiarism.get('pairs', [])
+    confirmed = [p for p in pairs if not p.get('ui_review')]
+    review    = [p for p in pairs if p.get('ui_review')]
+
+    head_badges = []
+    if confirmed:
+        head_badges.append(f'<span class="badge badge-red">{len(confirmed)} пар</span>')
+    if review:
+        head_badges.append(f'<span class="badge badge-amber">{len(review)} на ручную проверку</span>')
     if not pairs:
-        return '''<div class="section">
-  <h2>Дублирование изображений</h2>
-  <p style="color:#16a34a;font-weight:600;">✓ Одинаковых изображений между отчётами не найдено.</p>
+        head_badges.append('<span class="badge badge-green">не найдено</span>')
+
+    if not pairs:
+        body = ('<p style="color:#16a34a;font-weight:600;">'
+                '✓ Одинаковых изображений между отчётами не найдено.</p>')
+        return f'''<div class="section">
+  <div class="section-head">
+    <h2 style="margin:0;">Дублирование изображений {' '.join(head_badges)}</h2>
+    <span class="toggle-arrow">▼</span>
+  </div>
+  <div class="section-body">{body}</div>
 </div>'''
 
     items = []
@@ -206,11 +222,12 @@ def _render_image_summary(image_plagiarism: dict, report_by_path: dict) -> str:
         n1_html = _name_with_badge(r1, n1)
         n2_html = _name_with_badge(r2, n2)
 
-        match_badge = (
-            '<span style="background:#fef3c7;color:#b45309;padding:2px 8px;border-radius:4px;font-size:0.76rem;font-weight:600;">обрезанная копия</span>'
-            if p.get('is_crop') else
-            '<span style="background:#fee2e2;color:#dc2626;padding:2px 8px;border-radius:4px;font-size:0.76rem;font-weight:600;">точная копия</span>'
-        )
+        if p.get('ui_review'):
+            match_badge = '<span style="background:#dbeafe;color:#1d4ed8;padding:2px 8px;border-radius:4px;font-size:0.76rem;font-weight:600;">похожий интерфейс — проверьте вручную</span>'
+        elif p.get('is_crop'):
+            match_badge = '<span style="background:#fef3c7;color:#b45309;padding:2px 8px;border-radius:4px;font-size:0.76rem;font-weight:600;">обрезанная копия</span>'
+        else:
+            match_badge = '<span style="background:#fee2e2;color:#dc2626;padding:2px 8px;border-radius:4px;font-size:0.76rem;font-weight:600;">точная копия</span>'
 
         img1_html = (f'<img src="{p["img1"]}" alt="img1">' if p.get('img1')
                      else '<div style="width:120px;height:80px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:4px;display:flex;align-items:center;justify-content:center;color:#94a3b8;font-size:0.75rem;">нет превью</div>')
@@ -234,9 +251,22 @@ def _render_image_summary(image_plagiarism: dict, report_by_path: dict) -> str:
   </div>
 </div>''')
 
+    review_note = ''
+    if review:
+        review_note = ('<p style="color:#64748b;font-size:0.82rem;margin:4px 0 10px;">'
+                       'Пары «похожий интерфейс» — это скриншоты одинаковых программ '
+                       '(терминал, Zabbix и т.п.): совпадение оформления ожидаемо, '
+                       'в статистику заимствований они не входят.</p>')
+
     return f'''<div class="section">
-  <h2>Дублирование изображений <span class="badge badge-red">{len(pairs)} пар</span></h2>
+  <div class="section-head">
+    <h2 style="margin:0;">Дублирование изображений {' '.join(head_badges)}</h2>
+    <span class="toggle-arrow">▼</span>
+  </div>
+  <div class="section-body">
+  {review_note}
   {''.join(items)}
+  </div>
 </div>'''
 
 
@@ -345,6 +375,9 @@ def _render_img_plag_for_report(path: str, image_plagiarism: dict,
     if not my_pairs:
         return '<p style="color:#16a34a;font-weight:600;font-size:0.9rem;">✓ Дублей изображений нет</p>'
 
+    confirmed = [p for p in my_pairs if not p.get('ui_review')]
+    review    = [p for p in my_pairs if p.get('ui_review')]
+
     items = []
     for p in my_pairs:
         is_mine_first = p['report1'] == path
@@ -377,6 +410,14 @@ def _render_img_plag_for_report(path: str, image_plagiarism: dict,
             'display:flex;align-items:center;justify-content:center;color:#94a3b8;font-size:0.72rem;">нет превью</div>'
         )
 
+        review_badge = ''
+        if p.get('ui_review'):
+            review_badge = (
+                '<div style="align-self:center;">'
+                '<span class="badge badge-blue">похожий интерфейс — проверьте вручную</span>'
+                '</div>'
+            )
+
         items.append(
             f'<div class="img-pair" style="margin:6px 0;">'
             f'<div><img src="{my_img}" alt="my" style="max-height:100px;">'
@@ -384,12 +425,16 @@ def _render_img_plag_for_report(path: str, image_plagiarism: dict,
             f'<div style="align-self:center;color:#ef4444;font-size:1.3rem;">≈</div>'
             f'<div>{other_img_html}'
             f'<div class="img-info">{other_label}</div></div>'
+            f'{review_badge}'
             f'</div>'
         )
-    return (
-        f'<span class="badge badge-red">{len(my_pairs)} дублей</span>'
-        + ''.join(items)
-    )
+
+    badges = []
+    if confirmed:
+        badges.append(f'<span class="badge badge-red">{len(confirmed)} дублей</span>')
+    if review:
+        badges.append(f'<span class="badge badge-blue">{len(review)} на ручную проверку</span>')
+    return ' '.join(badges) + ''.join(items)
 
 
 def _render_card(report: dict, text_plagiarism: dict, image_plagiarism: dict,
@@ -404,7 +449,7 @@ def _render_card(report: dict, text_plagiarism: dict, image_plagiarism: dict,
 
     has_text_plag = max_sim >= threshold
     has_img_plag  = any(
-        p['report1'] == path or p['report2'] == path
+        (p['report1'] == path or p['report2'] == path) and not p.get('ui_review')
         for p in image_plagiarism.get('pairs', [])
     )
 
@@ -518,6 +563,9 @@ def generate_html_report(reports: list, historical: list,
     # Filter historical to only those that have at least one relevant match
     matrix = text_plagiarism.get('matrix', {})
     img_pairs = image_plagiarism.get('pairs', [])
+    # "похожий интерфейс" pairs are shown for manual review but do not count
+    # as plagiarism in any statistic below
+    img_confirmed = [p for p in img_pairs if not p.get('ui_review')]
 
     def _hist_has_match(h):
         hp = h['path']
@@ -540,7 +588,7 @@ def generate_html_report(reports: list, historical: list,
         if p in new_paths
     })
     flagged_img = len({
-        p for pair in img_pairs
+        p for pair in img_confirmed
         for p in (pair['report1'], pair['report2'])
         if p in new_paths
     })
@@ -555,7 +603,7 @@ def generate_html_report(reports: list, historical: list,
             cross_session.add(pair['report2'])
         elif pair['report2'] in hist_paths and pair['report1'] in new_paths:
             cross_session.add(pair['report1'])
-    for pair in img_pairs:
+    for pair in img_confirmed:
         if pair['report1'] in hist_paths and pair['report2'] in new_paths:
             cross_session.add(pair['report2'])
         elif pair['report2'] in hist_paths and pair['report1'] in new_paths:
@@ -579,7 +627,7 @@ def generate_html_report(reports: list, historical: list,
         path = r['path']
         sim, _ = _max_sim(path, matrix)
         has_plag = sim >= threshold or any(
-            p['report1'] == path or p['report2'] == path for p in img_pairs
+            p['report1'] == path or p['report2'] == path for p in img_confirmed
         )
         p, t = _gost_score(r.get('gost_results', []))
         if has_plag:       return 'tr-red'
@@ -603,12 +651,17 @@ def generate_html_report(reports: list, historical: list,
             anc = _anchor(other_rep)
             other_name_html = f'<a href="#{anc}">{_esc(_display_name(other_rep))}</a>'
         else:
-            other_name_html = ','
+            other_name_html = '—'
 
         p, t = _gost_score(r.get('gost_results', []))
         img_count = sum(
-            1 for pair in img_pairs
+            1 for pair in img_confirmed
             if pair['report1'] == path or pair['report2'] == path
+        )
+        review_count = sum(
+            1 for pair in img_pairs
+            if pair.get('ui_review')
+            and (pair['report1'] == path or pair['report2'] == path)
         )
         plag_badge = (f'<span class="badge badge-red">{sim:.0%}</span>'
                       if sim >= threshold else
@@ -617,8 +670,12 @@ def generate_html_report(reports: list, historical: list,
             f'<span class="badge badge-green">{p}/{t}</span>' if p == t else
             f'<span class="badge {"badge-amber" if p >= t * 0.7 else "badge-red"}">{p}/{t}</span>'
         )
-        img_badge = (f'<span class="badge badge-red">{img_count} дублей</span>'
-                     if img_count else '<span style="color:#16a34a;">,</span>')
+        if img_count:
+            img_badge = f'<span class="badge badge-red">{img_count} дублей</span>'
+        elif review_count:
+            img_badge = f'<span class="badge badge-blue">{review_count} на проверку</span>'
+        else:
+            img_badge = '<span style="color:#16a34a;">—</span>'
         anchor = _anchor(r)
         summary_rows.append(
             f'<tr class="{_row_class(r)}">'
@@ -696,6 +753,11 @@ a:hover { text-decoration: underline; }
 .c-green .stat-num  { color: #22c55e; }
 
 .section { background: white; border-radius: 12px; padding: 22px 24px; box-shadow: 0 1px 3px rgba(0,0,0,.08); margin-bottom: 22px; }
+.section-head { display: flex; align-items: center; gap: 10px; cursor: pointer; }
+.section-head h2 { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.section-head .toggle-arrow { margin-left: auto; }
+.section-body { display: none; margin-top: 14px; }
+.section-body.open { display: block; }
 
 .summary-table { width: 100%; border-collapse: collapse; font-size: 0.86rem; }
 .summary-table th { text-align: left; padding: 8px 12px; background: #f8fafc; color: #64748b; font-weight: 600; border-bottom: 2px solid #e2e8f0; }
@@ -711,7 +773,7 @@ a:hover { text-decoration: underline; }
 .badge-blue  { background: #dbeafe; color: #1d4ed8; }
 
 .matrix-scroll { overflow-x: auto; }
-.matrix-table { border-collapse: collapse; table-layout: fixed; }
+.matrix-table { border-collapse: collapse; table-layout: fixed; margin: 0 auto; }
 .matrix-table th, .matrix-table td { border: 1px solid #e2e8f0; }
 .matrix-table td.mc { text-align: center; padding: 0; height: 18px; line-height: 1.1; overflow: hidden; }
 .matrix-table thead th.mh { position: relative; background: #f8fafc; vertical-align: bottom; padding: 0; overflow: hidden; }
@@ -757,7 +819,8 @@ a:hover { text-decoration: underline; }
 @media print {
   body { background: white; font-size: 11px; }
   .print-btn, .toggle-arrow { display: none !important; }
-  .report-body { display: block !important; }
+  .report-body, .section-body { display: block !important; }
+  .section-head { cursor: default; }
   .report-header { cursor: default; }
   .report-card, .section { break-inside: avoid; box-shadow: none; border: 1px solid #e2e8f0; }
   .matrix-scroll { overflow: visible; }
@@ -769,7 +832,7 @@ a:hover { text-decoration: underline; }
 '''
 
     js = '''
-document.querySelectorAll('.report-header').forEach(function(h) {
+document.querySelectorAll('.report-header, .section-head').forEach(function(h) {
   h.addEventListener('click', function() {
     var body = this.nextElementSibling;
     var arrow = this.querySelector('.toggle-arrow');
@@ -829,19 +892,19 @@ document.querySelectorAll('.report-header').forEach(function(h) {
 <div class="section">
   <h2>Матрица схожести текстов</h2>
   <p style="color:#64748b;font-size:0.83rem;margin-bottom:14px;">
-    Жаккар по 5-граммам слов. Красный, выше порога {thr_pct}%, жёлтый, 55-{thr_pct}%.
+    Жаккар по 5-граммам слов. Красный — выше порога {thr_pct}%, жёлтый — {int(thr_pct*0.55)}–{thr_pct}%.
     {'Включены совпадения с предыдущими сессиями (выделены желтоватым фоном).' if historical_relevant else ''}
   </p>
   {matrix_html}
 </div>
-
-{img_summary}
 
 <h2 style="margin-bottom:12px;">Детальный анализ по каждому отчёту</h2>
 <p style="color:#64748b;font-size:0.83rem;margin-bottom:14px;">
   Нажмите на карточку, чтобы раскрыть подробности.
 </p>
 {cards}
+
+{img_summary}
 
 </div>
 <script>{js}</script>

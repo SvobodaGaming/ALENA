@@ -818,7 +818,7 @@
           <span class="thresh-val" id="thresh-val">60%</span>
         </div>
         <div class="setting-hint">
-          Какой процент заимствования в отчёте допускается (не будет выделен цветом)?.
+          Какой процент заимствования в отчёте допускается (не будет выделен цветом)?
         </div>
       </div>
 
@@ -838,9 +838,9 @@
         <div class="progress-fill pulse" id="prog-bar"></div>
       </div>
       <div class="progress-stats">
-        <span class="stat-chip">Файлов: <b id="ps-files">,</b></span>
-        <span class="stat-chip">Пар текста: <b id="ps-tpairs">,</b></span>
-        <span class="stat-chip">Дублей изображений: <b id="ps-ipairs">,</b></span>
+        <span class="stat-chip">Файлов: <b id="ps-files">—</b></span>
+        <span class="stat-chip">Пар текста: <b id="ps-tpairs">—</b></span>
+        <span class="stat-chip">Дублей изображений: <b id="ps-ipairs">—</b></span>
       </div>
     </div>
 
@@ -1084,8 +1084,12 @@
 
       async function loadHistory() {
         try {
+          const parseDt = s => {
+            const m = /^(\d{2})\.(\d{2})\.(\d{4})\s+(\d{2}):(\d{2})$/.exec(s || '');
+            return m ? new Date(+m[3], m[2] - 1, +m[1], +m[4], +m[5]).getTime() : 0;
+          };
           const entries = Object.entries(await (await fetch('/jobs')).json())
-            .sort((a, b) => b[1].created_at.localeCompare(a[1].created_at));
+            .sort((a, b) => parseDt(b[1].created_at) - parseDt(a[1].created_at));
           if (!entries.length) {document.getElementById('history-section').style.display = 'none';}
           else {
             document.getElementById('history-section').style.display = 'block';

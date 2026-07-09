@@ -168,7 +168,7 @@ def _references(full_text: str) -> Check:
 def _page_numbers(text_by_page: list, total_pages: int) -> Check:
     """п.6.3, Нумерация страниц арабскими цифрами."""
     if total_pages <= 1:
-        return Check('F1', 'Нумерация страниц', True, 'Документ однострадничный')
+        return Check('F1', 'Нумерация страниц', True, 'Документ одностраничный')
 
     found = 0
     for i, text in enumerate(text_by_page[1:], 2):
@@ -268,7 +268,7 @@ def _heading_no_dot(full_text: str) -> Check:
         # Looks like a heading: numbered or ALL-CAPS, short, no trailing colon
         if len(s) < 120 and (
             re.match(r'^\d+[\d.]*\s+', s) or
-            re.match(r'^[А-ЯЁ\s]{5,}$', s)
+            re.match(r'^[А-ЯЁ\s]{5,}$', s[:-1].strip())
         ):
             bad.append(s[:70])
 

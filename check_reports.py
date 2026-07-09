@@ -154,6 +154,7 @@ def main():
         print(f'\nГенерация отчёта → {args.output}')
         html = generate_html_report(
             reports=reports,
+            historical=[],
             text_plagiarism=text_plag,
             image_plagiarism=img_plag,
             threshold=args.threshold,

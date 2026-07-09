@@ -17,12 +17,37 @@ import base64
 import io
 
 import imagehash
-from PIL import Image
+from PIL import Image, ImageOps
 
 HASH_SIZE   = 12        # 12 × 12 = 144-bit pHash
 MAX_HAMMING = 17        # ≤ 17/144 ≈ 12 % bit-difference → "same image"
 CROP_SCALES = (1.0, 0.82, 0.65)
 THUMB_SIZE  = (200, 160)
+
+# UI screenshots (Zabbix, terminal, IDE) of different students look alike by
+# design, so they get a stricter bar: only the full-image hashes are compared
+# (no multi-crop minimum) and a copy is declared at ≤ UI_MAX_HAMMING. Pairs
+# between UI_MAX_HAMMING and MAX_HAMMING are reported as "похожий интерфейс,
+# проверьте вручную" instead of a copy.
+UI_MAX_HAMMING = 6
+
+
+def _is_ui_like(img: Image.Image) -> bool:
+    """Heuristic screenshot detector: flat dominant background / few colors.
+
+    Photos and scans have thousands of distinct colors and no dominant one;
+    interface screenshots are mostly one background color drawn with a small
+    palette.
+    """
+    small = img.convert('RGB').resize((64, 64))
+    small = ImageOps.posterize(small, 4)   # drop JPEG noise in low bits
+    colors = small.getcolors(64 * 64) or []
+    if not colors:
+        return False
+    total = 64 * 64
+    dominant_share = max(n for n, _ in colors) / total
+    unique_share = len(colors) / total
+    return dominant_share >= 0.35 or unique_share <= 0.05
 
 
 def _center_crop(img: Image.Image, scale: float) -> Image.Image:
@@ -88,6 +113,7 @@ def check_image_plagiarism(reports: list) -> dict:
                     'hashes':      img_info['hashes'],
                     'thumb':       img_info.get('thumb'),
                     'is_hist':     True,
+                    'is_ui':       img_info.get('is_ui', False),
                     'student_key': sk,
                 })
         else:
@@ -102,6 +128,7 @@ def check_image_plagiarism(reports: list) -> dict:
                         'thumb':       None,
                         'pil':         pil,
                         'is_hist':     False,
+                        'is_ui':       _is_ui_like(pil),
                         'student_key': sk,
                     })
                 except Exception:
@@ -128,14 +155,25 @@ def check_image_plagiarism(reports: list) -> dict:
             if key in seen:
                 continue
 
-            dist = _min_distance(a['hashes'], b['hashes'])
-            if dist > MAX_HAMMING:
-                continue
+            pair_is_ui = bool(a.get('is_ui') or b.get('is_ui'))
+
+            if pair_is_ui:
+                # Full-image hashes only: crops of a shared UI match trivially
+                # and would drown the report in false positives.
+                dist = a['hashes'][0] - b['hashes'][0]
+                if dist > MAX_HAMMING:
+                    continue
+                is_crop = False
+                ui_review = dist > UI_MAX_HAMMING
+            else:
+                dist = _min_distance(a['hashes'], b['hashes'])
+                if dist > MAX_HAMMING:
+                    continue
+                exact_dist = a['hashes'][0] - b['hashes'][0]
+                is_crop = (exact_dist > MAX_HAMMING) and (dist <= MAX_HAMMING)
+                ui_review = False
 
             seen.add(key)
-
-            exact_dist = a['hashes'][0] - b['hashes'][0]
-            is_crop = (exact_dist > MAX_HAMMING) and (dist <= MAX_HAMMING)
 
             def _thumb(entry):
                 if entry.get('thumb'):
@@ -151,8 +189,10 @@ def check_image_plagiarism(reports: list) -> dict:
                 'report2':  b['report'],
                 'page2':    b['page'],
                 'img2':     _thumb(b),
-                'distance': dist,
-                'is_crop':  is_crop,
+                'distance':  dist,
+                'is_crop':   is_crop,
+                'is_ui':     pair_is_ui,
+                'ui_review': ui_review,
             })
 
     pairs.sort(key=lambda x: x['distance'])

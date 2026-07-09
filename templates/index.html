@@ -820,6 +820,15 @@
         <div class="setting-hint">
           Какой процент заимствования в отчёте допускается (не будет выделен цветом)?
         </div>
+
+        <label class="gost-check" style="margin-top:14px;">
+          <input type="checkbox" id="skip-memory">
+          <span>Не сравнивать с базой сохранённых отчётов</span>
+        </label>
+        <div class="setting-hint">
+          Заимствования ищутся только внутри загруженной пачки. Новые отчёты
+          всё равно будут добавлены в базу.
+        </div>
       </div>
 
       <button class="btn btn-primary btn-full" id="start-btn" disabled>
@@ -1002,6 +1011,7 @@
         selectedFiles.forEach(f => fd.append('files', f));
         fd.append('threshold', (parseInt(slider.value) / 100).toFixed(2));
         fd.append('gost', selectedGostCodes().join(','));
+        fd.append('use_memory', document.getElementById('skip-memory').checked ? '0' : '1');
 
         document.getElementById('upload-card').style.display = 'none';
         document.getElementById('result-section').style.display = 'none';

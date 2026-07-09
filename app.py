@@ -175,10 +175,12 @@ def _public_job(job: dict) -> dict:
     return {k: v for k, v in job.items() if k != 'report_html'}
 
 
-def _start_job(uploaded, threshold: float, enabled_checks=None):
+def _start_job(uploaded, threshold: float, enabled_checks=None, use_memory=True):
     """Validate uploaded files and spawn the processing thread.
 
     enabled_checks: list of GOST check codes to evaluate, or None for all.
+    use_memory: when False, skip comparison against stored fingerprints
+    (new reports are still added to the base).
 
     Returns (job_id, error_message, http_status). On success error_message is
     None; on failure job_id is None.
@@ -236,7 +238,7 @@ def _start_job(uploaded, threshold: float, enabled_checks=None):
 
     threading.Thread(
         target=_process_job,
-        args=(job_id, pdf_paths, tmp_dir, threshold, enabled_checks),
+        args=(job_id, pdf_paths, tmp_dir, threshold, enabled_checks, use_memory),
         daemon=True,
     ).start()
 
@@ -351,13 +353,21 @@ def _all_jobs():
     return jsonify(mem)
 
 
+def _parse_use_memory(raw) -> bool:
+    """Form field `use_memory`: absent (legacy clients) means True."""
+    if raw is None:
+        return True
+    return raw.strip().lower() not in ('0', 'false', 'no', 'off')
+
+
 @app.route('/upload', methods=['POST'])
 @login_required
 def upload():
     threshold = float(request.form.get('threshold', 0.6))
     enabled = _parse_enabled_checks(request.form.get('gost'))
+    use_memory = _parse_use_memory(request.form.get('use_memory'))
     job_id, error, status_code = _start_job(
-        request.files.getlist('files'), threshold, enabled)
+        request.files.getlist('files'), threshold, enabled, use_memory)
     if error:
         return jsonify({'error': error}), status_code
     return jsonify({'job_id': job_id})
@@ -423,15 +433,19 @@ def _update(job_id: str, **kwargs):
 
 
 def _process_job(job_id: str, pdf_paths: list, tmp_dir: str, threshold: float,
-                 enabled_checks=None):
+                 enabled_checks=None, use_memory=True):
     try:
         from checker.memory_store import load_store, to_virtual_report, upsert_report, save_store
 
         n = len(pdf_paths)
 
-        # 0. Load persistent store (we'll filter it after extraction)
+        # 0. Load persistent store (we'll filter it after extraction).
+        #    Loaded even with use_memory=False — step 7 appends to it.
         store = load_store()
-        _update(job_id, step=f'База загружена: {len(store)} записей')
+        if use_memory:
+            _update(job_id, step=f'База загружена: {len(store)} записей')
+        else:
+            _update(job_id, step='Сравнение с базой отключено')
 
         # 1. Extract
         reports = []
@@ -456,11 +470,14 @@ def _process_job(job_id: str, pdf_paths: list, tmp_dir: str, threshold: float,
             return f"{s.get('name', '').strip().lower()}|{s.get('group', '').strip().lower()}"
 
         new_keys = {kb for r in reports if (kb := _key_base(r)) != '|'}
-        historical = [
-            to_virtual_report(k, v) for k, v in store.items()
-            if v.get('key_base', '') not in new_keys
-        ]
-        _update(job_id, step=f'Сравниваем с базой: {len(historical)} чужих отчётов')
+        if use_memory:
+            historical = [
+                to_virtual_report(k, v) for k, v in store.items()
+                if v.get('key_base', '') not in new_keys
+            ]
+            _update(job_id, step=f'Сравниваем с базой: {len(historical)} чужих отчётов')
+        else:
+            historical = []
 
         # 4. Text plagiarism (new + relevant historical)
         pairs_count = n * (n - 1) // 2 + n * len(historical)
@@ -530,11 +547,13 @@ def api_health():
 @api_auth_required
 def api_create_job():
     """Start a check. Multipart form: files=<pdf|zip>… , threshold=0.0-1.0,
-    gost=<comma-separated check codes> (optional; omit for all checks)."""
+    gost=<comma-separated check codes> (optional; omit for all checks),
+    use_memory=0|1 (optional; 0 skips comparison against the stored base)."""
     threshold = float(request.form.get('threshold', 0.6))
     enabled = _parse_enabled_checks(request.form.get('gost'))
+    use_memory = _parse_use_memory(request.form.get('use_memory'))
     job_id, error, status_code = _start_job(
-        request.files.getlist('files'), threshold, enabled)
+        request.files.getlist('files'), threshold, enabled, use_memory)
     if error:
         return jsonify({'error': error}), status_code
     return jsonify({

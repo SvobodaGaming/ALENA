@@ -165,3 +165,9 @@ def jobs_get(job_id: str):
 def jobs_clear() -> None:
     with _conn() as conn, conn.cursor() as cur:
         cur.execute("DELETE FROM jobs")
+
+
+def jobs_delete(job_id: str) -> bool:
+    with _conn() as conn, conn.cursor() as cur:
+        cur.execute("DELETE FROM jobs WHERE job_id = %s", (job_id,))
+        return cur.rowcount > 0

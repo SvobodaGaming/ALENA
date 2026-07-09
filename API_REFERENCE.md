@@ -95,6 +95,15 @@ The self-contained HTML report (`Content-Type: text/html`). `404` if missing.
 The report as PDF (`Content-Type: application/pdf`, attachment). `404` if the
 report is missing, `501` if WeasyPrint is not installed on the server.
 
+### DELETE `/jobs/<job_id>`
+Delete a single job: its history entry (memory + DB) and the saved HTML report.
+Stored student fingerprints are kept — remove them via `DELETE /memory/<key>`.
+`409` while the job is still processing, `404` if nothing was found.
+
+```json
+{ "ok": true }
+```
+
 ### DELETE `/jobs`
 Delete all jobs, their report files, and the entire memory store.
 

@@ -1108,13 +1108,39 @@
                 ? `<a href="/report/${id}" target="_blank" class="btn btn-outline" style="padding:5px 12px;font-size:0.76rem;">Открыть</a>
              <a href="/export/${id}" class="btn btn-outline" style="padding:5px 12px;font-size:0.76rem;">PDF</a>`
                 : '';
+              const del = j.status !== 'processing'
+                ? `<button class="btn-del" type="button" data-job="${esc(id)}" title="Удалить проверку">✕</button>`
+                : '';
               html += `<div class="history-item">
           <div class="h-date">${j.created_at}</div>
           <div class="h-info"><b>${j.total || '?'} отчётов</b>${extras ? ` <span style="color:var(--muted);font-size:0.78rem;">· ${esc(extras)}</span>` : ''}</div>
-          ${badge} ${lnk}
+          ${badge} ${lnk} ${del}
         </div>`;
             });
-            document.getElementById('history-list').innerHTML = html;
+            const listEl = document.getElementById('history-list');
+            listEl.innerHTML = html;
+            listEl.querySelectorAll('.btn-del').forEach(btn => {
+              btn.addEventListener('click', async function () {
+                if (!confirm('Удалить эту проверку и её отчёт?')) return;
+                this.disabled = true;
+                try {
+                  const resp = await fetch(`/jobs/${this.dataset.job}/delete`, {method: 'POST'});
+                  if (resp.ok) {
+                    this.closest('.history-item').remove();
+                    if (!listEl.querySelectorAll('.history-item').length) {
+                      document.getElementById('history-section').style.display = 'none';
+                    }
+                  } else {
+                    this.disabled = false;
+                    const d = await resp.json().catch(() => ({}));
+                    alert(d.error || 'Не удалось удалить проверку');
+                  }
+                } catch (err) {
+                  this.disabled = false;
+                  alert('Ошибка: ' + err.message);
+                }
+              });
+            });
           }
         } catch (_) { }
         loadMemory();

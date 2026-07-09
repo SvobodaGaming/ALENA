@@ -52,6 +52,28 @@ REPORTS_DIR.mkdir(exist_ok=True)
 jobs: dict = {}
 jobs_lock = threading.Lock()
 
+
+def _recover_stale_jobs():
+    """Processing threads do not survive a restart. Any job still marked
+    'processing' in the DB at boot is orphaned — flag it as an error so the
+    UI does not show it as running forever (and so it can be deleted)."""
+    if not db.DB_ENABLED:
+        return
+    try:
+        for jid, data in db.jobs_load_all().items():
+            if data.get('status') == 'processing':
+                data.update(
+                    status='error',
+                    step='Прервано перезапуском сервера — запустите проверку заново.',
+                    error='stale job recovered at startup',
+                )
+                db.jobs_save(jid, data)
+    except Exception:
+        pass  # DB not reachable yet; stale rows will simply stay until next boot
+
+
+_recover_stale_jobs()
+
 _AU_USERNAME = os.environ.get('AU_USERNAME', 'admin')
 _AU_PASSWORD = os.environ.get('AU_PASSWORD', 'admin')
 # Optional machine-to-machine key for the /api/v1 layer. When empty, the API
@@ -284,6 +306,27 @@ def _clear_all():
     return jsonify({'ok': True, 'cleared': len(ids), 'cleared_store': cleared_store})
 
 
+def _delete_job(job_id: str):
+    """Delete a single check from history: in-memory state, DB row and the
+    saved HTML report. Fingerprints in the student base are kept — they are
+    managed separately via /memory."""
+    with jobs_lock:
+        job = jobs.get(job_id)
+        if job is not None and job.get('status') == 'processing':
+            return jsonify({'error': 'Проверка ещё выполняется — дождитесь '
+                                     'завершения или ошибки.'}), 409
+        existed = jobs.pop(job_id, None) is not None
+    if db.DB_ENABLED:
+        existed = db.jobs_delete(job_id) or existed
+    report_path = REPORTS_DIR / f'{job_id}.html'
+    if report_path.exists():
+        report_path.unlink(missing_ok=True)
+        existed = True
+    if not existed:
+        abort(404)
+    return jsonify({'ok': True})
+
+
 def _memory_summary():
     from checker.memory_store import load_store, get_summary
     return jsonify(get_summary(load_store()))
@@ -342,6 +385,12 @@ def export_pdf(job_id):
 @login_required
 def clear_jobs():
     return _clear_all()
+
+
+@app.route('/jobs/<job_id>/delete', methods=['POST'])
+@login_required
+def delete_job(job_id):
+    return _delete_job(job_id)
 
 
 @app.route('/memory')
@@ -515,6 +564,12 @@ def api_clear_jobs():
 @api_auth_required
 def api_job_status(job_id):
     return _job_status(job_id)
+
+
+@api.route('/jobs/<job_id>', methods=['DELETE'])
+@api_auth_required
+def api_delete_job(job_id):
+    return _delete_job(job_id)
 
 
 @api.route('/jobs/<job_id>/report', methods=['GET'])

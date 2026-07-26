@@ -1,0 +1,177 @@
+{% extends "layout.html" %}
+{% block title %}Пользователи{% endblock %}
+{% block heading %}Пользователи{% endblock %}
+{% block subheading %}Учётные записи, роли и доступ{% endblock %}
+
+{% block content %}
+<div class="section">
+  <div class="section-head">
+    <h2>Учётные записи</h2>
+    <span class="spacer"></span>
+    <button class="btn primary sm" type="button" id="add-user-btn">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+      Добавить
+    </button>
+  </div>
+
+  <div class="tbl-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Пользователь</th><th>Роль</th><th>Состояние</th>
+          <th>Последний вход</th><th class="num">Проверок</th><th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for u in users %}
+        <tr>
+          <td>
+            <span class="who-cell">
+              <span class="avatar">{{ u.fio.split()[:2] | map('first') | join }}</span>
+              <span>{{ u.fio }}<br><span class="sub mono">{{ u.login }}{% if u.email %} · {{ u.email }}{% endif %}</span></span>
+            </span>
+          </td>
+          <td>
+            {% if u.role == 'admin' %}
+            <span class="chip brand">Администратор</span>
+            {% else %}
+            <span class="sub">Преподаватель</span>
+            {% endif %}
+          </td>
+          <td>
+            {% if u.state == 'active' %}
+            <span class="chip ok"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12.5l5 5L20 6.5"/></svg>Активен</span>
+            {% elif u.state == 'blocked' %}
+            <span class="chip crit"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>Заблокирован</span>
+            {% else %}
+            <span class="chip warn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M12 3.5L1.8 20.5h20.4z"/><path d="M12 10v4.4M12 17.6v.1"/></svg>Ждёт смены пароля</span>
+            {% endif %}
+          </td>
+          <td class="mono sub">{{ u.last_login or '—' }}</td>
+          <td class="num">{{ u.checks_count }}</td>
+          <td class="act">
+            <button class="btn sm" type="button" data-toggle="perms-{{ u.login }}">Права</button>
+
+            <form method="post" action="{{ url_for('user_reset_password', login_name=u.login) }}"
+                  style="display:inline;"
+                  data-confirm="Сбросить пароль?"
+                  data-confirm-sub="Будет выдан временный пароль, старый перестанет работать. Пользователя попросят сменить его при входе."
+                  data-confirm-ok="Сбросить">
+              <button class="btn sm" type="submit">Сбросить пароль</button>
+            </form>
+
+            <form method="post" action="{{ url_for('user_state', login_name=u.login) }}"
+                  style="display:inline;"
+                  data-confirm="{{ 'Разблокировать пользователя?' if u.state == 'blocked' else 'Заблокировать пользователя?' }}"
+                  data-confirm-sub="{{ 'Пользователь снова сможет войти.' if u.state == 'blocked' else 'Вход будет закрыт. Проверки и база отпечатков сохранятся.' }}"
+                  data-confirm-ok="{{ 'Разблокировать' if u.state == 'blocked' else 'Заблокировать' }}"
+                  data-confirm-danger="{{ 'no' if u.state == 'blocked' else 'yes' }}">
+              <button class="btn sm {% if u.state != 'blocked' %}danger{% endif %}" type="submit">
+                {{ 'Разблокировать' if u.state == 'blocked' else 'Заблокировать' }}
+              </button>
+            </form>
+          </td>
+        </tr>
+
+        <tr hidden id="perms-{{ u.login }}">
+          <td colspan="6" style="background:var(--raised);">
+            <form method="post" action="{{ url_for('user_perms', login_name=u.login) }}" class="stack" style="padding:6px 0;">
+              <div class="form-grid">
+                <div class="field">
+                  <label for="role-{{ u.login }}">Роль</label>
+                  <select id="role-{{ u.login }}" name="role">
+                    <option value="teacher" {% if u.role == 'teacher' %}selected{% endif %}>Преподаватель</option>
+                    <option value="admin" {% if u.role == 'admin' %}selected{% endif %}>Администратор</option>
+                  </select>
+                  <span class="hint">Администратор управляет учётными записями и системными настройками.</span>
+                </div>
+                <div>
+                  <div class="eyebrow" style="margin-bottom:6px;">Что разрешено</div>
+                  {% for flag, label in permissions %}
+                  <label class="check">
+                    <input type="checkbox" name="perm_{{ flag }}" {% if u.perms.get(flag) %}checked{% endif %}>
+                    <span>{{ label }}</span>
+                  </label>
+                  {% endfor %}
+                </div>
+              </div>
+              <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                <button class="btn primary sm" type="submit">Сохранить права</button>
+                <button class="btn sm" type="button" data-toggle="perms-{{ u.login }}">Свернуть</button>
+              </div>
+            </form>
+
+            <div style="display:flex;gap:8px;flex-wrap:wrap;padding-bottom:10px;">
+              <form method="post" action="{{ url_for('user_apikey', login_name=u.login) }}"
+                    data-confirm="Выпустить новый ключ API?"
+                    data-confirm-sub="Прежний ключ этой учётной записи перестанет работать."
+                    data-confirm-ok="Выпустить">
+                <button class="btn sm" type="submit">
+                  {{ 'Перевыпустить ключ API' if u.api_key else 'Выдать ключ API' }}
+                </button>
+              </form>
+              <form method="post" action="{{ url_for('user_delete', login_name=u.login) }}"
+                    data-confirm="Удалить учётную запись?"
+                    data-confirm-sub="Проверки и отпечатки этого преподавателя останутся в системе, но войти он больше не сможет."
+                    data-confirm-ok="Удалить" data-confirm-danger="yes">
+                <button class="btn sm danger" type="submit">Удалить учётную запись</button>
+              </form>
+            </div>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<div class="section" id="add-user" hidden style="margin-top:12px;">
+  <div class="section-head"><h2>Новый пользователь</h2></div>
+  <div class="section-body">
+    <form method="post" action="{{ url_for('user_create') }}" class="stack">
+      <div class="form-grid">
+        <div class="field">
+          <label for="n-fio">Фамилия, имя и отчество</label>
+          <input type="text" id="n-fio" name="fio" placeholder="Соловьёв Артём Игоревич" required>
+        </div>
+        <div class="field">
+          <label for="n-login">Логин</label>
+          <input type="text" id="n-login" name="login" class="mono" placeholder="solovyov" required>
+        </div>
+        <div class="field">
+          <label for="n-mail">Почта для связи</label>
+          <input type="email" id="n-mail" name="email" placeholder="a.solovyov@au.ru">
+        </div>
+        <div class="field">
+          <label for="n-role">Роль</label>
+          <select id="n-role" name="role">
+            <option value="teacher">Преподаватель</option>
+            <option value="admin">Администратор</option>
+          </select>
+          <span class="hint">Преподаватель работает только со своими проверками и своей базой отпечатков.</span>
+        </div>
+      </div>
+      <p class="hint" style="margin:0;">Пароль сгенерируется автоматически и покажется один раз после создания.
+        Сменить его попросят при первом входе.</p>
+      <div style="display:flex;gap:8px;">
+        <button class="btn primary" type="submit">Создать</button>
+        <button class="btn" type="button" data-toggle="add-user">Отмена</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script>
+  document.querySelectorAll('[data-toggle]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const el = document.getElementById(btn.dataset.toggle);
+      if (el) el.hidden = !el.hidden;
+    });
+  });
+  document.getElementById('add-user-btn').addEventListener('click', () => {
+    const el = document.getElementById('add-user');
+    el.hidden = !el.hidden;
+    if (!el.hidden) el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  });
+</script>
+{% endblock %}

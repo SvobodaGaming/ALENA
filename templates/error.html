@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Доступ закрыт — {{ app_title }}</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='app.css') }}">
+  <link rel="icon" href="{{ url_for('logo') }}">
+</head>
+<body>
+<div class="centered">
+  <div class="auth-card">
+    <div class="auth-top">
+      <div class="rail-mark">АЛ</div>
+      <div>
+        <div class="rail-name">Ошибка {{ code }}</div>
+        <div class="rail-sub">Действие не выполнено</div>
+      </div>
+    </div>
+    <div class="auth-body">
+      <p style="margin:0;font-size:13px;">{{ message }}</p>
+      <a class="btn primary" style="justify-content:center;" href="{{ url_for('index') }}">К проверкам</a>
+    </div>
+    <div class="auth-foot">
+      <b>{{ app_title }}</b> — {{ app_full_name }}
+    </div>
+  </div>
+</div>
+</body>
+</html>

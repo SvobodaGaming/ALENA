@@ -13,8 +13,12 @@ env/
 reports/*.html
 reports/*.pdf
 
-# Persistent memory store (runtime data — not code)
+# Runtime state — not code. users.json holds password hashes and API keys.
 memory/store.json
+memory/users.json
+memory/jobs.json
+memory/login_log.json
+memory/settings.json
 
 # Uploaded/temporary files
 uploads/

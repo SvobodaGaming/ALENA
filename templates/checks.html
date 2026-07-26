@@ -1,0 +1,55 @@
+{% extends "layout.html" %}
+{% block title %}Проверки{% endblock %}
+{% block heading %}Проверки{% endblock %}
+{% block subheading %}Загруженные пачки отчётов и их результаты{% endblock %}
+
+{% block content %}
+<div id="checks-screen"
+     data-sees-all="{{ '1' if can(user, 'see_all') else '0' }}"
+     data-can-delete="{{ '1' if can(user, 'delete_own') else '0' }}">
+
+  <div class="tiles">
+    <div class="tile">
+      <span class="eyebrow">Проверок</span>
+      <span class="tile-val" id="t-checks">—</span>
+      <span class="tile-foot">{% if can(user, 'see_all') %}по всем преподавателям{% else %}ваших{% endif %}</span>
+    </div>
+    <div class="tile">
+      <span class="eyebrow">Отчётов обработано</span>
+      <span class="tile-val" id="t-files">—</span>
+      <span class="tile-foot">файлов во всех проверках</span>
+    </div>
+    <div class="tile">
+      <span class="eyebrow">Средний балл ГОСТ</span>
+      <span class="tile-val" id="t-gost">—</span>
+      <span class="tile-foot">по 15 критериям 7.32-2017</span>
+    </div>
+    <div class="tile">
+      <span class="eyebrow">Совпадений выше порога</span>
+      <span class="tile-val" id="t-match">—</span>
+      <span class="tile-foot">текст и изображения</span>
+    </div>
+  </div>
+
+  <div class="panes">
+    <div class="pane">
+      <div class="pane-head">
+        <div class="search">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+          <input type="text" id="job-search" placeholder="Группа, номер проверки, ФИО" aria-label="Поиск по проверкам">
+        </div>
+        {% if can(user, 'delete_own') %}
+        <button class="btn sm danger" id="clear-all" title="Удалить все проверки и отпечатки">Очистить</button>
+        {% endif %}
+      </div>
+      <ul class="job-list" id="job-list" role="listbox" aria-label="Список проверок">
+        <li class="empty">Загрузка…</li>
+      </ul>
+    </div>
+
+    <div class="pane" id="detail-pane">
+      <div class="empty">Выберите проверку в списке слева.</div>
+    </div>
+  </div>
+</div>
+{% endblock %}

@@ -8,13 +8,15 @@ Every `/api/v1/*` endpoint returns JSON, including errors.
 
 Two interchangeable methods are accepted:
 
-- **API key (machine-to-machine):** send the header `X-API-Key: <AU_API_KEY>`.
-  Set `AU_API_KEY` in the environment (`.env`). When it is empty, key access is
-  disabled.
+- **API key (machine-to-machine):** send the header `X-API-Key: <key>`. Keys
+  belong to an account and are issued in **Пользователи** → *Выдать ключ API*.
+  The account must have the permission «Пользоваться API по ключу» (`use_api`);
+  without it the key is rejected. `AU_API_KEY` from the environment is assigned
+  to the first administrator when the instance bootstraps.
 - **Browser session:** a logged-in session cookie also authorizes the API, which
   is what the built-in UI uses.
 
-On a missing or wrong key the API responds `401`:
+On a missing, wrong or unauthorized key the API responds `401`:
 
 ```json
 { "error": "Не авторизовано: передайте заголовок X-API-Key или войдите в сессию." }
@@ -22,6 +24,25 @@ On a missing or wrong key the API responds `401`:
 
 Errors use a consistent shape: `{"error": "<message>"}`, with `status` added for
 HTTP errors raised by the server (e.g. `404`).
+
+### Roles and visibility
+
+Every call acts **on behalf of the account behind the key or session**, and the
+data is scoped to it:
+
+| Role | Sees |
+|------|------|
+| `teacher` | Only own checks and own fingerprint base. Borrowing is searched inside that base only. |
+| `admin` | Everything, when the account keeps the `see_all` permission. |
+
+Reading or deleting another teacher's check answers `403`:
+
+```json
+{ "error": "Эта проверка принадлежит другому преподавателю.", "status": 403 }
+```
+
+Actions also honour per-account permissions: `run_checks` for `POST /jobs`,
+`delete_own` for the delete endpoints, `manage_base` for `DELETE /memory/<key>`.
 
 ## Base URL
 
@@ -66,7 +87,7 @@ Start a check. `multipart/form-data`:
 `400` when no files are supplied or no PDF is found inside the upload.
 
 ### GET `/jobs`
-List in-memory jobs, keyed by `job_id`:
+List the jobs visible to the caller, keyed by `job_id`:
 
 ```json
 {
@@ -79,10 +100,33 @@ List in-memory jobs, keyed by `job_id`:
     "text_pairs": 3,
     "img_pairs": 1,
     "created_at": "28.06.2026 11:40",
+    "owner": "sokolova",
+    "owner_fio": "Соколова Елена Викторовна",
+    "threshold": 60,
+    "summary": {
+      "group": "ПР-21-1",
+      "groups": ["ПР-21-1"],
+      "gost": 87,
+      "plag": 63,
+      "threshold": 60,
+      "clean": 8,
+      "students": [
+        { "fio": "Петров П. П.", "group": "ПР-21-1", "gost": 61,
+          "plag": 63, "fails": ["S2", "F3", "F7"], "error": null }
+      ],
+      "matches": [
+        { "a": "Петров П. П.", "b": "Белов А. Р. · ПР-20-1", "pct": 47,
+          "kind": "текст", "where": "база, 18.06.2025" }
+      ],
+      "fail_counts": [["F7", 4], ["S2", 2]]
+    },
     "error": null
   }
 }
 ```
+
+`summary` is `null` until the check finishes; `matches[].pct` is `null` for
+duplicate images, which are a yes/no match rather than a share of the text.
 
 ### GET `/jobs/<job_id>`
 Poll one job. Same shape as a list entry. Returns `done` with `progress: 100` if
@@ -106,36 +150,43 @@ Stored student fingerprints are kept — remove them via `DELETE /memory/<key>`.
 ```
 
 ### DELETE `/jobs`
-Delete all jobs, their report files, and the entire memory store.
+Delete the caller's jobs, their report files, and the caller's fingerprint base.
+An account with `see_all` wipes everyone's.
 
 ```json
 { "ok": true, "cleared": 4, "cleared_store": 21 }
 ```
 
 ### GET `/memory`
-List stored student fingerprints (no text or hashes, just metadata):
+List stored student fingerprints (no text or hashes, just metadata). A teacher
+sees only their own base:
 
 ```json
 [
   {
-    "key": "иванов иван|пр-21-1|v1",
+    "key": "sokolova|иванов иван|пр-21-1|v1",
     "version": 1,
     "filename": "Иванов_отчёт.pdf",
     "student": { "name": "Иванов Иван", "group": "ПР-21-1" },
     "pages_count": 14,
     "image_count": 3,
     "added_at": "20.06.2026 09:35",
-    "job_id": "a1b2c3d4e5"
+    "job_id": "a1b2c3d4e5",
+    "owner": "sokolova"
   }
 ]
 ```
 
+The key is `<owner>|<name>|<group>|v<N>` — the owner prefix is what keeps two
+teachers' bases apart when they have a namesake in the same group.
+
 ### DELETE `/memory/<key>`
-Delete one fingerprint entry. The `key` is the value from `GET /memory` and must
-be URL-encoded (it contains `|` and spaces). `404` if the key does not exist.
+Delete one fingerprint entry. Requires the `manage_base` permission. The `key`
+is the value from `GET /memory` and must be URL-encoded (it contains `|` and
+spaces). `403` for another teacher's entry, `404` if the key does not exist.
 
 ```
-DELETE /api/v1/memory/%D0%B8%D0%B2%D0%B0%D0%BD%D0%BE%D0%B2%20%D0%B8%D0%B2%D0%B0%D0%BD%7C%D0%BF%D1%80-21-1%7Cv1
+DELETE /api/v1/memory/sokolova%7C%D0%B8%D0%B2%D0%B0%D0%BD%D0%BE%D0%B2%20%D0%B8%D0%B2%D0%B0%D0%BD%7C%D0%BF%D1%80-21-1%7Cv1
 ```
 
 ```json

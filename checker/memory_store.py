@@ -22,9 +22,7 @@ STORE_PATH = Path(__file__).parent.parent / 'memory' / 'store.json'
 _lock = threading.Lock()
 
 
-def load_store() -> dict:
-    if db.DB_ENABLED:
-        return db.fp_load_all()
+def _read_all() -> dict:
     STORE_PATH.parent.mkdir(exist_ok=True)
     if not STORE_PATH.exists():
         return {}
@@ -34,30 +32,51 @@ def load_store() -> dict:
         return {}
 
 
+def load_store(owner=None) -> dict:
+    """Fingerprints visible to `owner`, or the whole base when owner is None.
+
+    Each teacher has an isolated base: their reports are compared only against
+    their own previous ones.
+    """
+    if db.DB_ENABLED:
+        return db.fp_load_all(owner)
+    store = _read_all()
+    if owner is None:
+        return store
+    return {k: v for k, v in store.items() if v.get('owner', '') == owner}
+
+
 def save_store(store: dict) -> None:
+    """Persist the given entries. Entries outside `store` are left untouched,
+    so saving one teacher's slice never disturbs another's."""
     if db.DB_ENABLED:
         db.fp_upsert_many(store)
         return
-    STORE_PATH.parent.mkdir(exist_ok=True)
     with _lock:
+        full = _read_all()
+        full.update(store)
         STORE_PATH.write_text(
-            json.dumps(store, ensure_ascii=False, indent=2), encoding='utf-8'
+            json.dumps(full, ensure_ascii=False, indent=2), encoding='utf-8'
         )
 
 
-def clear_store() -> int:
-    """Delete entire store. Returns number of deleted entries."""
+def clear_store(owner=None) -> int:
+    """Delete the whole base, or just one owner's entries. Returns the count."""
     if db.DB_ENABLED:
-        return db.fp_clear()
+        return db.fp_clear(owner)
     with _lock:
-        if not STORE_PATH.exists():
-            return 0
-        try:
-            count = len(json.loads(STORE_PATH.read_text(encoding='utf-8')))
-        except Exception:
-            count = 0
-        STORE_PATH.unlink()
-    return count
+        store = _read_all()
+        if owner is None:
+            count = len(store)
+            STORE_PATH.unlink(missing_ok=True)
+            return count
+        doomed = [k for k, v in store.items() if v.get('owner', '') == owner]
+        for k in doomed:
+            del store[k]
+        STORE_PATH.write_text(
+            json.dumps(store, ensure_ascii=False, indent=2), encoding='utf-8'
+        )
+    return len(doomed)
 
 
 def delete_entry(entry_key: str) -> bool:
@@ -91,6 +110,7 @@ def get_summary(store: dict) -> list:
             'image_count': len(v.get('image_data', [])),
             'added_at':    v.get('added_at', ''),
             'job_id':      v.get('job_id', ''),
+            'owner':       v.get('owner', ''),
         })
     def _parse_dt(s):
         try:
@@ -102,11 +122,13 @@ def get_summary(store: dict) -> list:
     return result
 
 
-def _student_key(report: dict) -> str:
+def _student_key(report: dict, owner: str = '') -> str:
+    """Owner-scoped identity of a student's work. The owner prefix keeps two
+    teachers' bases apart even when they have a namesake in the same group."""
     s = report.get('student', {})
     name  = s.get('name',  '').strip().lower()
     group = s.get('group', '').strip().lower()
-    return f'{name}|{group}'
+    return f'{owner}|{name}|{group}'
 
 
 def _make_thumb(pil_img) -> str:
@@ -130,14 +152,14 @@ def _shrink_thumb(data_uri: str) -> str:
         return data_uri
 
 
-def upsert_report(store: dict, report: dict, job_id: str) -> None:
+def upsert_report(store: dict, report: dict, job_id: str, owner: str = '') -> None:
     """
     Add report to store as a new version (v1, v2, …).
     Mutates `store` in-place; caller must call save_store() afterwards.
     """
     from checker.text_plagiarism import normalize_text
 
-    key_base = _student_key(report)
+    key_base = _student_key(report, owner)
 
     existing_versions = [
         v['version'] for v in store.values()
@@ -167,6 +189,7 @@ def upsert_report(store: dict, report: dict, job_id: str) -> None:
         'pages_count':     report.get('pages_count', 0),
         'added_at':        datetime.now().strftime('%d.%m.%Y %H:%M'),
         'job_id':          job_id,
+        'owner':           owner,
     }
 
 

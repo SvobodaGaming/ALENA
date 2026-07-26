@@ -23,6 +23,77 @@ def _median(values: list) -> float:
     return (values[mid - 1] + values[mid]) / 2
 
 
+CAPTION_RE = re.compile(r'^\s*(рисунок|рис\.|таблица|табл\.)\s*\d', re.IGNORECASE)
+TASK_RE = re.compile(r'ЗАДАНИЕ', re.IGNORECASE)
+TASK_KIND_RE = re.compile(r'(практик|курсов|выпускн|дипломн)', re.IGNORECASE)
+
+
+def _is_task_page(text: str) -> bool:
+    """A «задание на практику / на курсовую работу» sheet. Together with the
+    title page it is exempt from the 14 pt rule — only the typeface counts."""
+    head = text[:400]
+    return bool(TASK_RE.search(head) and TASK_KIND_RE.search(head))
+
+
+def _table_bboxes(page) -> list:
+    """Bounding boxes of tables on the page. Skipped when the page has no
+    ruling lines at all — find_tables() is the expensive part of extraction."""
+    if not (page.lines or page.rects):
+        return []
+    try:
+        return [t.bbox for t in page.find_tables()]
+    except Exception:
+        return []
+
+
+def _classify_fonts(page) -> dict:
+    """Split the page's characters into three groups and count (font, size).
+
+    body    — running text, the part GOST holds to exactly 14 pt
+    aux     — figure captions and text inside tables, allowed to be smaller
+    pagenum — the page number in the top/bottom margin, typeface still matters
+    """
+    buckets = {'body': {}, 'aux': {}, 'pagenum': {}}
+    h = float(page.height)
+    tables = _table_bboxes(page)
+
+    try:
+        lines = page.extract_text_lines()
+    except Exception:
+        lines = []
+
+    if not lines:                      # no line data: treat everything as body
+        for ch in (page.chars or []):
+            key = (ch.get('fontname', 'Unknown'), round(float(ch.get('size', 0)), 1))
+            buckets['body'][key] = buckets['body'].get(key, 0) + 1
+        return buckets
+
+    for ln in lines:
+        text = (ln.get('text') or '').strip()
+        top, bottom = float(ln['top']), float(ln['bottom'])
+        in_margin_band = top < 0.1 * h or bottom > 0.9 * h
+
+        if text.isdigit() and len(text) <= 4 and in_margin_band:
+            group = 'pagenum'
+        elif CAPTION_RE.match(text) or any(
+                bb[0] - 1 <= float(ln['x0']) and float(ln['x1']) <= bb[2] + 1
+                and bb[1] - 1 <= top and bottom <= bb[3] + 1 for bb in tables):
+            group = 'aux'
+        else:
+            group = 'body'
+
+        for ch in ln.get('chars', []):
+            key = (ch.get('fontname', 'Unknown'), round(float(ch.get('size', 0)), 1))
+            buckets[group][key] = buckets[group].get(key, 0) + 1
+
+    return buckets
+
+
+def _merge_counts(target: dict, source: dict) -> None:
+    for key, n in source.items():
+        target[key] = target.get(key, 0) + n
+
+
 def _content_bounds(page):
     """Bounding box (x0, x1, top, bottom) of the page's text body, in points.
 
@@ -56,8 +127,10 @@ def extract_report(pdf_path: str) -> dict:
         'text_by_page': [],
         'full_text': '',
         'images': [],
+        'pages': [],
         'font_info': {},
         'margin_info': {},
+        'margins_by_page': [],
         'student': {},
         'is_scanned': False,
         'error': None,
@@ -66,18 +139,30 @@ def extract_report(pdf_path: str) -> dict:
     try:
         with pdfplumber.open(pdf_path) as pdf:
             result['pages_count'] = len(pdf.pages)
-            all_body_chars = []
-            page_bounds = []
+            pages_meta = []
 
             for i, page in enumerate(pdf.pages):
                 text = page.extract_text() or ''
                 result['text_by_page'].append(text)
-                if i > 0:  # skip title page for margin/font analysis
-                    all_body_chars.extend(page.chars or [])
-                    bounds = _content_bounds(page)
-                    if bounds:
-                        page_bounds.append(bounds)
 
+                meta = {
+                    'page':     i + 1,
+                    'is_title': i == 0,
+                    'is_task':  _is_task_page(text),
+                    'fonts':    _classify_fonts(page),
+                    'margins':  None,
+                }
+                bounds = _content_bounds(page)
+                if bounds:
+                    meta['margins'] = {
+                        'page_w': float(page.width),
+                        'page_h': float(page.height),
+                        'x0': bounds[0], 'x1': bounds[1],
+                        'top': bounds[2], 'bottom': bounds[3],
+                    }
+                pages_meta.append(meta)
+
+            result['pages'] = pages_meta
             result['full_text'] = '\n'.join(result['text_by_page'])
 
             # Detect scanned PDF (no extractable text)
@@ -85,27 +170,49 @@ def extract_report(pdf_path: str) -> dict:
                 max(result['pages_count'], 1)
             result['is_scanned'] = avg_chars < 80
 
-            # Font info: (fontname, size) -> character count
-            font_counts: dict = {}
-            for ch in all_body_chars:
-                fname = ch.get('fontname', 'Unknown')
-                fsize = round(float(ch.get('size', 0)))
-                key = (fname, fsize)
-                font_counts[key] = font_counts.get(key, 0) + 1
-            result['font_info'] = font_counts
+            # Font counts by role. Body text is taken from ordinary pages only:
+            # the title page and the «задание» sheet are checked for typeface
+            # but never for size, so their characters must not pollute the
+            # 14 pt statistics.
+            fonts_all, fonts_body, fonts_aux, fonts_pagenum = {}, {}, {}, {}
+            fonts_special = {}
+            for meta in pages_meta:
+                special = meta['is_title'] or meta['is_task']
+                for group, counts in meta['fonts'].items():
+                    _merge_counts(fonts_all, counts)
+                    if special:
+                        _merge_counts(fonts_special, counts)
+                    elif group == 'body':
+                        _merge_counts(fonts_body, counts)
+                    elif group == 'aux':
+                        _merge_counts(fonts_aux, counts)
+                if not special:
+                    _merge_counts(fonts_pagenum, meta['fonts']['pagenum'])
 
-            # Margin info: per-page text-body bounding boxes (page numbers
-            # excluded), then the median across pages so a single page with a
-            # wide table or figure caption does not skew the result.
+            result['font_info'] = {
+                'all':     fonts_all,
+                'body':    fonts_body,
+                'aux':     fonts_aux,
+                'pagenum': fonts_pagenum,
+                'special': fonts_special,
+            }
+
+            # Margins: measured on every page that has body text (the title
+            # page included — its frame must comply too), reported per page so
+            # the check can name the offending ones.
+            page_bounds = [m['margins'] for m in pages_meta[1:] if m['margins']]
+            result['margins_by_page'] = [
+                dict(m['margins'], page=m['page'])
+                for m in pages_meta if m['margins']
+            ]
             if page_bounds:
-                ref_page = pdf.pages[1] if len(pdf.pages) > 1 else pdf.pages[0]
                 result['margin_info'] = {
-                    'page_w': float(ref_page.width),
-                    'page_h': float(ref_page.height),
-                    'x0':     _median([b[0] for b in page_bounds]),
-                    'x1':     _median([b[1] for b in page_bounds]),
-                    'top':    _median([b[2] for b in page_bounds]),
-                    'bottom': _median([b[3] for b in page_bounds]),
+                    'page_w': _median([b['page_w'] for b in page_bounds]),
+                    'page_h': _median([b['page_h'] for b in page_bounds]),
+                    'x0':     _median([b['x0'] for b in page_bounds]),
+                    'x1':     _median([b['x1'] for b in page_bounds]),
+                    'top':    _median([b['top'] for b in page_bounds]),
+                    'bottom': _median([b['bottom'] for b in page_bounds]),
                 }
 
     except Exception as e:

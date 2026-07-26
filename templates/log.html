@@ -1,0 +1,44 @@
+{% extends "layout.html" %}
+{% block title %}Журнал входов{% endblock %}
+{% block heading %}Журнал входов{% endblock %}
+{% block subheading %}Кто и когда заходил в систему{% endblock %}
+
+{% block content %}
+<div class="section">
+  <div class="section-head">
+    <h2>Записи</h2>
+    <span class="spacer"></span>
+    <a class="btn sm {% if not only_fail %}primary{% endif %}" href="{{ url_for('admin_log') }}">Все</a>
+    <a class="btn sm {% if only_fail %}primary{% endif %}" href="{{ url_for('admin_log', filter='fail') }}">Только отказы</a>
+  </div>
+  <div class="tbl-wrap">
+    <table>
+      <thead>
+        <tr><th>Время</th><th>Пользователь</th><th>Результат</th><th>IP-адрес</th><th>Устройство</th></tr>
+      </thead>
+      <tbody>
+        {% for e in events %}
+        <tr>
+          <td class="mono sub">{{ e.ts }}</td>
+          <td>
+            {{ e.fio or e.login or '—' }}
+            {% if e.fio %}<br><span class="sub mono">{{ e.login }}</span>{% endif %}
+          </td>
+          <td>
+            {% if e.ok %}
+            <span class="chip ok"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12.5l5 5L20 6.5"/></svg>Успешно</span>
+            {% else %}
+            <span class="chip crit"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>Отказ{% if e.reason %} — {{ e.reason }}{% endif %}</span>
+            {% endif %}
+          </td>
+          <td class="mono">{{ e.ip or '—' }}</td>
+          <td class="sub">{{ e.ua or '—' }}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="5" class="empty">Записей пока нет.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

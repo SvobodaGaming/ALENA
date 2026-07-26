@@ -3,204 +3,50 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>АЛЁНА — вход в систему</title>
-  <style>
-    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-
-    :root {
-      --primary: #015D1E;
-      --primary-dark: #014818;
-      --primary-bg: #e8f5eb;
-      --bg: #f4f7f5;
-      --surface: #ffffff;
-      --border: #d0e4d5;
-      --text: #1a2e1d;
-      --muted: #5a7a61;
-      --red: #dc2626;
-      --red-bg: #fee2e2;
-      --radius: 14px;
-      --shadow: 0 4px 24px rgba(1, 93, 30, .12);
-    }
-
-    body {
-      font-family: 'Segoe UI', system-ui, Arial, sans-serif;
-      background: var(--bg);
-      color: var(--text);
-      min-height: 100vh;
-      display: flex;
-      flex-direction: column;
-    }
-
-    .header {
-      background: var(--surface);
-      border-bottom: 2px solid var(--primary);
-      padding: 0 32px;
-    }
-
-    .header-inner {
-      max-width: 960px;
-      margin: 0 auto;
-      display: flex;
-      align-items: center;
-      gap: 20px;
-      padding: 16px 0;
-    }
-
-    .header-inner img {
-      height: 48px;
-      width: 48px;
-      object-fit: contain;
-    }
-
-    .header-inner h1 {
-      font-size: 1.35rem;
-      font-weight: 800;
-      color: var(--primary);
-    }
-
-    .wrap {
-      flex: 1;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      padding: 40px 20px;
-    }
-
-    .card {
-      background: var(--surface);
-      border: 1px solid var(--border);
-      border-radius: var(--radius);
-      padding: 40px 44px;
-      width: 100%;
-      max-width: 400px;
-      box-shadow: var(--shadow);
-    }
-
-    .card-title {
-      font-size: 1.25rem;
-      font-weight: 800;
-      color: var(--primary);
-      margin-bottom: 8px;
-    }
-
-    .card-sub {
-      color: var(--muted);
-      font-size: 0.84rem;
-      margin-bottom: 28px;
-    }
-
-    .field {
-      margin-bottom: 18px;
-    }
-
-    .field label {
-      display: block;
-      font-size: 0.84rem;
-      font-weight: 600;
-      color: var(--text);
-      margin-bottom: 6px;
-    }
-
-    .field input {
-      width: 100%;
-      padding: 10px 14px;
-      border: 1.5px solid var(--border);
-      border-radius: 8px;
-      font-size: 0.92rem;
-      font-family: inherit;
-      color: var(--text);
-      background: white;
-      outline: none;
-      transition: border-color .15s;
-    }
-
-    .field input:focus {
-      border-color: var(--primary);
-      box-shadow: 0 0 0 3px rgba(1, 93, 30, .1);
-    }
-
-    .error-box {
-      background: var(--red-bg);
-      border: 1px solid #fca5a5;
-      border-radius: 8px;
-      padding: 10px 14px;
-      color: var(--red);
-      font-size: 0.84rem;
-      margin-bottom: 18px;
-    }
-
-    .btn {
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      width: 100%;
-      padding: 12px;
-      background: var(--primary);
-      color: white;
-      border: none;
-      border-radius: 9px;
-      font-size: 0.96rem;
-      font-weight: 700;
-      cursor: pointer;
-      font-family: inherit;
-      transition: background .15s;
-      margin-top: 6px;
-    }
-
-    .btn:hover { background: var(--primary-dark); }
-    .btn:active { transform: scale(.98); }
-
-    .footer {
-      background: var(--primary);
-      color: rgba(255, 255, 255, .7);
-      text-align: center;
-      font-size: 0.8rem;
-      padding: 14px 20px;
-    }
-
-    .footer strong { color: white; }
-  </style>
+  <title>Вход — {{ app_title }}</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='app.css') }}">
+  <link rel="icon" href="{{ url_for('logo') }}">
 </head>
 <body>
+<div class="centered">
+  <div class="auth-card">
+    <div class="auth-top">
+      <div class="rail-mark">АЛ</div>
+      <div>
+        <div class="rail-name">{{ app_title }}</div>
+        <div class="rail-sub">Проверка студенческих отчётов</div>
+      </div>
+    </div>
 
-<header class="header">
-  <div class="header-inner">
-    <img src="/au_logo.png" alt="AU Logo">
-    <h1>АЛЁНА <span style="font-weight:600;font-size:.8rem;opacity:.7;">· Проверка студенческих отчётов</span></h1>
-  </div>
-</header>
+    <form class="auth-body" method="post" action="{{ url_for('login') }}">
+      {% if next %}<input type="hidden" name="next" value="{{ next }}">{% endif %}
 
-<div class="wrap">
-  <div class="card">
-    <div class="card-title">Вход в систему</div>
-    <div class="card-sub">Введите учётные данные для доступа</div>
-
-    {% if error %}
-    <div class="error-box">{{ error }}</div>
-    {% endif %}
-
-    <form method="post" action="/login">
-      {% if next %}
-      <input type="hidden" name="next" value="{{ next }}">
+      {% if error %}
+      <div class="note bad" style="margin:0;">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M12 3.5L1.8 20.5h20.4z"/><path d="M12 10v4.4M12 17.6v.1"/></svg>
+        <span>{{ error }}</span>
+      </div>
       {% endif %}
+
       <div class="field">
-        <label for="username">Имя пользователя</label>
+        <label for="username">Логин</label>
         <input type="text" id="username" name="username" autocomplete="username"
-               autofocus placeholder="admin" value="{{ username or '' }}">
+               autofocus value="{{ username or '' }}" required>
       </div>
       <div class="field">
         <label for="password">Пароль</label>
-        <input type="password" id="password" name="password" autocomplete="current-password"
-               placeholder="••••••••">
+        <input type="password" id="password" name="password" autocomplete="current-password" required>
       </div>
-      <button type="submit" class="btn">Войти</button>
+      <button class="btn primary" type="submit">Войти</button>
+      <p class="hint" style="margin:0;text-align:center;">
+        Забыли пароль — обратитесь к администратору системы.
+      </p>
     </form>
+
+    <div class="auth-foot">
+      <b>{{ app_title }}</b> — {{ app_full_name }}
+    </div>
   </div>
 </div>
-
-<footer class="footer">
-  <strong>#au-team</strong> &nbsp;·&nbsp; АЛЁНА &nbsp;·&nbsp; Проверка студенческих отчётов
-</footer>
-
 </body>
 </html>

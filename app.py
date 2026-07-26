@@ -1,5 +1,11 @@
 """
+АЛЁНА — Автоматический Ловец Ёрничества, Небрежности и Аутентичности.
+
 Flask web application for autonomous student report checking.
+
+Accounts come in two roles. A teacher is fully isolated: own checks, own
+fingerprint base, borrowing searched only inside that base. An administrator
+manages accounts and system settings and may be allowed to see everything.
 
 Run locally:
     python app.py
@@ -11,9 +17,11 @@ Run on server (production):
     gunicorn -w 2 -b 0.0.0.0:5000 app:app
 """
 
+import csv
 import io
+import json
 import os
-import hmac
+import secrets
 import uuid
 import zipfile
 import tempfile
@@ -25,7 +33,7 @@ from datetime import datetime
 
 from flask import (Flask, Blueprint, request, jsonify, render_template,
                    send_file, abort, send_from_directory, session,
-                   redirect, url_for)
+                   redirect, url_for, g, flash)
 from werkzeug.exceptions import HTTPException
 
 try:
@@ -34,13 +42,16 @@ try:
 except Exception:
     WEASYPRINT_OK = False
 
-from checker import db
+from checker import accounts, db, job_store, summary as summary_mod
 from checker.extractor        import extract_report
 from checker.gost             import check_gost, GOST_CHECKS, ALL_CODES
 from checker.text_plagiarism  import check_text_plagiarism
 from checker.image_plagiarism import check_image_plagiarism
 from checker.reporter         import generate_html_report
 
+
+APP_TITLE = 'АЛЁНА'
+APP_FULL_NAME = 'Автоматический Ловец Ёрничества, Небрежности и Аутентичности'
 
 app = Flask(__name__)
 app.config['MAX_CONTENT_LENGTH'] = 600 * 1024 * 1024
@@ -53,57 +64,175 @@ jobs: dict = {}
 jobs_lock = threading.Lock()
 
 
+@app.context_processor
+def inject_globals():
+    """Every template gets the current account and the branding."""
+    return {
+        'user':          getattr(g, 'user', None),
+        'app_title':     APP_TITLE,
+        'app_full_name': APP_FULL_NAME,
+        'ROLES':         accounts.ROLES,
+        'STATES':        accounts.STATES,
+        'can':           accounts.can,
+    }
+
+
 def _recover_stale_jobs():
     """Processing threads do not survive a restart. Any job still marked
-    'processing' in the DB at boot is orphaned — flag it as an error so the
-    UI does not show it as running forever (and so it can be deleted)."""
-    if not db.DB_ENABLED:
-        return
+    'processing' at boot is orphaned — flag it as an error so the UI does not
+    show it as running forever (and so it can be deleted)."""
     try:
-        for jid, data in db.jobs_load_all().items():
+        for jid, data in job_store.load_all().items():
             if data.get('status') == 'processing':
                 data.update(
                     status='error',
                     step='Прервано перезапуском сервера — запустите проверку заново.',
                     error='stale job recovered at startup',
                 )
-                db.jobs_save(jid, data)
+                job_store.save(jid, data)
     except Exception:
-        pass  # DB not reachable yet; stale rows will simply stay until next boot
+        pass  # storage not reachable yet; stale rows stay until the next boot
 
 
-_recover_stale_jobs()
+def _purge_expired():
+    """Drop checks older than the retention period set by the administrator."""
+    try:
+        days = int(accounts.get_settings().get('retention_days', 0))
+        for jid in job_store.expired(days):
+            job_store.delete(jid)
+            (REPORTS_DIR / f'{jid}.html').unlink(missing_ok=True)
+    except Exception:
+        pass
 
-_AU_USERNAME = os.environ.get('AU_USERNAME', 'admin')
-_AU_PASSWORD = os.environ.get('AU_PASSWORD', 'admin')
-# Optional machine-to-machine key for the /api/v1 layer. When empty, the API
-# accepts only an authenticated browser session (no token access).
-_AU_API_KEY = os.environ.get('AU_API_KEY', '')
+
+def _migrate_legacy_ownership():
+    """Data written before per-teacher isolation has no owner. Hand it to the
+    first administrator, rewriting fingerprint keys into the owner-scoped form,
+    so an existing installation keeps its base and history after the upgrade."""
+    from checker.memory_store import load_store, save_store, delete_entry
+
+    admin = next((u for u in accounts.load_users().values()
+                  if u.get('role') == 'admin'), None)
+    if admin is None:
+        return
+    login = admin['login']
+
+    store = load_store()
+    legacy = {k: v for k, v in store.items() if not v.get('owner')}
+    if legacy:
+        migrated = {}
+        for entry in legacy.values():
+            entry['owner'] = login
+            entry['key_base'] = f"{login}|{entry.get('key_base', '')}"
+            migrated[f"{entry['key_base']}|v{entry.get('version', 1)}"] = entry
+        save_store(migrated)
+        for key in legacy:
+            delete_entry(key)
+
+    for jid, data in job_store.load_all().items():
+        if not data.get('owner'):
+            data['owner'] = login
+            data['owner_fio'] = admin.get('fio', login)
+            job_store.save(jid, data)
+
+
+GOST_SCHEMA = 2   # bumped whenever the meaning of the check codes changes
+
+
+def _migrate_settings():
+    """The check codes were re-cut when the criteria list changed, so a saved
+    default set from the previous schema now selects the wrong checks. Reset it
+    to «все критерии» and let the administrator pick again."""
+    conf = accounts.get_settings()
+    if conf.get('gost_schema') != GOST_SCHEMA:
+        accounts.save_settings({'gost_schema': GOST_SCHEMA, 'default_gost': []})
+
+
+def _startup():
+    accounts.bootstrap()
+    _migrate_settings()
+    _migrate_legacy_ownership()
+    _recover_stale_jobs()
+    _purge_expired()
+
+
+_startup()
+
+
+# ─────────────────────────  Authentication  ─────────────────────────
+
+@app.before_request
+def _load_user():
+    g.user = accounts.get_user(session.get('login', ''))
+    if g.user is not None and g.user.get('state') == 'blocked':
+        session.clear()
+        g.user = None
+
+
+def _client_ip() -> str:
+    fwd = request.headers.get('X-Forwarded-For', '')
+    return fwd.split(',')[0].strip() if fwd else (request.remote_addr or '')
 
 
 def login_required(f):
     @wraps(f)
     def decorated(*args, **kwargs):
-        if not session.get('authenticated'):
+        if g.user is None:
             return redirect(url_for('login', next=request.url))
+        if g.user.get('must_change') and request.endpoint not in ('change_password', 'logout', 'static'):
+            return redirect(url_for('change_password'))
         return f(*args, **kwargs)
     return decorated
 
 
+def permission_required(flag: str):
+    """Guard a route behind one permission flag."""
+    def wrapper(f):
+        @wraps(f)
+        @login_required
+        def decorated(*args, **kwargs):
+            if not accounts.can(g.user, flag):
+                return _deny('Недостаточно прав для этого действия.')
+            return f(*args, **kwargs)
+        return decorated
+    return wrapper
+
+
+def admin_required(f):
+    @wraps(f)
+    @login_required
+    def decorated(*args, **kwargs):
+        if g.user.get('role') != 'admin':
+            return _deny('Раздел доступен только администратору.')
+        return f(*args, **kwargs)
+    return decorated
+
+
+def _deny(message: str):
+    if request.path.startswith('/api/') or request.headers.get('Accept', '').startswith('application/json'):
+        return jsonify({'error': message}), 403
+    abort(403, description=message)
+
+
 @app.route('/login', methods=['GET', 'POST'])
 def login():
-    if session.get('authenticated'):
+    if g.user is not None:
         return redirect(url_for('index'))
     error = None
     username = ''
     if request.method == 'POST':
         username = request.form.get('username', '').strip()
         password = request.form.get('password', '')
-        if username == _AU_USERNAME and password == _AU_PASSWORD:
-            session['authenticated'] = True
-            next_url = request.form.get('next') or request.args.get('next') or url_for('index')
+        user, error = accounts.authenticate(
+            username, password, _client_ip(),
+            request.headers.get('User-Agent', ''))
+        if user is not None:
+            session.clear()
+            session['login'] = user['login']
+            if user.get('must_change'):
+                return redirect(url_for('change_password'))
+            next_url = request.form.get('next') or url_for('index')
             return redirect(next_url)
-        error = 'Неверные имя пользователя или пароль'
     return render_template('login.html', error=error, username=username,
                            next=request.args.get('next', ''))
 
@@ -114,28 +243,65 @@ def logout():
     return redirect(url_for('login'))
 
 
-def _api_authorized() -> bool:
-    """Accept either an authenticated session or a matching X-API-Key header."""
-    if session.get('authenticated'):
-        return True
-    if _AU_API_KEY:
-        provided = request.headers.get('X-API-Key', '')
-        if provided and hmac.compare_digest(provided, _AU_API_KEY):
-            return True
-    return False
+@app.route('/password', methods=['GET', 'POST'])
+@login_required
+def change_password():
+    """Forced first-login change, and the ordinary self-service change."""
+    error = None
+    if request.method == 'POST':
+        current = request.form.get('current', '')
+        fresh   = request.form.get('password', '')
+        repeat  = request.form.get('repeat', '')
+        from werkzeug.security import check_password_hash
+        if not check_password_hash(g.user['password_hash'], current):
+            error = 'Текущий пароль введён неверно'
+        elif fresh != repeat:
+            error = 'Новый пароль и повтор не совпадают'
+        else:
+            error = accounts.password_problem(fresh)
+        if not error:
+            accounts.set_password(g.user['login'], fresh, must_change=False)
+            flash('Пароль изменён')
+            return redirect(url_for('index'))
+    return render_template('password.html', error=error,
+                           forced=bool(g.user.get('must_change')))
+
+
+# ─────────────────────────  API authentication  ─────────────────────────
+
+def _api_user():
+    """The account behind an /api/v1 call: session cookie or X-API-Key."""
+    if g.user is not None and not g.user.get('must_change'):
+        return g.user
+    key = request.headers.get('X-API-Key', '')
+    if key:
+        user = accounts.user_by_api_key(key)
+        if user and user.get('state') != 'blocked' and accounts.can(user, 'use_api'):
+            return user
+    return None
 
 
 def api_auth_required(f):
     """Like login_required, but returns JSON 401 instead of redirecting."""
     @wraps(f)
     def decorated(*args, **kwargs):
-        if not _api_authorized():
+        user = _api_user()
+        if user is None:
             return jsonify({
                 'error': 'Не авторизовано: передайте заголовок X-API-Key '
                          'или войдите в сессию.'
             }), 401
+        g.user = user
         return f(*args, **kwargs)
     return decorated
+
+
+@app.errorhandler(403)
+def forbidden(exc):
+    if request.path.startswith('/api/'):
+        return jsonify({'error': exc.description, 'status': 403}), 403
+    return render_template('error.html', code=403,
+                           message=exc.description), 403
 
 
 @app.route('/health')
@@ -148,12 +314,257 @@ def logo():
     return send_from_directory('.', 'au_logo.png', mimetype='image/png')
 
 
+# ─────────────────────────  Ownership  ─────────────────────────
+
+def _sees_all(user) -> bool:
+    return accounts.can(user, 'see_all')
+
+
+def _scope(user):
+    """Owner filter for storage queries: None means 'everything'."""
+    return None if _sees_all(user) else user['login']
+
+
+def _may_touch(job: dict, user) -> bool:
+    return _sees_all(user) or job.get('owner', '') == user['login']
+
+
+def _public_job(job: dict) -> dict:
+    """Job state without the heavy inline report HTML."""
+    return {k: v for k, v in job.items() if k != 'report_html'}
+
+
+def _find_job(job_id: str):
+    """Live in-memory state if the job is running, else the stored record."""
+    with jobs_lock:
+        job = jobs.get(job_id)
+        if job is not None:
+            return _public_job(job)
+    return job_store.get(job_id)
+
+
+def _all_jobs(user):
+    scope = _scope(user)
+    merged = job_store.load_all(scope)
+    with jobs_lock:
+        for jid, j in jobs.items():
+            if scope is None or j.get('owner', '') == scope:
+                merged[jid] = _public_job(j)
+    return merged
+
+
+# ─────────────────────────  Pages  ─────────────────────────
+
 @app.route('/')
 @login_required
 def index():
-    return render_template('index.html', username=_AU_USERNAME,
+    return render_template('checks.html', page='checks',
                            gost_checks=GOST_CHECKS)
 
+
+@app.route('/overview')
+@login_required
+def overview():
+    stats = _overview_stats(g.user)
+    return render_template('overview.html', page='overview', **stats)
+
+
+@app.route('/new')
+@permission_required('run_checks')
+def new_check():
+    conf = accounts.get_settings()
+    enabled = conf.get('default_gost') or ALL_CODES
+    return render_template('new.html', page='new', gost_checks=GOST_CHECKS,
+                           enabled_codes=enabled,
+                           threshold=int(float(conf.get('default_threshold', 0.6)) * 100))
+
+
+@app.route('/base')
+@login_required
+def base_page():
+    from checker.memory_store import load_store, get_summary
+    entries = get_summary(load_store(_scope(g.user)))
+    fio_by_login = {lg: u.get('fio', lg) for lg, u in accounts.load_users().items()}
+    for e in entries:
+        e['owner_fio'] = fio_by_login.get(e.get('owner', ''), e.get('owner', ''))
+    return render_template('reports_base.html', page='base', entries=entries,
+                           sees_all=_sees_all(g.user))
+
+
+@app.route('/base/export')
+@login_required
+def base_export():
+    """Download the fingerprint base: a spreadsheet of what is stored, or a
+    full JSON dump that can be carried to another instance."""
+    from checker.memory_store import load_store, get_summary
+
+    scope = _scope(g.user)
+    store = load_store(scope)
+    stamp = datetime.now().strftime('%d.%m.%Y')
+
+    if request.args.get('format') == 'json':
+        payload = json.dumps({
+            'exported_at': datetime.now().strftime('%d.%m.%Y %H:%M'),
+            'exported_by': g.user['login'],
+            'scope':       'all' if scope is None else scope,
+            'count':       len(store),
+            'entries':     store,
+        }, ensure_ascii=False, indent=2)
+        return send_file(
+            io.BytesIO(payload.encode('utf-8')),
+            mimetype='application/json',
+            as_attachment=True,
+            download_name=f'alena-base-{stamp}.json',
+        )
+
+    fio_by_login = {lg: u.get('fio', lg) for lg, u in accounts.load_users().items()}
+    buf = io.StringIO()
+    # Semicolons and a BOM: what Excel with Russian locale opens without a
+    # column-splitting dialog.
+    writer = csv.writer(buf, delimiter=';', lineterminator='\r\n')
+    writer.writerow(['Студент', 'Группа', 'Файл', 'Версия', 'Страниц',
+                     'Рисунков', 'Добавлен', 'Проверка', 'Преподаватель'])
+    for e in get_summary(store):
+        writer.writerow([
+            e['student'].get('name', ''), e['student'].get('group', ''),
+            e['filename'], e['version'], e['pages_count'], e['image_count'],
+            e['added_at'], e['job_id'],
+            fio_by_login.get(e.get('owner', ''), e.get('owner', '')),
+        ])
+    return send_file(
+        io.BytesIO(b'\xef\xbb\xbf' + buf.getvalue().encode('utf-8')),
+        mimetype='text/csv',
+        as_attachment=True,
+        download_name=f'alena-base-{stamp}.csv',
+    )
+
+
+@app.route('/profile')
+@login_required
+def profile():
+    return render_template('profile.html', page='profile',
+                           events=accounts.recent_logins(20, g.user['login']))
+
+
+@app.route('/admin/users')
+@admin_required
+def admin_users():
+    users = sorted(accounts.load_users().values(),
+                   key=lambda u: (u['role'] != 'admin', u.get('fio', '')))
+    counts = {}
+    for data in job_store.load_all().values():
+        owner = data.get('owner', '')
+        counts[owner] = counts.get(owner, 0) + 1
+    for u in users:
+        u['checks_count'] = counts.get(u['login'], 0)
+    return render_template('users.html', page='users', users=users,
+                           permissions=accounts.PERMISSIONS)
+
+
+@app.route('/admin/log')
+@admin_required
+def admin_log():
+    only_fail = request.args.get('filter') == 'fail'
+    events = accounts.recent_logins(300)
+    if only_fail:
+        events = [e for e in events if not e.get('ok')]
+    fio_by_login = {lg: u.get('fio', lg) for lg, u in accounts.load_users().items()}
+    for e in events:
+        e['fio'] = fio_by_login.get(e.get('login', ''), '')
+    return render_template('log.html', page='log', events=events,
+                           only_fail=only_fail)
+
+
+@app.route('/admin/settings', methods=['GET', 'POST'])
+@admin_required
+def admin_settings():
+    if request.method == 'POST':
+        form = request.form
+        picked = _parse_enabled_checks(form.get('gost'))
+        accounts.save_settings({
+            'default_threshold':       float(form.get('threshold', 60)) / 100,
+            'default_gost':            picked if picked is not None else [],
+            'retention_days':          int(form.get('retention_days', 0)),
+            'pw_min_len':              int(form.get('pw_min_len', 10)),
+            'pw_require_change_first': form.get('pw_require_change_first') == 'on',
+            'pw_expire_days':          int(form.get('pw_expire_days', 0)),
+            'lock_after_fails':        int(form.get('lock_after_fails', 5)),
+            'lock_minutes':            int(form.get('lock_minutes', 15)),
+        })
+        flash('Настройки сохранены')
+        return redirect(url_for('admin_settings'))
+
+    conf = accounts.get_settings()
+    from checker.memory_store import load_store
+    reports_size = sum(p.stat().st_size for p in REPORTS_DIR.glob('*.html'))
+    health = [
+        ('База данных',
+         'PostgreSQL' if db.DB_ENABLED else 'JSON-файлы в папке memory/',
+         'ok', 'Подключена' if db.DB_ENABLED else 'Локальное хранилище'),
+        ('Хранилище отчётов',
+         f'{len(list(REPORTS_DIR.glob("*.html")))} отчётов · {reports_size / 1048576:.1f} МБ',
+         'ok', 'Норма'),
+        ('Экспорт в PDF', 'WeasyPrint',
+         'ok' if WEASYPRINT_OK else 'warn',
+         'Доступен' if WEASYPRINT_OK else 'Не установлен'),
+        ('База отпечатков', f'{len(load_store())} записей', 'ok', 'Норма'),
+    ]
+    return render_template('settings.html', page='settings', conf=conf,
+                           gost_checks=GOST_CHECKS,
+                           enabled_codes=conf.get('default_gost') or ALL_CODES,
+                           health=health)
+
+
+def _overview_stats(user) -> dict:
+    """Aggregates for the dashboard, scoped to what the account may see."""
+    records = _all_jobs(user)
+    done = [d for d in records.values() if d.get('status') == 'done']
+    summaries = [d['summary'] for d in done if d.get('summary')]
+
+    files = sum(int(d.get('total', 0)) for d in done)
+    gost_values = [s['gost'] for s in summaries if s.get('gost')]
+    flagged = sum(len(s.get('matches', [])) for s in summaries)
+    clean = sum(s.get('clean', 0) for s in summaries)
+    scored = sum(len(s.get('students', [])) for s in summaries)
+
+    fails: dict = {}
+    for s in summaries:
+        for code, count in s.get('fail_counts', []):
+            fails[code] = fails.get(code, 0) + count
+    names = {c[0]: c[1] for c in GOST_CHECKS}
+    top = sorted(fails.items(), key=lambda kv: -kv[1])[:6]
+    top_violations = [
+        {'code': c, 'name': names.get(c, c), 'count': n,
+         'pct': round(n / scored * 100) if scored else 0}
+        for c, n in top
+    ]
+
+    by_day: dict = {}
+    for d in records.values():
+        day = (d.get('created_at', '') or '')[:10]
+        if day:
+            by_day[day] = by_day.get(day, 0) + 1
+    series = sorted(by_day.items(), key=lambda kv: datetime.strptime(kv[0], '%d.%m.%Y')
+                    if len(kv[0]) == 10 else datetime.min)[-30:]
+
+    recent = sorted(records.items(),
+                    key=lambda kv: kv[1].get('created_at', ''), reverse=True)[:8]
+    return {
+        'total_checks':   len(records),
+        'total_files':    files,
+        'avg_gost':       round(sum(gost_values) / len(gost_values)) if gost_values else 0,
+        'flagged':        flagged,
+        'clean_pct':      round(clean / scored * 100) if scored else 0,
+        'clean':          clean,
+        'scored':         scored,
+        'top_violations': top_violations,
+        'series':         series,
+        'recent':         [dict(job_id=jid, **data) for jid, data in recent],
+        'teachers':       len({d.get('owner') for d in records.values() if d.get('owner')}),
+    }
+
+
+# ─────────────────────────  Shared job helpers  ─────────────────────────
 
 def _parse_enabled_checks(raw):
     """Translate the form's `gost` value into a list of check codes.
@@ -168,14 +579,15 @@ def _parse_enabled_checks(raw):
     return [c for c in ALL_CODES if c in picked]
 
 
-# Shared job helpers, used by both the UI routes and the /api/v1 layer
+def _parse_use_memory(raw) -> bool:
+    """Form field `use_memory`: absent (legacy clients) means True."""
+    if raw is None:
+        return True
+    return raw.strip().lower() not in ('0', 'false', 'no', 'off')
 
-def _public_job(job: dict) -> dict:
-    """Job state without the heavy inline report HTML."""
-    return {k: v for k, v in job.items() if k != 'report_html'}
 
-
-def _start_job(uploaded, threshold: float, enabled_checks=None, use_memory=True):
+def _start_job(uploaded, threshold: float, owner, enabled_checks=None,
+               use_memory=True):
     """Validate uploaded files and spawn the processing thread.
 
     enabled_checks: list of GOST check codes to evaluate, or None for all.
@@ -228,17 +640,21 @@ def _start_job(uploaded, threshold: float, enabled_checks=None, use_memory=True)
             'text_pairs': 0,
             'img_pairs':  0,
             'created_at': datetime.now().strftime('%d.%m.%Y %H:%M'),
+            'owner':      owner['login'],
+            'owner_fio':  owner.get('fio', owner['login']),
+            'threshold':  round(threshold * 100),
+            'summary':    None,
             'report_html': None,
             'error':      None,
         }
         snapshot = _public_job(jobs[job_id])
 
-    if db.DB_ENABLED:
-        db.jobs_save(job_id, snapshot)
+    job_store.save(job_id, snapshot)
 
     threading.Thread(
         target=_process_job,
-        args=(job_id, pdf_paths, tmp_dir, threshold, enabled_checks, use_memory),
+        args=(job_id, pdf_paths, tmp_dir, threshold, owner['login'],
+              enabled_checks, use_memory),
         daemon=True,
     ).start()
 
@@ -246,23 +662,20 @@ def _start_job(uploaded, threshold: float, enabled_checks=None, use_memory=True)
 
 
 def _job_status(job_id: str):
-    with jobs_lock:
-        job = jobs.get(job_id)
-    if job is not None:
-        return jsonify(_public_job(job))
-    # Not in memory (e.g. after restart): try the DB, then a report on disk.
-    if db.DB_ENABLED:
-        row = db.jobs_get(job_id)
-        if row is not None:
-            return jsonify(row)
-    if (REPORTS_DIR / f'{job_id}.html').exists():
-        return jsonify({'status': 'done', 'progress': 100,
-                        'step': 'Готово!', 'total': 0,
-                        'done_files': 0, 'text_pairs': 0, 'img_pairs': 0})
-    abort(404)
+    job = _find_job(job_id)
+    if job is None:
+        abort(404)
+    if not _may_touch(job, g.user):
+        return _deny('Эта проверка принадлежит другому преподавателю.')
+    return jsonify(job)
 
 
 def _job_report(job_id: str):
+    job = _find_job(job_id)
+    if job is None:
+        abort(404)
+    if not _may_touch(job, g.user):
+        return _deny('Эта проверка принадлежит другому преподавателю.')
     # Serve directly from disk, works across worker restarts and multi-tab use.
     report_path = REPORTS_DIR / f'{job_id}.html'
     if not report_path.exists():
@@ -272,6 +685,12 @@ def _job_report(job_id: str):
 
 def _job_export(job_id: str):
     """Convert the saved HTML report to PDF via WeasyPrint and return it."""
+    job = _find_job(job_id)
+    if job is None:
+        abort(404)
+    if not _may_touch(job, g.user):
+        return _deny('Эта проверка принадлежит другому преподавателю.')
+
     report_path = REPORTS_DIR / f'{job_id}.html'
     if not report_path.exists():
         abort(404)
@@ -294,80 +713,72 @@ def _job_export(job_id: str):
 
 
 def _clear_all():
+    """Wipe the caller's history and fingerprint base (everyone's, for an
+    account allowed to see all)."""
     from checker.memory_store import clear_store
+    scope = _scope(g.user)
+    ids = job_store.clear(scope)
     with jobs_lock:
-        ids = list(jobs.keys())
-        jobs.clear()
+        for jid in ids:
+            jobs.pop(jid, None)
     for jid in ids:
-        p = REPORTS_DIR / f'{jid}.html'
-        if p.exists():
-            p.unlink(missing_ok=True)
-    if db.DB_ENABLED:
-        db.jobs_clear()
-    cleared_store = clear_store()
+        (REPORTS_DIR / f'{jid}.html').unlink(missing_ok=True)
+    cleared_store = clear_store(scope)
     return jsonify({'ok': True, 'cleared': len(ids), 'cleared_store': cleared_store})
 
 
 def _delete_job(job_id: str):
-    """Delete a single check from history: in-memory state, DB row and the
-    saved HTML report. Fingerprints in the student base are kept — they are
+    """Delete a single check from history: in-memory state, stored record and
+    the saved HTML report. Fingerprints in the student base are kept — they are
     managed separately via /memory."""
-    with jobs_lock:
-        job = jobs.get(job_id)
-        if job is not None and job.get('status') == 'processing':
-            return jsonify({'error': 'Проверка ещё выполняется — дождитесь '
-                                     'завершения или ошибки.'}), 409
-        existed = jobs.pop(job_id, None) is not None
-    if db.DB_ENABLED:
-        existed = db.jobs_delete(job_id) or existed
-    report_path = REPORTS_DIR / f'{job_id}.html'
-    if report_path.exists():
-        report_path.unlink(missing_ok=True)
-        existed = True
-    if not existed:
+    job = _find_job(job_id)
+    if job is None:
         abort(404)
+    if not _may_touch(job, g.user):
+        return _deny('Эта проверка принадлежит другому преподавателю.')
+    if not accounts.can(g.user, 'delete_own'):
+        return _deny('Нет права удалять проверки.')
+    if job.get('status') == 'processing':
+        return jsonify({'error': 'Проверка ещё выполняется — дождитесь '
+                                 'завершения или ошибки.'}), 409
+    with jobs_lock:
+        jobs.pop(job_id, None)
+    job_store.delete(job_id)
+    (REPORTS_DIR / f'{job_id}.html').unlink(missing_ok=True)
     return jsonify({'ok': True})
 
 
 def _memory_summary():
     from checker.memory_store import load_store, get_summary
-    return jsonify(get_summary(load_store()))
+    return jsonify(get_summary(load_store(_scope(g.user))))
 
 
 def _memory_delete(key: str):
-    from checker.memory_store import delete_entry
+    from checker.memory_store import load_store, delete_entry
     if not key:
         return jsonify({'error': 'Ключ не указан'}), 400
+    if not accounts.can(g.user, 'manage_base'):
+        return _deny('Нет права удалять записи из базы отпечатков.')
+    entry = load_store().get(key)
+    if entry is None:
+        abort(404)
+    if not _sees_all(g.user) and entry.get('owner', '') != g.user['login']:
+        return _deny('Эта запись принадлежит другому преподавателю.')
     if not delete_entry(key):
         abort(404)
     return jsonify({'ok': True})
 
 
-def _all_jobs():
-    with jobs_lock:
-        mem = {jid: _public_job(j) for jid, j in jobs.items()}
-    if db.DB_ENABLED:
-        merged = db.jobs_load_all()
-        merged.update(mem)   # live in-memory state overrides persisted rows
-        return jsonify(merged)
-    return jsonify(mem)
-
-
-def _parse_use_memory(raw) -> bool:
-    """Form field `use_memory`: absent (legacy clients) means True."""
-    if raw is None:
-        return True
-    return raw.strip().lower() not in ('0', 'false', 'no', 'off')
-
+# ─────────────────────────  UI actions  ─────────────────────────
 
 @app.route('/upload', methods=['POST'])
-@login_required
+@permission_required('run_checks')
 def upload():
     threshold = float(request.form.get('threshold', 0.6))
     enabled = _parse_enabled_checks(request.form.get('gost'))
     use_memory = _parse_use_memory(request.form.get('use_memory'))
     job_id, error, status_code = _start_job(
-        request.files.getlist('files'), threshold, enabled, use_memory)
+        request.files.getlist('files'), threshold, g.user, enabled, use_memory)
     if error:
         return jsonify({'error': error}), status_code
     return jsonify({'job_id': job_id})
@@ -392,7 +803,7 @@ def export_pdf(job_id):
 
 
 @app.route('/jobs/clear', methods=['POST'])
-@login_required
+@permission_required('delete_own')
 def clear_jobs():
     return _clear_all()
 
@@ -419,8 +830,103 @@ def memory_delete():
 @app.route('/jobs')
 @login_required
 def list_jobs():
-    return _all_jobs()
+    return jsonify(_all_jobs(g.user))
 
+
+# ─────────────────────────  Account management  ─────────────────────────
+
+@app.route('/admin/users/create', methods=['POST'])
+@admin_required
+def user_create():
+    form = request.form
+    login_name = form.get('login', '').strip().lower()
+    fio = form.get('fio', '').strip()
+    password = form.get('password', '') or secrets.token_urlsafe(9)
+    if not login_name or not fio:
+        flash('Укажите логин и ФИО')
+    elif accounts.get_user(login_name) is not None:
+        flash(f'Логин {login_name} уже занят')
+    else:
+        accounts.create_user(
+            login=login_name, fio=fio, password=password,
+            role=form.get('role', 'teacher'), email=form.get('email', '').strip(),
+            must_change=True)
+        flash(f'Пользователь создан. Временный пароль: {password}')
+    return redirect(url_for('admin_users'))
+
+
+@app.route('/admin/users/<login_name>/perms', methods=['POST'])
+@admin_required
+def user_perms(login_name):
+    user = accounts.get_user(login_name)
+    if user is None:
+        abort(404)
+    role = request.form.get('role', user['role'])
+    if user['login'] == g.user['login'] and role != 'admin':
+        flash('Нельзя снять с себя роль администратора')
+        return redirect(url_for('admin_users'))
+    user['role'] = role
+    user['perms'] = {flag: request.form.get(f'perm_{flag}') == 'on'
+                     for flag, _ in accounts.PERMISSIONS}
+    accounts.save_user(user)
+    flash(f'Права обновлены: {user["fio"]}')
+    return redirect(url_for('admin_users'))
+
+
+@app.route('/admin/users/<login_name>/password', methods=['POST'])
+@admin_required
+def user_reset_password(login_name):
+    user = accounts.get_user(login_name)
+    if user is None:
+        abort(404)
+    password = secrets.token_urlsafe(9)
+    accounts.set_password(login_name, password, must_change=True)
+    flash(f'Временный пароль для {user["fio"]}: {password}')
+    return redirect(url_for('admin_users'))
+
+
+@app.route('/admin/users/<login_name>/state', methods=['POST'])
+@admin_required
+def user_state(login_name):
+    user = accounts.get_user(login_name)
+    if user is None:
+        abort(404)
+    if user['login'] == g.user['login']:
+        flash('Нельзя заблокировать собственную учётную запись')
+        return redirect(url_for('admin_users'))
+    blocking = user['state'] != 'blocked'
+    user['state'] = 'blocked' if blocking else 'active'
+    if not blocking:
+        user['fail_count'] = 0
+        user['locked_until'] = ''
+    accounts.save_user(user)
+    flash(f'{user["fio"]}: {"заблокирован" if blocking else "разблокирован"}')
+    return redirect(url_for('admin_users'))
+
+
+@app.route('/admin/users/<login_name>/apikey', methods=['POST'])
+@admin_required
+def user_apikey(login_name):
+    user = accounts.get_user(login_name)
+    if user is None:
+        abort(404)
+    key = accounts.issue_api_key(login_name)
+    flash(f'Ключ API для {user["fio"]}: {key} — сохраните, второй раз он не покажется')
+    return redirect(url_for('admin_users'))
+
+
+@app.route('/admin/users/<login_name>/delete', methods=['POST'])
+@admin_required
+def user_delete(login_name):
+    if login_name == g.user['login']:
+        flash('Нельзя удалить собственную учётную запись')
+        return redirect(url_for('admin_users'))
+    if accounts.delete_user(login_name):
+        flash('Учётная запись удалена. Её проверки и отпечатки сохранены.')
+    return redirect(url_for('admin_users'))
+
+
+# ─────────────────────────  Processing  ─────────────────────────
 
 def _update(job_id: str, **kwargs):
     snapshot = None
@@ -428,20 +934,21 @@ def _update(job_id: str, **kwargs):
         if job_id in jobs:
             jobs[job_id].update(kwargs)
             snapshot = _public_job(jobs[job_id])
-    if snapshot is not None and db.DB_ENABLED:
-        db.jobs_save(job_id, snapshot)
+    if snapshot is not None:
+        job_store.save(job_id, snapshot)
 
 
 def _process_job(job_id: str, pdf_paths: list, tmp_dir: str, threshold: float,
-                 enabled_checks=None, use_memory=True):
+                 owner: str, enabled_checks=None, use_memory=True):
     try:
-        from checker.memory_store import load_store, to_virtual_report, upsert_report, save_store
+        from checker.memory_store import (load_store, to_virtual_report,
+                                          upsert_report, save_store)
 
         n = len(pdf_paths)
 
-        # 0. Load persistent store (we'll filter it after extraction).
+        # 0. Load this teacher's slice of the base (they never see another's).
         #    Loaded even with use_memory=False — step 7 appends to it.
-        store = load_store()
+        store = load_store(owner)
         if use_memory:
             _update(job_id, step=f'База загружена: {len(store)} записей')
         else:
@@ -467,9 +974,9 @@ def _process_job(job_id: str, pdf_paths: list, tmp_dir: str, threshold: float,
         #    fingerprint from a previous session (false "self-plagiarism").
         def _key_base(r: dict) -> str:
             s = r.get('student', {})
-            return f"{s.get('name', '').strip().lower()}|{s.get('group', '').strip().lower()}"
+            return f"{owner}|{s.get('name', '').strip().lower()}|{s.get('group', '').strip().lower()}"
 
-        new_keys = {kb for r in reports if (kb := _key_base(r)) != '|'}
+        new_keys = {kb for r in reports if (kb := _key_base(r)) != f'{owner}||'}
         if use_memory:
             historical = [
                 to_virtual_report(k, v) for k, v in store.items()
@@ -504,12 +1011,12 @@ def _process_job(job_id: str, pdf_paths: list, tmp_dir: str, threshold: float,
         )
         (REPORTS_DIR / f'{job_id}.html').write_text(html, encoding='utf-8')
 
-        # 7. Persist fingerprints to store
+        # 7. Persist fingerprints to this teacher's base
         _update(job_id, progress=97, step='Сохранение отпечатков в базу…')
         saved = 0
         for r in reports:
             if not r.get('error'):
-                upsert_report(store, r, job_id)
+                upsert_report(store, r, job_id, owner)
                 saved += 1
         if saved:
             save_store(store)
@@ -517,6 +1024,8 @@ def _process_job(job_id: str, pdf_paths: list, tmp_dir: str, threshold: float,
         _update(job_id,
                 status='done',
                 progress=100,
+                summary=summary_mod.build(reports, historical, text_plag,
+                                          img_plag, threshold),
                 step=f'Готово! Проверено {n} отчётов, сохранено в базу: {saved}.')
 
     except Exception as exc:
@@ -528,6 +1037,8 @@ def _process_job(job_id: str, pdf_paths: list, tmp_dir: str, threshold: float,
     finally:
         shutil.rmtree(tmp_dir, ignore_errors=True)
 
+
+# ─────────────────────────  REST API  ─────────────────────────
 
 api = Blueprint('api', __name__, url_prefix='/api/v1')
 
@@ -549,11 +1060,13 @@ def api_create_job():
     """Start a check. Multipart form: files=<pdf|zip>… , threshold=0.0-1.0,
     gost=<comma-separated check codes> (optional; omit for all checks),
     use_memory=0|1 (optional; 0 skips comparison against the stored base)."""
+    if not accounts.can(g.user, 'run_checks'):
+        return jsonify({'error': 'Нет права запускать проверки'}), 403
     threshold = float(request.form.get('threshold', 0.6))
     enabled = _parse_enabled_checks(request.form.get('gost'))
     use_memory = _parse_use_memory(request.form.get('use_memory'))
     job_id, error, status_code = _start_job(
-        request.files.getlist('files'), threshold, enabled, use_memory)
+        request.files.getlist('files'), threshold, g.user, enabled, use_memory)
     if error:
         return jsonify({'error': error}), status_code
     return jsonify({
@@ -570,12 +1083,14 @@ def api_create_job():
 @api.route('/jobs', methods=['GET'])
 @api_auth_required
 def api_list_jobs():
-    return _all_jobs()
+    return jsonify(_all_jobs(g.user))
 
 
 @api.route('/jobs', methods=['DELETE'])
 @api_auth_required
 def api_clear_jobs():
+    if not accounts.can(g.user, 'delete_own'):
+        return jsonify({'error': 'Нет права удалять проверки'}), 403
     return _clear_all()
 
 

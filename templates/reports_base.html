@@ -1,0 +1,72 @@
+{% extends "layout.html" %}
+{% block title %}База отчётов{% endblock %}
+{% block heading %}База отчётов{% endblock %}
+{% block subheading %}Отпечатки сданных работ, по которым ищутся заимствования{% endblock %}
+
+{% block content %}
+<div class="note">
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 7.6v.1"/></svg>
+  <span>
+    {% if sees_all %}
+    <b>Режим администратора.</b> Показаны отпечатки всех преподавателей — {{ entries | length }} записей.
+    Преподаватель видит только свои.
+    {% else %}
+    <b>Это ваша база.</b> Работы других преподавателей сюда не попадают, и ваши работы не видны им.
+    Поиск заимствований идёт только по этим записям.
+    {% endif %}
+  </span>
+</div>
+
+<div class="section">
+  <div class="section-head">
+    <h2>Сохранённые отпечатки</h2>
+    <span class="spacer"></span>
+    <a class="btn sm" href="{{ url_for('base_export', format='csv') }}"
+       title="Список работ таблицей для Excel">Выгрузить CSV</a>
+    <a class="btn sm" href="{{ url_for('base_export', format='json') }}"
+       title="Полная копия базы с отпечатками — для переноса на другой сервер">JSON</a>
+    <div class="search" style="max-width:260px;">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+      <input type="text" id="base-search" placeholder="ФИО или группа" aria-label="Поиск по базе">
+    </div>
+  </div>
+  <div class="tbl-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Студент</th><th>Группа</th><th>Файл</th>
+          {% if sees_all %}<th>Преподаватель</th>{% endif %}
+          <th class="num">Версия</th><th class="num">Страниц</th><th class="num">Рисунков</th>
+          <th>Добавлен</th>
+          {% if can(user, 'manage_base') %}<th></th>{% endif %}
+        </tr>
+      </thead>
+      <tbody id="base-body">
+        {% for e in entries %}
+        <tr data-hay="{{ ((e.student.name or '') ~ ' ' ~ (e.student.group or '')) | lower }}">
+          <td>{{ e.student.name or 'Имя не распознано' }}</td>
+          <td class="mono">{{ e.student.group or '—' }}</td>
+          <td class="sub">{{ e.filename }}</td>
+          {% if sees_all %}<td class="sub">{{ e.owner_fio or '—' }}</td>{% endif %}
+          <td class="num">v{{ e.version }}</td>
+          <td class="num">{{ e.pages_count }}</td>
+          <td class="num">{{ e.image_count }}</td>
+          <td class="mono sub">{{ e.added_at }}</td>
+          {% if can(user, 'manage_base') %}
+          <td class="act">
+            <button class="btn sm danger" type="button"
+                    data-forget="{{ e.key }}"
+                    data-who="{{ e.student.name or e.filename }}{% if e.student.group %} · {{ e.student.group }}{% endif %}">
+              Удалить
+            </button>
+          </td>
+          {% endif %}
+        </tr>
+        {% else %}
+        <tr><td colspan="9" class="empty">База пуста. Отпечатки появляются после первой проверки.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

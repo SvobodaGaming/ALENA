@@ -1,0 +1,71 @@
+{% extends "layout.html" %}
+{% block title %}Мой профиль{% endblock %}
+{% block heading %}Мой профиль{% endblock %}
+{% block subheading %}Пароль и активность вашей учётной записи{% endblock %}
+
+{% block content %}
+<div class="grid-2">
+  <div>
+    <div class="section">
+      <div class="section-head"><h2>Учётная запись</h2></div>
+      <div class="section-body">
+        <div class="detail-facts" style="margin:0;">
+          <span>ФИО: <b>{{ user.fio }}</b></span>
+          <span>Логин: <b class="mono">{{ user.login }}</b></span>
+          <span>Роль: <b>{{ ROLES.get(user.role, user.role) }}</b></span>
+          {% if user.email %}<span>Почта: <b>{{ user.email }}</b></span>{% endif %}
+          <span>Создана: <b class="mono">{{ user.created_at or '—' }}</b></span>
+        </div>
+        <p class="hint" style="margin:14px 0 0;">
+          {% if can(user, 'see_all') %}
+          Вам доступны проверки и база отпечатков всех преподавателей.
+          {% else %}
+          Вы видите только свои проверки и свою базу отпечатков — работы других преподавателей
+          недоступны, и ваши недоступны им.
+          {% endif %}
+        </p>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="section-head"><h2>Смена пароля</h2></div>
+      <div class="section-body">
+        <a class="btn primary" href="{{ url_for('change_password') }}">Сменить пароль</a>
+        <span class="hint" style="margin-left:10px;">Потребуется ввести текущий пароль.</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="section-head"><h2>Мои входы</h2><span class="spacer"></span>
+      <span class="eyebrow">Последние {{ events | length }}</span></div>
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th>Время</th><th>Результат</th><th>IP-адрес</th><th>Устройство</th></tr></thead>
+        <tbody>
+          {% for e in events %}
+          <tr>
+            <td class="mono sub">{{ e.ts }}</td>
+            <td>
+              {% if e.ok %}
+              <span class="chip ok"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12.5l5 5L20 6.5"/></svg>Успешно</span>
+              {% else %}
+              <span class="chip crit"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>Отказ{% if e.reason %} — {{ e.reason }}{% endif %}</span>
+              {% endif %}
+            </td>
+            <td class="mono">{{ e.ip or '—' }}</td>
+            <td class="sub">{{ e.ua or '—' }}</td>
+          </tr>
+          {% else %}
+          <tr><td colspan="4" class="empty">Записей пока нет.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <div class="section-body" style="border-top:1px solid var(--line-soft);">
+      <p class="hint" style="margin:0;">Если в списке есть вход, которого вы не совершали, смените пароль
+        и сообщите администратору.</p>
+    </div>
+  </div>
+</div>
+{% endblock %}

@@ -1,0 +1,90 @@
+{% extends "layout.html" %}
+{% block title %}Обзор{% endblock %}
+{% block heading %}Обзор{% endblock %}
+{% block subheading %}Сводка по проверкам{% if can(user, 'see_all') %} всех преподавателей{% else %} вашей учётной записи{% endif %}{% endblock %}
+
+{% block content %}
+<div class="tiles">
+  <div class="tile">
+    <span class="eyebrow">Всего проверок</span>
+    <span class="tile-val">{{ total_checks }}</span>
+    <span class="tile-foot">{{ total_files }} отчётов обработано</span>
+  </div>
+  <div class="tile">
+    <span class="eyebrow">Сдали без замечаний</span>
+    <span class="tile-val">{{ clean_pct }}%</span>
+    <span class="tile-foot">{{ clean }} из {{ scored }} отчётов</span>
+  </div>
+  <div class="tile">
+    <span class="eyebrow">Требуют внимания</span>
+    <span class="tile-val">{{ flagged }}</span>
+    <span class="tile-foot">совпадений выше порога</span>
+  </div>
+  <div class="tile">
+    <span class="eyebrow">{% if can(user, 'see_all') %}Преподавателей{% else %}Средний балл ГОСТ{% endif %}</span>
+    <span class="tile-val">{% if can(user, 'see_all') %}{{ teachers }}{% else %}{{ avg_gost }}%{% endif %}</span>
+    <span class="tile-foot">{% if can(user, 'see_all') %}запускали проверки{% else %}по завершённым проверкам{% endif %}</span>
+  </div>
+</div>
+
+<div class="grid-2" style="margin-top:12px;">
+  <div class="section">
+    <div class="section-head"><h2>Проверок по дням</h2><span class="spacer"></span>
+      <span class="eyebrow">Последние {{ series | length }} дней с проверками</span></div>
+    <div class="section-body">
+      <div class="chart-wrap" id="line-chart" data-series="{{ series | tojson }}"></div>
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="section-head"><h2>Чаще всего нарушают</h2><span class="spacer"></span>
+      <span class="eyebrow">Доля отчётов</span></div>
+    <div class="section-body">
+      {% if top_violations %}
+      <div class="bars">
+        {% set worst = top_violations[0].pct or 1 %}
+        {% for v in top_violations %}
+        <div class="bar-row">
+          <span><span class="mono" style="color:var(--muted)">{{ v.code }}</span> {{ v.name }}</span>
+          <span class="bar-track"><span class="bar-fill" style="width:{{ (v.pct / worst * 100) | round }}%"></span></span>
+          <span class="num">{{ v.pct }}%</span>
+        </div>
+        {% endfor %}
+      </div>
+      {% else %}
+      <div class="empty">Нарушений пока не зафиксировано.</div>
+      {% endif %}
+    </div>
+  </div>
+</div>
+
+<div class="section" style="margin-top:12px;">
+  <div class="section-head"><h2>Последние проверки</h2></div>
+  <div class="tbl-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Проверка</th><th>Группа</th>
+          {% if can(user, 'see_all') %}<th>Преподаватель</th>{% endif %}
+          <th class="num">Файлов</th><th class="num">ГОСТ</th><th class="num">Заимств.</th><th>Когда</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in recent %}
+        <tr>
+          <td><a class="mono" href="{{ url_for('report', job_id=r.job_id) }}" target="_blank" rel="noopener">#{{ r.job_id[:6] }}</a></td>
+          <td>{{ r.summary.group if r.summary else '—' }}</td>
+          {% if can(user, 'see_all') %}<td>{{ r.owner_fio or '—' }}</td>{% endif %}
+          <td class="num">{{ r.total or 0 }}</td>
+          <td class="num">{% if r.summary %}{{ r.summary.gost }}%{% else %}—{% endif %}</td>
+          <td class="num">{% if r.summary %}{{ r.summary.plag }}%{% else %}—{% endif %}</td>
+          <td class="mono sub">{{ r.created_at }}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="7" class="empty">Проверок пока нет.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

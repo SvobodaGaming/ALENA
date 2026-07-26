@@ -1,0 +1,90 @@
+{% extends "layout.html" %}
+{% block title %}Новая проверка{% endblock %}
+{% block heading %}Новая проверка{% endblock %}
+{% block subheading %}Загрузите отчёты и выберите, что проверять{% endblock %}
+
+{% block content %}
+<form id="upload-form">
+  <div class="grid-2">
+    <div>
+      <div class="section">
+        <div class="section-head"><h2>Файлы</h2></div>
+        <div class="section-body">
+          <div class="dropzone" id="dropzone">
+            <input type="file" id="file-input" name="files" multiple accept=".pdf,.zip" aria-label="Выбрать файлы">
+            <div class="dz-title">Перетащите отчёты сюда</div>
+            <div class="dz-sub">ZIP-архив группы или отдельные PDF · до 600 МБ</div>
+          </div>
+          <div id="file-list" style="margin-top:12px;"></div>
+        </div>
+      </div>
+
+      <div class="section">
+        <div class="section-head"><h2>Поиск заимствований</h2></div>
+        <div class="section-body">
+          <div class="field">
+            <label for="threshold">Порог заимствования — <b class="mono" id="thr-val">{{ threshold }}%</b></label>
+            <input type="range" id="threshold" min="10" max="90" step="5" value="{{ threshold }}">
+            <span class="hint">Совпадение ниже порога не помечается как заимствование.</span>
+          </div>
+          <label class="check" style="margin-top:14px;">
+            <input type="checkbox" id="use-memory" checked>
+            <span><b>Сравнивать с моей базой отчётов</b><br>
+              <span class="hint">Ищем совпадения с ранее сданными работами. Ваша база отделена
+                от баз других преподавателей.</span></span>
+          </label>
+        </div>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="section-head">
+        <h2>Критерии ГОСТ 7.32-2017</h2>
+        <span class="spacer"></span>
+        <button class="btn sm" type="button" id="gost-all">Все</button>
+        <button class="btn sm" type="button" id="gost-none">Снять</button>
+      </div>
+      <div class="section-body">
+        <div class="eyebrow" style="margin-bottom:7px;">Структурные элементы</div>
+        <div class="gost-cols">
+          {% for code, name, group, hint in gost_checks if group == 'structure' %}
+          <label class="check">
+            <input type="checkbox" class="gost-cb" value="{{ code }}" {% if code in enabled_codes %}checked{% endif %}>
+            <span><span class="mono" style="color:var(--muted)">{{ code }}</span> <span class="has-hint" title="{{ hint }}">{{ name }}</span></span>
+          </label>
+          {% endfor %}
+        </div>
+        <div class="eyebrow" style="margin:16px 0 7px;">Оформление</div>
+        <div class="gost-cols">
+          {% for code, name, group, hint in gost_checks if group == 'format' %}
+          <label class="check">
+            <input type="checkbox" class="gost-cb" value="{{ code }}" {% if code in enabled_codes %}checked{% endif %}>
+            <span><span class="mono" style="color:var(--muted)">{{ code }}</span> <span class="has-hint" title="{{ hint }}">{{ name }}</span></span>
+          </label>
+          {% endfor %}
+        </div>
+        <p class="hint" style="margin:16px 0 0;">
+          В балл ГОСТ войдут только отмеченные критерии — <b class="mono" id="gost-count"></b>.
+        </p>
+      </div>
+    </div>
+  </div>
+
+  <div class="section" style="margin-top:12px;">
+    <div class="section-body">
+      <button class="btn primary" type="submit" id="start-btn" disabled>Запустить проверку</button>
+      <span class="hint" style="margin-left:10px;">Проверка идёт на сервере — страницу можно закрыть.</span>
+
+      <div id="run-progress" hidden style="margin-top:16px;">
+        <div class="progress-step"><span id="run-step">Подготовка…</span><span class="mono" id="run-pct">0%</span></div>
+        <div class="track big"><div class="fill" id="run-bar" style="width:0;--tone:var(--brand)"></div></div>
+        <div class="stat-row">
+          <span class="stat-chip">Файлов: <b id="run-files">0 / 0</b></span>
+          <span class="stat-chip">Пар текста: <b id="run-pairs">0</b></span>
+          <span class="stat-chip">Дублей изображений: <b id="run-imgs">0</b></span>
+        </div>
+      </div>
+    </div>
+  </div>
+</form>
+{% endblock %}

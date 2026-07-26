@@ -1,0 +1,159 @@
+{% extends "layout.html" %}
+{% block title %}Настройки{% endblock %}
+{% block heading %}Настройки{% endblock %}
+{% block subheading %}Значения по умолчанию, пароли, состояние системы{% endblock %}
+
+{% block content %}
+<form method="post">
+  <div class="grid-2">
+    <div>
+      <div class="section">
+        <div class="section-head"><h2>Значения по умолчанию</h2></div>
+        <div class="section-body stack">
+          <div class="field">
+            <label for="threshold">Порог заимствования — <b class="mono" id="thr-out">{{ (conf.default_threshold * 100) | round | int }}%</b></label>
+            <input type="range" id="threshold" name="threshold" min="10" max="90" step="5"
+                   value="{{ (conf.default_threshold * 100) | round | int }}"
+                   oninput="document.getElementById('thr-out').textContent = this.value + '%'">
+            <span class="hint">Подставляется в форму новой проверки. Преподаватель может изменить.</span>
+          </div>
+          <div class="field">
+            <label for="retention_days">Хранить проверки и отчёты</label>
+            <select id="retention_days" name="retention_days">
+              <option value="0" {% if conf.retention_days == 0 %}selected{% endif %}>Бессрочно</option>
+              <option value="90" {% if conf.retention_days == 90 %}selected{% endif %}>90 дней</option>
+              <option value="365" {% if conf.retention_days == 365 %}selected{% endif %}>Один учебный год</option>
+            </select>
+            <span class="hint">Устаревшие проверки удаляются при перезапуске сервера.
+              Отпечатки в базе не трогаются.</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="section">
+        <div class="section-head">
+          <h2>Критерии ГОСТ по умолчанию</h2>
+          <span class="spacer"></span>
+          <button class="btn sm" type="button" onclick="document.querySelectorAll('.gost-def').forEach(c => c.checked = true)">Все</button>
+          <button class="btn sm" type="button" onclick="document.querySelectorAll('.gost-def').forEach(c => c.checked = false)">Снять</button>
+        </div>
+        <div class="section-body">
+          <div class="gost-cols">
+            {% for code, name, group, hint in gost_checks %}
+            <label class="check">
+              <input type="checkbox" class="gost-def" name="gost_item" value="{{ code }}"
+                     {% if code in enabled_codes %}checked{% endif %}>
+              <span><span class="mono" style="color:var(--muted)">{{ code }}</span> <span class="has-hint" title="{{ hint }}">{{ name }}</span></span>
+            </label>
+            {% endfor %}
+          </div>
+          <p class="hint" style="margin:14px 0 0;">Сканы и экспорт из LaTeX часто дают ложные срабатывания
+            по шрифту и полям — такие критерии можно снять здесь один раз для всех.</p>
+          <input type="hidden" name="gost" id="gost-hidden">
+        </div>
+      </div>
+    </div>
+
+    <div>
+      <div class="section">
+        <div class="section-head"><h2>Политика паролей</h2></div>
+        <div class="section-body stack">
+          <div class="form-grid">
+            <div class="field">
+              <label for="pw_min_len">Минимальная длина</label>
+              <input type="number" id="pw_min_len" name="pw_min_len" min="6" max="64" value="{{ conf.pw_min_len }}">
+              <span class="hint">Пароль всегда должен содержать буквы и цифры.</span>
+            </div>
+            <div class="field">
+              <label for="pw_expire_days">Срок действия, дней</label>
+              <input type="number" id="pw_expire_days" name="pw_expire_days" min="0" max="1095" value="{{ conf.pw_expire_days }}">
+              <span class="hint">0 — не требовать периодической смены.</span>
+            </div>
+            <div class="field">
+              <label for="lock_after_fails">Неудачных попыток до блокировки</label>
+              <input type="number" id="lock_after_fails" name="lock_after_fails" min="0" max="20" value="{{ conf.lock_after_fails }}">
+              <span class="hint">0 — не закрывать вход.</span>
+            </div>
+            <div class="field">
+              <label for="lock_minutes">Вход закрыт, минут</label>
+              <input type="number" id="lock_minutes" name="lock_minutes" min="1" max="1440" value="{{ conf.lock_minutes }}">
+            </div>
+          </div>
+          <label class="check">
+            <input type="checkbox" name="pw_require_change_first" {% if conf.pw_require_change_first %}checked{% endif %}>
+            <span>Требовать смену пароля при первом входе</span>
+          </label>
+        </div>
+      </div>
+
+      <div class="section">
+        <div class="section-head"><h2>Доступ по API</h2></div>
+        <div class="section-body">
+          <p class="hint" style="margin:0;">Ключ <span class="mono">X-API-Key</span> выдаётся конкретной
+            учётной записи в разделе «Пользователи» и работает от её имени: проверки и база остаются
+            в пределах этого преподавателя. Право «Пользоваться API по ключу» должно быть включено.</p>
+          <div style="margin-top:12px;">
+            <a class="btn" href="{{ url_for('admin_users') }}">Перейти к пользователям</a>
+          </div>
+        </div>
+      </div>
+
+      <div class="section">
+        <div class="section-head"><h2>Выгрузка базы</h2></div>
+        <div class="section-body">
+          <p class="hint" style="margin:0 0 12px;">Выгружаются отпечатки всех преподавателей.
+            Преподаватель выгружает только свою базу — кнопки есть и на странице «База отчётов».</p>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;">
+            <a class="btn" href="{{ url_for('base_export', format='csv') }}">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M12 3v12M7.5 10.5L12 15l4.5-4.5"/><path d="M4 20h16"/></svg>
+              Таблица для Excel (CSV)
+            </a>
+            <a class="btn" href="{{ url_for('base_export', format='json') }}">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M12 3v12M7.5 10.5L12 15l4.5-4.5"/><path d="M4 20h16"/></svg>
+              Полная выгрузка (JSON)
+            </a>
+          </div>
+          <p class="hint" style="margin:12px 0 0;">CSV — список работ: студент, группа, файл, версия,
+            дата. JSON — полная копия с отпечатками текста и хешами изображений, годится
+            для переноса базы на другой сервер.</p>
+        </div>
+      </div>
+
+      <div class="section">
+        <div class="section-head"><h2>Состояние системы</h2></div>
+        <div class="tbl-wrap">
+          <table>
+            <tbody>
+              {% for name, detail, tone, label in health %}
+              <tr>
+                <td>{{ name }}<br><span class="sub mono">{{ detail }}</span></td>
+                <td class="act">
+                  {% if tone == 'ok' %}
+                  <span class="chip ok"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12.5l5 5L20 6.5"/></svg>{{ label }}</span>
+                  {% else %}
+                  <span class="chip warn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M12 3.5L1.8 20.5h20.4z"/><path d="M12 10v4.4M12 17.6v.1"/></svg>{{ label }}</span>
+                  {% endif %}
+                </td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="section" style="margin-top:12px;">
+    <div class="section-body">
+      <button class="btn primary" type="submit">Сохранить настройки</button>
+    </div>
+  </div>
+</form>
+
+<script>
+  document.querySelector('form[method="post"]').addEventListener('submit', () => {
+    document.getElementById('gost-hidden').value =
+      [...document.querySelectorAll('.gost-def:checked')].map(c => c.value).join(',');
+  });
+</script>
+{% endblock %}

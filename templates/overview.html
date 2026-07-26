@@ -21,6 +21,11 @@
     <span class="tile-foot">совпадений выше порога</span>
   </div>
   <div class="tile">
+    <span class="eyebrow">Оценка за оформление</span>
+    <span class="tile-val">{% if avg_grade is none %}—{% else %}{{ avg_grade }}%{% endif %}</span>
+    <span class="tile-foot">средняя рекомендуемая</span>
+  </div>
+  <div class="tile">
     <span class="eyebrow">{% if can(user, 'see_all') %}Преподавателей{% else %}Средний балл ГОСТ{% endif %}</span>
     <span class="tile-val">{% if can(user, 'see_all') %}{{ teachers }}{% else %}{{ avg_gost }}%{% endif %}</span>
     <span class="tile-foot">{% if can(user, 'see_all') %}запускали проверки{% else %}по завершённым проверкам{% endif %}</span>

@@ -42,9 +42,9 @@ try:
 except Exception:
     WEASYPRINT_OK = False
 
-from checker import accounts, db, job_store, summary as summary_mod
+from checker import accounts, db, grading, job_store, summary as summary_mod
 from checker.extractor        import extract_report
-from checker.gost             import check_gost, GOST_CHECKS, ALL_CODES
+from checker.gost             import check_gost, GOST_CHECKS, ALL_CODES, FLAW_TEXT
 from checker.text_plagiarism  import check_text_plagiarism
 from checker.image_plagiarism import check_image_plagiarism
 from checker.reporter         import generate_html_report
@@ -359,7 +359,7 @@ def _all_jobs(user):
 @login_required
 def index():
     return render_template('checks.html', page='checks',
-                           gost_checks=GOST_CHECKS)
+                           gost_checks=GOST_CHECKS, flaw_text=FLAW_TEXT)
 
 
 @app.route('/overview')
@@ -374,8 +374,12 @@ def overview():
 def new_check():
     conf = accounts.get_settings()
     enabled = conf.get('default_gost') or ALL_CODES
+    weights = grading.clean_weights(conf.get('gost_weights'))
     return render_template('new.html', page='new', gost_checks=GOST_CHECKS,
                            enabled_codes=enabled,
+                           weights={c: weights.get(c, grading.DEFAULT_WEIGHT)
+                                    for c in ALL_CODES},
+                           scale=grading.clean_scale(conf.get('grade_scale')),
                            threshold=int(float(conf.get('default_threshold', 0.6)) * 100))
 
 
@@ -484,6 +488,8 @@ def admin_settings():
         accounts.save_settings({
             'default_threshold':       float(form.get('threshold', 60)) / 100,
             'default_gost':            picked if picked is not None else [],
+            'gost_weights':            _parse_weights_form(form),
+            'grade_scale':             grading.clean_scale(form.get('grade_scale')),
             'retention_days':          int(form.get('retention_days', 0)),
             'pw_min_len':              int(form.get('pw_min_len', 10)),
             'pw_require_change_first': form.get('pw_require_change_first') == 'on',
@@ -509,9 +515,13 @@ def admin_settings():
          'Доступен' if WEASYPRINT_OK else 'Не установлен'),
         ('База отпечатков', f'{len(load_store())} записей', 'ok', 'Норма'),
     ]
+    weights = grading.clean_weights(conf.get('gost_weights'))
     return render_template('settings.html', page='settings', conf=conf,
                            gost_checks=GOST_CHECKS,
                            enabled_codes=conf.get('default_gost') or ALL_CODES,
+                           weights={c: weights.get(c, grading.DEFAULT_WEIGHT)
+                                    for c in ALL_CODES},
+                           scale=grading.clean_scale(conf.get('grade_scale')),
                            health=health)
 
 
@@ -523,6 +533,7 @@ def _overview_stats(user) -> dict:
 
     files = sum(int(d.get('total', 0)) for d in done)
     gost_values = [s['gost'] for s in summaries if s.get('gost')]
+    grade_values = [s['grade'] for s in summaries if s.get('grade') is not None]
     flagged = sum(len(s.get('matches', [])) for s in summaries)
     clean = sum(s.get('clean', 0) for s in summaries)
     scored = sum(len(s.get('students', [])) for s in summaries)
@@ -553,6 +564,8 @@ def _overview_stats(user) -> dict:
         'total_checks':   len(records),
         'total_files':    files,
         'avg_gost':       round(sum(gost_values) / len(gost_values)) if gost_values else 0,
+        'avg_grade':      (round(sum(grade_values) / len(grade_values))
+                           if grade_values else None),
         'flagged':        flagged,
         'clean_pct':      round(clean / scored * 100) if scored else 0,
         'clean':          clean,
@@ -579,6 +592,27 @@ def _parse_enabled_checks(raw):
     return [c for c in ALL_CODES if c in picked]
 
 
+def _parse_weights_form(form) -> dict:
+    """Веса критериев из полей `weight_S1`, `weight_F2`… настроек."""
+    return grading.clean_weights(
+        {code: form.get(f'weight_{code}') for code in ALL_CODES
+         if form.get(f'weight_{code}') is not None})
+
+
+def _grade_params(form) -> tuple:
+    """(weights, scale) для запускаемой проверки.
+
+    Форма может прислать свои — «S1:100,F2:40». Чего нет в запросе, берётся из
+    системных настроек, поэтому старые клиенты и API без параметров считают по
+    администраторским весам.
+    """
+    conf = accounts.get_settings()
+    weights = grading.clean_weights(form.get('weights')) \
+        or grading.clean_weights(conf.get('gost_weights'))
+    scale = grading.clean_scale(form.get('scale') or conf.get('grade_scale'))
+    return weights, scale
+
+
 def _parse_use_memory(raw) -> bool:
     """Form field `use_memory`: absent (legacy clients) means True."""
     if raw is None:
@@ -587,12 +621,14 @@ def _parse_use_memory(raw) -> bool:
 
 
 def _start_job(uploaded, threshold: float, owner, enabled_checks=None,
-               use_memory=True):
+               use_memory=True, weights=None, scale=grading.DEFAULT_SCALE):
     """Validate uploaded files and spawn the processing thread.
 
     enabled_checks: list of GOST check codes to evaluate, or None for all.
     use_memory: when False, skip comparison against stored fingerprints
     (new reports are still added to the base).
+    weights/scale: «процент использования» каждого критерия и шкала оценки.
+    Захватываются в момент запуска — оценка не должна меняться задним числом.
 
     Returns (job_id, error_message, http_status). On success error_message is
     None; on failure job_id is None.
@@ -654,7 +690,8 @@ def _start_job(uploaded, threshold: float, owner, enabled_checks=None,
     threading.Thread(
         target=_process_job,
         args=(job_id, pdf_paths, tmp_dir, threshold, owner['login'],
-              enabled_checks, use_memory),
+              enabled_checks, use_memory, weights or {},
+              grading.clean_scale(scale)),
         daemon=True,
     ).start()
 
@@ -777,8 +814,10 @@ def upload():
     threshold = float(request.form.get('threshold', 0.6))
     enabled = _parse_enabled_checks(request.form.get('gost'))
     use_memory = _parse_use_memory(request.form.get('use_memory'))
+    weights, scale = _grade_params(request.form)
     job_id, error, status_code = _start_job(
-        request.files.getlist('files'), threshold, g.user, enabled, use_memory)
+        request.files.getlist('files'), threshold, g.user, enabled, use_memory,
+        weights, scale)
     if error:
         return jsonify({'error': error}), status_code
     return jsonify({'job_id': job_id})
@@ -939,7 +978,8 @@ def _update(job_id: str, **kwargs):
 
 
 def _process_job(job_id: str, pdf_paths: list, tmp_dir: str, threshold: float,
-                 owner: str, enabled_checks=None, use_memory=True):
+                 owner: str, enabled_checks=None, use_memory=True,
+                 weights=None, scale=grading.DEFAULT_SCALE):
     try:
         from checker.memory_store import (load_store, to_virtual_report,
                                           upsert_report, save_store)
@@ -1007,7 +1047,8 @@ def _process_job(job_id: str, pdf_paths: list, tmp_dir: str, threshold: float,
         # 6. Generate HTML report
         _update(job_id, progress=90, step='Генерация HTML-отчёта…')
         html = generate_html_report(
-            reports, historical, text_plag, img_plag, threshold, job_id=job_id
+            reports, historical, text_plag, img_plag, threshold, job_id=job_id,
+            weights=weights, scale=scale
         )
         (REPORTS_DIR / f'{job_id}.html').write_text(html, encoding='utf-8')
 
@@ -1025,7 +1066,7 @@ def _process_job(job_id: str, pdf_paths: list, tmp_dir: str, threshold: float,
                 status='done',
                 progress=100,
                 summary=summary_mod.build(reports, historical, text_plag,
-                                          img_plag, threshold),
+                                          img_plag, threshold, weights, scale),
                 step=f'Готово! Проверено {n} отчётов, сохранено в базу: {saved}.')
 
     except Exception as exc:
@@ -1059,14 +1100,18 @@ def api_health():
 def api_create_job():
     """Start a check. Multipart form: files=<pdf|zip>… , threshold=0.0-1.0,
     gost=<comma-separated check codes> (optional; omit for all checks),
-    use_memory=0|1 (optional; 0 skips comparison against the stored base)."""
+    use_memory=0|1 (optional; 0 skips comparison against the stored base),
+    weights=<S1:100,F2:40> (optional; per-criterion weight for the recommended
+    grade), scale=<2..100> (optional; grade scale, 100 = percent)."""
     if not accounts.can(g.user, 'run_checks'):
         return jsonify({'error': 'Нет права запускать проверки'}), 403
     threshold = float(request.form.get('threshold', 0.6))
     enabled = _parse_enabled_checks(request.form.get('gost'))
     use_memory = _parse_use_memory(request.form.get('use_memory'))
+    weights, scale = _grade_params(request.form)
     job_id, error, status_code = _start_job(
-        request.files.getlist('files'), threshold, g.user, enabled, use_memory)
+        request.files.getlist('files'), threshold, g.user, enabled, use_memory,
+        weights, scale)
     if error:
         return jsonify({'error': error}), status_code
     return jsonify({

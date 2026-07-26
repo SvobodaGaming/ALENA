@@ -8,6 +8,10 @@
      data-sees-all="{{ '1' if can(user, 'see_all') else '0' }}"
      data-can-delete="{{ '1' if can(user, 'delete_own') else '0' }}">
 
+  {# Формулировки замечаний нужны на клиенте: у проверок, сделанных до
+     появления отзывов, в сводке есть только коды критериев. #}
+  <script type="application/json" id="flaw-map">{{ flaw_text | tojson }}</script>
+
   <div class="tiles">
     <div class="tile">
       <span class="eyebrow">Проверок</span>

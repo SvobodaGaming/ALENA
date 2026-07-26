@@ -56,6 +56,8 @@ _DEFAULT_PERMS = {
 DEFAULT_SETTINGS = {
     'default_threshold':       0.6,
     'default_gost':            [],      # empty list = all checks
+    'gost_weights':            {},      # код критерия → 0…100; нет ключа = 100
+    'grade_scale':             100,     # 100 = оценка в процентах, иначе баллы
     'retention_days':          0,       # 0 = keep reports forever
     'pw_min_len':              10,
     'pw_require_change_first': True,

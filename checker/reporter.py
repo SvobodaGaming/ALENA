@@ -4,6 +4,8 @@ import html as _html
 from pathlib import Path
 from datetime import datetime
 
+from . import grading
+
 
 def _esc(s: str) -> str:
     return _html.escape(str(s))
@@ -437,8 +439,55 @@ def _render_img_plag_for_report(path: str, image_plagiarism: dict,
     return ' '.join(badges) + ''.join(items)
 
 
+def _render_feedback(report: dict, gost_results: list, max_sim: float,
+                     threshold: float, weights: dict, scale: int) -> str:
+    """Рекомендуемая оценка и готовый к копированию отзыв для одной работы."""
+    mark = grading.grade(gost_results, weights, scale)
+    student = {
+        'fio':   _display_name(report),
+        'group': (report.get('student') or {}).get('group', ''),
+        'flaws': grading.flaws(gost_results),
+        'plag':  round(max_sim * 100),
+        'grade': mark,
+    }
+    thr_pct = int(threshold * 100)
+    lines = grading.feedback_lines(student, thr_pct)
+    plain = grading.feedback_text(student, thr_pct)
+
+    pct = mark['pct'] or 0
+    color = '#22c55e' if pct >= 85 else '#f59e0b' if pct >= 60 else '#ef4444'
+    in_points = (f' &nbsp;<span style="font-size:0.8rem;color:#64748b;">'
+                 f'{mark["score"]:g} из {mark["scale"]}</span>'
+                 if mark['score'] is not None else '')
+
+    if lines:
+        items = ''.join(f'<li>{_esc(l)}</li>' for l in lines)
+        body = f'<ul class="flaw-list">{items}</ul>'
+    else:
+        body = ('<p style="color:#16a34a;font-size:0.85rem;margin:0;">'
+                'Замечаний по оформлению нет.</p>')
+
+    costly = ''
+    if mark['lost']:
+        top = mark['lost'][0]
+        costly = (f'<p class="flaw-note">Дороже всего обошлось: '
+                  f'{_esc(top["name"])} — минус {top["weight"]:g}%.</p>')
+
+    return f'''
+    <div class="verdict">
+      <div class="verdict-head">
+        <h3 style="margin:0;">Рекомендуемая оценка за оформление</h3>
+        <span class="verdict-grade" style="color:{color};">{pct}%</span>{in_points}
+        <button type="button" class="copy-btn" data-text="{_esc(plain)}">Копировать отзыв</button>
+      </div>
+      {body}
+      {costly}
+    </div>'''
+
+
 def _render_card(report: dict, text_plagiarism: dict, image_plagiarism: dict,
-                 threshold: float, report_by_path: dict) -> str:
+                 threshold: float, report_by_path: dict,
+                 weights: dict = None, scale: int = grading.DEFAULT_SCALE) -> str:
     path = report['path']
     gost_results = report.get('gost_results', [])
     passed, total = _gost_score(gost_results)
@@ -513,6 +562,8 @@ def _render_card(report: dict, text_plagiarism: dict, image_plagiarism: dict,
     {f'<p style="color:#64748b;font-size:0.84rem;margin-bottom:10px;">{meta}</p>' if meta else ''}
     <p style="font-size:0.76rem;color:#94a3b8;margin-bottom:16px;">📄 {fname_disp}</p>
 
+    {_render_feedback(report, gost_results, max_sim, threshold, weights, scale)}
+
     <div class="grid-2">
       <!-- GOST -->
       <div>
@@ -543,7 +594,9 @@ def _render_card(report: dict, text_plagiarism: dict, image_plagiarism: dict,
 
 def generate_html_report(reports: list, historical: list,
                          text_plagiarism: dict, image_plagiarism: dict,
-                         threshold: float = 0.6, job_id: str = '') -> str:
+                         threshold: float = 0.6, job_id: str = '',
+                         weights: dict = None,
+                         scale: int = grading.DEFAULT_SCALE) -> str:
     """
     Generate a self-contained HTML report.
 
@@ -552,6 +605,8 @@ def generate_html_report(reports: list, historical: list,
         historical: virtual report dicts from memory store (is_historical=True)
         text_plagiarism, image_plagiarism: results from checker modules
         threshold: similarity threshold (0-1)
+        weights: «процент использования» критериев для рекомендуемой оценки
+        scale: шкала оценки (100 — проценты)
     """
     now      = datetime.now().strftime('%d.%m.%Y %H:%M')
     n        = len(reports)
@@ -618,7 +673,8 @@ def generate_html_report(reports: list, historical: list,
 
 
     cards = ''.join(
-        _render_card(r, text_plagiarism, image_plagiarism, threshold, report_by_path)
+        _render_card(r, text_plagiarism, image_plagiarism, threshold,
+                     report_by_path, weights, scale)
         for r in reports
     )
 
@@ -676,6 +732,15 @@ def generate_html_report(reports: list, historical: list,
             img_badge = f'<span class="badge badge-blue">{review_count} на проверку</span>'
         else:
             img_badge = '<span style="color:#16a34a;">—</span>'
+        mark = grading.grade(r.get('gost_results', []), weights, scale)
+        mark_pct = mark['pct'] or 0
+        mark_text = (f'{mark["score"]:g} из {mark["scale"]}'
+                     if mark['score'] is not None else f'{mark_pct}%')
+        mark_badge = (
+            f'<span class="badge badge-green">{mark_text}</span>' if mark_pct >= 85 else
+            f'<span class="badge {"badge-amber" if mark_pct >= 60 else "badge-red"}">'
+            f'{mark_text}</span>'
+        )
         anchor = _anchor(r)
         summary_rows.append(
             f'<tr class="{_row_class(r)}">'
@@ -683,6 +748,7 @@ def generate_html_report(reports: list, historical: list,
             f'<td>{plag_badge} → {other_name_html}</td>'
             f'<td>{img_badge}</td>'
             f'<td>{gost_badge}</td>'
+            f'<td>{mark_badge}</td>'
             f'</tr>'
         )
 
@@ -694,6 +760,7 @@ def generate_html_report(reports: list, historical: list,
       <th>Макс. схожесть текста</th>
       <th>Дубли изображений</th>
       <th>ГОСТ</th>
+      <th>Оценка за оформление</th>
     </tr>
   </thead>
   <tbody>{"".join(summary_rows)}</tbody>
@@ -829,6 +896,26 @@ a:hover { text-decoration: underline; }
   a { color: inherit; text-decoration: none; }
   .container { padding: 12px; }
 }
+
+/* Рекомендуемая оценка и готовый отзыв */
+.verdict {
+  border: 1px solid #e2e8f0; border-left: 4px solid #015D1E;
+  border-radius: 8px; padding: 12px 14px; margin-bottom: 16px;
+  background: #f8fafc; break-inside: avoid;
+}
+.verdict-head { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+.verdict-head h3 { font-size: 0.86rem; }
+.verdict-grade { font-size: 1.1rem; font-weight: 700; }
+.copy-btn {
+  margin-left: auto; font: inherit; font-size: 0.78rem; cursor: pointer;
+  border: 1px solid #cbd5e1; background: #fff; color: #0f172a;
+  border-radius: 6px; padding: 5px 10px;
+}
+.copy-btn:hover { background: #015D1E; border-color: #015D1E; color: #fff; }
+.flaw-list { margin: 0; padding-left: 20px; font-size: 0.85rem; line-height: 1.55; }
+.flaw-list li { margin-bottom: 2px; }
+.flaw-note { margin: 8px 0 0; font-size: 0.78rem; color: #64748b; }
+@media print { .copy-btn { display: none; } }
 '''
 
     js = '''
@@ -838,6 +925,32 @@ document.querySelectorAll('.report-header, .section-head').forEach(function(h) {
     var arrow = this.querySelector('.toggle-arrow');
     body.classList.toggle('open');
     if (arrow) arrow.classList.toggle('open');
+  });
+});
+
+/* Копирование отзыва. Кнопка живёт внутри раскрывающейся карточки —
+   клик не должен её сворачивать, поэтому всплытие останавливаем. */
+document.querySelectorAll('.copy-btn').forEach(function(btn) {
+  btn.addEventListener('click', function(e) {
+    e.stopPropagation();
+    var text = btn.dataset.text || '';
+    var done = function() {
+      var was = btn.textContent;
+      btn.textContent = 'Скопировано';
+      setTimeout(function() { btn.textContent = was; }, 1600);
+    };
+    if (navigator.clipboard && window.isSecureContext) {
+      navigator.clipboard.writeText(text).then(done);
+      return;
+    }
+    var ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.position = 'fixed';
+    ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.select();
+    try { document.execCommand('copy'); done(); } catch (err) {}
+    document.body.removeChild(ta);
   });
 });
 '''

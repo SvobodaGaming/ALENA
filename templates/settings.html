@@ -18,6 +18,17 @@
             <span class="hint">Подставляется в форму новой проверки. Преподаватель может изменить.</span>
           </div>
           <div class="field">
+            <label for="grade_scale">Шкала рекомендуемой оценки</label>
+            <select id="grade_scale" name="grade_scale">
+              <option value="100" {% if scale == 100 %}selected{% endif %}>Проценты, 0—100</option>
+              <option value="5" {% if scale == 5 %}selected{% endif %}>5 баллов</option>
+              <option value="10" {% if scale == 10 %}selected{% endif %}>10 баллов</option>
+              <option value="20" {% if scale == 20 %}selected{% endif %}>20 баллов</option>
+            </select>
+            <span class="hint">Оценка за оформление всегда считается в процентах;
+              при балльной шкале рядом показывается пересчёт.</span>
+          </div>
+          <div class="field">
             <label for="retention_days">Хранить проверки и отчёты</label>
             <select id="retention_days" name="retention_days">
               <option value="0" {% if conf.retention_days == 0 %}selected{% endif %}>Бессрочно</option>
@@ -34,21 +45,36 @@
         <div class="section-head">
           <h2>Критерии ГОСТ по умолчанию</h2>
           <span class="spacer"></span>
-          <button class="btn sm" type="button" onclick="document.querySelectorAll('.gost-def').forEach(c => c.checked = true)">Все</button>
-          <button class="btn sm" type="button" onclick="document.querySelectorAll('.gost-def').forEach(c => c.checked = false)">Снять</button>
+          <button class="btn sm" type="button" onclick="document.querySelectorAll('.gost-def').forEach(c => c.checked = true); window.alenaRecalcWeights()">Все</button>
+          <button class="btn sm" type="button" onclick="document.querySelectorAll('.gost-def').forEach(c => c.checked = false); window.alenaRecalcWeights()">Снять</button>
         </div>
         <div class="section-body">
-          <div class="gost-cols">
+          <div class="gost-cols crit-list weighing">
             {% for code, name, group, hint in gost_checks %}
-            <label class="check">
-              <input type="checkbox" class="gost-def" name="gost_item" value="{{ code }}"
-                     {% if code in enabled_codes %}checked{% endif %}>
-              <span><span class="mono" style="color:var(--muted)">{{ code }}</span> <span class="has-hint" title="{{ hint }}">{{ name }}</span></span>
-            </label>
+            <div class="crit">
+              <label class="check">
+                <input type="checkbox" class="gost-def" name="gost_item" value="{{ code }}"
+                       {% if code in enabled_codes %}checked{% endif %}>
+                <span><span class="mono" style="color:var(--muted)">{{ code }}</span> <span class="has-hint" title="{{ hint }}">{{ name }}</span></span>
+              </label>
+              <span class="crit-w">
+                <input type="number" class="w-in" name="weight_{{ code }}" data-code="{{ code }}"
+                       min="0" max="100" step="5" value="{{ weights[code] }}"
+                       aria-label="Вес критерия {{ code }}, %">
+                <b class="mono crit-share" data-share="{{ code }}">—</b>
+              </span>
+            </div>
             {% endfor %}
           </div>
           <p class="hint" style="margin:14px 0 0;">Сканы и экспорт из LaTeX часто дают ложные срабатывания
             по шрифту и полям — такие критерии можно снять здесь один раз для всех.</p>
+          <p class="hint" style="margin:8px 0 0;">Второе поле — процент использования критерия в
+            рекомендуемой оценке, от 0 до 100. Веса отмеченных критериев приводятся к сумме 100,
+            справа показана итоговая доля. Вес 0 — критерий проверяется и попадает в отзыв студенту,
+            но оценку не меняет. Преподаватель может изменить веса при запуске проверки.</p>
+          <div style="display:flex;gap:8px;margin-top:12px;">
+            <button class="btn sm" type="button" id="w-equal">Сделать равными</button>
+          </div>
           <input type="hidden" name="gost" id="gost-hidden">
         </div>
       </div>

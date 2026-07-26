@@ -7,6 +7,8 @@ per-student rows and the matches that were flagged.
 
 from collections import Counter
 
+from . import grading
+
 
 def _gost_pct(report: dict) -> int:
     results = report.get('gost_results', []) or []
@@ -38,10 +40,17 @@ def _where(report: dict) -> str:
 
 
 def build(reports: list, historical: list, text_plag: dict, img_plag: dict,
-          threshold: float) -> dict:
-    """Digest of one finished check. `reports` are the freshly uploaded ones."""
+          threshold: float, weights: dict = None,
+          scale: int = grading.DEFAULT_SCALE) -> dict:
+    """Digest of one finished check. `reports` are the freshly uploaded ones.
+
+    `weights` and `scale` are captured per job: the recommended grade must stay
+    what it was when the check ran, even if the administrator later reweighs
+    the criteria.
+    """
     by_path = {r.get('path'): r for r in (reports + historical)}
     matrix = text_plag.get('matrix', {}) or {}
+    weights = weights or {}
 
     students = []
     for r in reports:
@@ -52,6 +61,8 @@ def build(reports: list, historical: list, text_plag: dict, img_plag: dict,
                 'gost':  None,
                 'plag':  None,
                 'fails': [],
+                'flaws': [],
+                'grade': None,
                 'error': str(r.get('error')),
             })
             continue
@@ -60,12 +71,15 @@ def build(reports: list, historical: list, text_plag: dict, img_plag: dict,
         path = r.get('path')
         row = {p: v for p, v in (matrix.get(path, {}) or {}).items() if p != path}
         worst = max(row.values()) if row else 0.0
+        results = r.get('gost_results', []) or []
         students.append({
             'fio':   _display_name(r),
             'group': _group_of(r),
             'gost':  _gost_pct(r),
             'plag':  round(worst * 100),
             'fails': _failed_codes(r),
+            'flaws': grading.flaws(results),
+            'grade': grading.grade(results, weights, scale),
             'error': None,
         })
 
@@ -112,6 +126,10 @@ def build(reports: list, historical: list, text_plag: dict, img_plag: dict,
     groups = sorted({s['group'] for s in students if s['group']})
     fails = Counter(code for s in students for code in s['fails'])
 
+    grades = [s['grade']['pct'] for s in scored
+              if s['grade'] and s['grade']['pct'] is not None]
+    grade_pct = round(sum(grades) / len(grades)) if grades else None
+
     return {
         'group':       groups[0] if groups else '—',
         'groups':      groups,
@@ -122,4 +140,9 @@ def build(reports: list, historical: list, text_plag: dict, img_plag: dict,
         'matches':     matches,
         'fail_counts': fails.most_common(),
         'clean':       sum(1 for s in scored if not s['fails']),
+        'grade':       grade_pct,
+        'grade_score': grading.as_score(grade_pct, scale),
+        'scale':       scale,
+        # веса, отличные от равных, меняют смысл оценки — это видно в интерфейсе
+        'weighted':    any(v != grading.DEFAULT_WEIGHT for v in weights.values()),
     }

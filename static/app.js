@@ -43,11 +43,14 @@
   const modalBack = $('#modal-back');
   let modalOk = null;
 
-  function confirmAction({ title, sub = '', body = '', okText = 'Подтвердить', danger = false, onOk }) {
+  function confirmAction({ title, sub = '', body = '', okText = 'Подтвердить',
+                           cancelText = 'Отмена', danger = false, wide = false, onOk }) {
     if (!modalBack) { if (confirm(title)) onOk && onOk(); return; }
     $('#modal-title').textContent = title;
     $('#modal-sub').textContent = sub;
     $('#modal-body').innerHTML = body;
+    $('#modal-cancel').textContent = cancelText;
+    modalBack.querySelector('.modal').classList.toggle('wide', wide);
     const ok = $('#modal-ok');
     ok.textContent = okText;
     ok.className = 'btn ' + (danger ? 'danger' : 'primary');
@@ -80,6 +83,64 @@
     });
   });
 
+  /* ── Копирование в буфер ── */
+
+  async function copyText(text, okMessage = 'Скопировано') {
+    try {
+      if (navigator.clipboard && window.isSecureContext) {
+        await navigator.clipboard.writeText(text);
+      } else {
+        // http без TLS: clipboard-API недоступен, остаётся старый способ
+        const ta = document.createElement('textarea');
+        ta.value = text;
+        ta.style.cssText = 'position:fixed;opacity:0';
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand('copy');
+        ta.remove();
+      }
+      toast(okMessage);
+    } catch (e) {
+      toast('Не удалось скопировать — выделите текст вручную');
+    }
+  }
+
+  /* ── Веса критериев (страницы «Новая проверка» и «Настройки») ── */
+
+  function recalcWeights() {
+    const rows = $$('.crit');
+    if (!rows.length) return;
+    const val = r => {
+      const n = parseInt(r.querySelector('.w-in').value, 10);
+      return Math.max(0, Math.min(100, isNaN(n) ? 0 : n));
+    };
+    const on = r => r.querySelector('input[type="checkbox"]').checked;
+    const active = rows.filter(on);
+    const total = active.reduce((s, r) => s + val(r), 0);
+
+    rows.forEach(r => {
+      const out = r.querySelector('.crit-share');
+      if (!on(r)) { out.textContent = '—'; out.title = 'Критерий снят'; return; }
+      // Сумма нулей — вырожденный случай, критерии считаются равными.
+      const share = total ? val(r) * 100 / total : 100 / active.length;
+      out.textContent = (share < 9.95 ? share.toFixed(1) : Math.round(share)) + '%';
+      out.title = 'Доля в рекомендуемой оценке';
+    });
+  }
+
+  window.alenaRecalcWeights = recalcWeights;
+
+  if ($('.crit')) {
+    $$('.w-in').forEach(i => i.addEventListener('input', recalcWeights));
+    $$('.crit input[type="checkbox"]').forEach(c => c.addEventListener('change', recalcWeights));
+    const equal = $('#w-equal');
+    if (equal) equal.onclick = () => {
+      $$('.w-in').forEach(i => { i.value = 100; });
+      recalcWeights();
+    };
+    recalcWeights();
+  }
+
   /* ── Значки состояния ── */
 
   const ICON = {
@@ -92,6 +153,42 @@
   const gostTone = v => v >= 85 ? 'ok' : v >= 70 ? 'warn' : 'crit';
   const plagTone = (v, threshold) => v >= threshold ? 'crit' : v >= threshold * 0.6 ? 'warn' : 'ok';
   const toneVar = t => `var(--${t})`;
+
+  /* ── Текст отзыва (тот же, что складывает checker/grading.py) ── */
+
+  const FLAW_TEXT = (() => {
+    const box = $('#flaw-map');
+    try { return box ? JSON.parse(box.textContent) : {}; } catch (e) { return {}; }
+  })();
+
+  function feedbackLines(st, thr, details) {
+    if (st.error) return [`Файл не удалось прочитать: ${st.error}`];
+    // У проверок, сделанных до появления отзывов, есть только коды критериев.
+    const flaws = st.flaws
+      || (st.fails || []).map(c => ({ code: c, text: FLAW_TEXT[c] || c, details: '' }));
+    const lines = flaws.map(f =>
+      details && f.details ? `${f.text} (${f.details})` : f.text);
+    if (st.plag != null && thr != null && st.plag >= thr) {
+      lines.push(`Совпадение с другой работой — ${st.plag}% (допустимый порог ${thr}%)`);
+    }
+    return lines;
+  }
+
+  function feedbackText(st, thr, details) {
+    const lines = feedbackLines(st, thr, details);
+    let head = st.fio || 'Работа';
+    if (st.group) head += `, ${st.group}`;
+    const body = lines.length
+      ? 'Замечания по оформлению:\n' + lines.map(l => '• ' + l).join('\n')
+      : 'Замечаний по оформлению нет.';
+    const g = st.grade || {};
+    let tail = '';
+    if (g.pct != null) {
+      tail = `\n\nРекомендуемая оценка за оформление: ${g.pct}%`;
+      if (g.score != null) tail += ` (${g.score} из ${g.scale})`;
+    }
+    return `${head}\n\n${body}${tail}`;
+  }
 
   /* ── Экран «Проверки» ── */
 
@@ -218,7 +315,8 @@
           <div class="detail-actions">
             ${j.status === 'done' ? `
               <a class="btn primary" href="/report/${esc(j.id)}" target="_blank" rel="noopener">Открыть отчёт</a>
-              <a class="btn" href="/export/${esc(j.id)}">Скачать PDF</a>` : ''}
+              <a class="btn" href="/export/${esc(j.id)}">Скачать PDF</a>
+              <button class="btn" id="fb-all">Отзывы студентам</button>` : ''}
             ${canDelete ? `<button class="btn danger" data-del="${esc(j.id)}"
               ${j.status === 'processing' ? 'disabled title="Дождитесь завершения"' : ''}>Удалить</button>` : ''}
           </div>
@@ -253,6 +351,18 @@
       }
 
       const gt = gostTone(s.gost || 0), pt = plagTone(s.plag || 0, thr);
+      const mark = s.grade == null ? null : s.grade;
+      const mt = mark == null ? 'idle' : gostTone(mark);
+      const markMeter = mark == null ? '' : `
+          <div>
+            <div class="meter-top"><span class="meter-label">Рекомендуемая оценка за оформление</span>
+              <span class="meter-val" style="color:${toneVar(mt)}">${mark}%</span></div>
+            <div class="track"><div class="fill" style="width:${mark}%;--tone:${toneVar(mt)}"></div></div>
+            <div class="meter-note">${s.grade_score != null
+                ? `${s.grade_score} из ${s.scale} · среднее по группе`
+                : 'Среднее по группе'}
+              ${s.weighted ? chip('warn', 'Веса изменены') : chip('ok', 'Веса равные')}</div>
+          </div>`;
       const meters = `
         <div class="meters">
           <div>
@@ -262,6 +372,7 @@
             <div class="meter-note">Средняя доля пройденных критериев
               ${chip(gt, gt === 'ok' ? 'В норме' : gt === 'warn' ? 'Есть замечания' : 'Много нарушений')}</div>
           </div>
+          ${markMeter}
           <div>
             <div class="meter-top"><span class="meter-label">Максимальное заимствование</span>
               <span class="meter-val" style="color:${toneVar(pt)}">${s.plag || 0}%</span></div>
@@ -271,19 +382,26 @@
           </div>
         </div>`;
 
-      const students = (s.students || []).map(st => {
+      const students = (s.students || []).map((st, i) => {
+        const fb = `<td class="act"><button class="btn sm" data-fb="${i}">Отзыв</button></td>`;
         if (st.error) {
           return `<tr><td>${esc(st.fio)}</td><td class="num">—</td><td class="num">—</td>
-            <td><span class="code">не обработан: ${esc(st.error)}</span></td></tr>`;
+            <td class="num">—</td>
+            <td><span class="code">не обработан: ${esc(st.error)}</span></td>${fb}</tr>`;
         }
         const a = gostTone(st.gost), b = plagTone(st.plag, thr);
+        const g = st.grade || {};
+        const mt2 = g.pct == null ? 'idle' : gostTone(g.pct);
         return `<tr>
           <td>${esc(st.fio)}${st.group ? `<br><span class="sub mono">${esc(st.group)}</span>` : ''}</td>
           <td class="num" style="color:${toneVar(a)}">${st.gost}%</td>
+          <td class="num" style="color:${toneVar(mt2)}"><b>${g.pct == null ? '—' : g.pct + '%'}</b>
+            ${g.score != null ? `<br><span class="sub mono">${g.score} из ${g.scale}</span>` : ''}</td>
           <td class="num" style="color:${toneVar(b)}">${st.plag}%</td>
           <td>${st.fails.length
             ? '<span class="sub">не пройдено:</span> ' + st.fails.map(c => `<span class="code">${esc(c)}</span>`).join(' ')
             : '<span class="code pass">все критерии пройдены</span>'}</td>
+          ${fb}
         </tr>`;
       }).join('');
 
@@ -307,8 +425,9 @@
           </button>
           <div class="fold-body"><div>
             <div class="tbl-wrap"><table>
-              <thead><tr><th>Студент</th><th class="num">ГОСТ</th><th class="num">Заимств.</th><th>Замечания</th></tr></thead>
-              <tbody>${students || '<tr><td colspan="4" class="empty">Нет данных.</td></tr>'}</tbody>
+              <thead><tr><th>Студент</th><th class="num">ГОСТ</th><th class="num">Оценка</th>
+                <th class="num">Заимств.</th><th>Замечания</th><th></th></tr></thead>
+              <tbody>${students || '<tr><td colspan="6" class="empty">Нет данных.</td></tr>'}</tbody>
             </table></div>
           </div></div>
         </div>
@@ -323,6 +442,49 @@
         </details>` : ''}`;
       wireDelete();
       wireFold();
+      wireFeedback(s, thr);
+    }
+
+    /* Готовый отзыв: то же, что видно в таблице, но словами и одним куском —
+       преподаватель копирует его на портал, ничего не переписывая. */
+    function wireFeedback(s, thr) {
+      const list = s.students || [];
+      $$('#detail-pane [data-fb]').forEach(b => {
+        b.onclick = () => showFeedback(list[+b.dataset.fb], thr);
+      });
+      const all = $('#fb-all');
+      if (all) all.onclick = () => showFeedback(list, thr);
+    }
+
+    function showFeedback(target, thr) {
+      const many = Array.isArray(target);
+      if (many && !target.length) { toast('В этой проверке нет работ'); return; }
+      const build = det => many
+        ? target.map(st => feedbackText(st, thr, det)).join('\n\n————————\n\n')
+        : feedbackText(target, thr, det);
+
+      confirmAction({
+        title: many ? 'Отзывы по всей пачке' : 'Отзыв для портала',
+        sub: many ? `${target.length} работ, подряд одним текстом`
+                  : (target.fio || '') + (target.group ? ` · ${target.group}` : ''),
+        body: `
+          <label class="check" style="margin-bottom:10px;">
+            <input type="checkbox" id="fb-details">
+            <span>С подробностями проверки — что именно нашлось</span>
+          </label>
+          <textarea id="fb-text" class="fb-text" rows="${many ? 16 : 11}"
+            aria-label="Текст отзыва">${esc(build(false))}</textarea>
+          <p class="hint" style="margin:8px 0 0;">Текст можно поправить прямо здесь — копируется то,
+            что осталось в поле.</p>`,
+        okText: 'Копировать',
+        cancelText: 'Закрыть',
+        wide: true,
+        onOk: () => copyText($('#fb-text').value,
+                             many ? 'Отзывы скопированы' : 'Отзыв скопирован'),
+      });
+
+      const box = $('#fb-details');
+      if (box) box.onchange = () => { $('#fb-text').value = build(box.checked); };
     }
 
     /* Список студентов свёрнут по умолчанию; состояние переживает
@@ -403,11 +565,24 @@
     const countGost = () => {
       const n = $$('.gost-cb:checked').length;
       $('#gost-count').textContent = `${n} из ${$$('.gost-cb').length}`;
+      recalcWeights();
     };
     $$('.gost-cb').forEach(cb => cb.onchange = countGost);
     $('#gost-all').onclick = () => { $$('.gost-cb').forEach(c => c.checked = true); countGost(); };
     $('#gost-none').onclick = () => { $$('.gost-cb').forEach(c => c.checked = false); countGost(); };
     countGost();
+
+    /* Веса скрыты, пока преподаватель их не открыл: обычный запуск — это
+       три клика, а не настройка формулы. */
+    const wBtn = $('#gost-weights');
+    if (wBtn) wBtn.onclick = () => {
+      const on = wBtn.getAttribute('aria-pressed') !== 'true';
+      wBtn.setAttribute('aria-pressed', on);
+      wBtn.classList.toggle('primary', on);
+      $$('.crit-list').forEach(l => l.classList.toggle('weighing', on));
+      $('#weights-panel').hidden = !on;
+      recalcWeights();
+    };
 
     uploadForm.addEventListener('submit', async e => {
       e.preventDefault();
@@ -416,6 +591,9 @@
       data.append('threshold', (thr.value / 100).toFixed(2));
       data.append('gost', $$('.gost-cb:checked').map(c => c.value).join(','));
       data.append('use_memory', $('#use-memory').checked ? '1' : '0');
+      data.append('weights', $$('.w-in').map(i => `${i.dataset.code}:${i.value || 0}`).join(','));
+      const scale = $('#grade-scale');
+      if (scale) data.append('scale', scale.value);
 
       startBtn.disabled = true;
       $('#run-progress').hidden = false;

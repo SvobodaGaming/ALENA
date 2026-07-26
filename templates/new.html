@@ -41,30 +41,69 @@
       <div class="section-head">
         <h2>Критерии ГОСТ 7.32-2017</h2>
         <span class="spacer"></span>
+        <button class="btn sm" type="button" id="gost-weights" aria-pressed="false">Веса критериев</button>
         <button class="btn sm" type="button" id="gost-all">Все</button>
         <button class="btn sm" type="button" id="gost-none">Снять</button>
       </div>
       <div class="section-body">
+        <div id="weights-panel" hidden>
+          <div class="note">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 7.6v.1"/></svg>
+            <span>Процент использования критерия — от 0 до 100. Веса отмеченных критериев
+              приводятся к сумме 100, справа видна итоговая доля в оценке. Вес 0 — критерий
+              проверяется и попадает в отзыв, но на оценку не влияет.</span>
+          </div>
+          <div style="display:flex;align-items:flex-end;gap:10px;margin:0 0 14px;">
+            <div class="field" style="max-width:220px;">
+              <label for="grade-scale">Шкала рекомендуемой оценки</label>
+              <select id="grade-scale">
+                <option value="100" {% if scale == 100 %}selected{% endif %}>Проценты, 0—100</option>
+                <option value="5" {% if scale == 5 %}selected{% endif %}>5 баллов</option>
+                <option value="10" {% if scale == 10 %}selected{% endif %}>10 баллов</option>
+                <option value="20" {% if scale == 20 %}selected{% endif %}>20 баллов</option>
+              </select>
+            </div>
+            <button class="btn sm" type="button" id="w-equal">Сделать веса равными</button>
+          </div>
+        </div>
+
         <div class="eyebrow" style="margin-bottom:7px;">Структурные элементы</div>
-        <div class="gost-cols">
+        <div class="gost-cols crit-list">
           {% for code, name, group, hint in gost_checks if group == 'structure' %}
-          <label class="check">
-            <input type="checkbox" class="gost-cb" value="{{ code }}" {% if code in enabled_codes %}checked{% endif %}>
-            <span><span class="mono" style="color:var(--muted)">{{ code }}</span> <span class="has-hint" title="{{ hint }}">{{ name }}</span></span>
-          </label>
+          <div class="crit">
+            <label class="check">
+              <input type="checkbox" class="gost-cb" value="{{ code }}" {% if code in enabled_codes %}checked{% endif %}>
+              <span><span class="mono" style="color:var(--muted)">{{ code }}</span> <span class="has-hint" title="{{ hint }}">{{ name }}</span></span>
+            </label>
+            <span class="crit-w">
+              <input type="number" class="w-in" data-code="{{ code }}" min="0" max="100" step="5"
+                     value="{{ weights[code] }}" aria-label="Вес критерия {{ code }}, %">
+              <b class="mono crit-share" data-share="{{ code }}">—</b>
+            </span>
+          </div>
           {% endfor %}
         </div>
+
         <div class="eyebrow" style="margin:16px 0 7px;">Оформление</div>
-        <div class="gost-cols">
+        <div class="gost-cols crit-list">
           {% for code, name, group, hint in gost_checks if group == 'format' %}
-          <label class="check">
-            <input type="checkbox" class="gost-cb" value="{{ code }}" {% if code in enabled_codes %}checked{% endif %}>
-            <span><span class="mono" style="color:var(--muted)">{{ code }}</span> <span class="has-hint" title="{{ hint }}">{{ name }}</span></span>
-          </label>
+          <div class="crit">
+            <label class="check">
+              <input type="checkbox" class="gost-cb" value="{{ code }}" {% if code in enabled_codes %}checked{% endif %}>
+              <span><span class="mono" style="color:var(--muted)">{{ code }}</span> <span class="has-hint" title="{{ hint }}">{{ name }}</span></span>
+            </label>
+            <span class="crit-w">
+              <input type="number" class="w-in" data-code="{{ code }}" min="0" max="100" step="5"
+                     value="{{ weights[code] }}" aria-label="Вес критерия {{ code }}, %">
+              <b class="mono crit-share" data-share="{{ code }}">—</b>
+            </span>
+          </div>
           {% endfor %}
         </div>
+
         <p class="hint" style="margin:16px 0 0;">
-          В балл ГОСТ войдут только отмеченные критерии — <b class="mono" id="gost-count"></b>.
+          В балл ГОСТ и в рекомендуемую оценку войдут только отмеченные критерии —
+          <b class="mono" id="gost-count"></b>.
         </p>
       </div>
     </div>

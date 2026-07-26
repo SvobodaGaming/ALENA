@@ -67,8 +67,10 @@ Start a check. `multipart/form-data`:
 |-------|------|-------|
 | `files` | file(s) | One or more `.pdf` files, or a `.zip` of PDFs. Repeat the field for several files. |
 | `threshold` | float | Text-similarity threshold, `0.0`-`1.0` (default `0.6`). |
-| `gost` | string | Optional comma-separated GOST check codes to evaluate, e.g. `S1,S3,F7,F9`. Omit the field to run all 15 checks; an empty value runs none. Codes: `S1`-`S6` (structural elements), `F1`-`F9` (formatting). |
+| `gost` | string | Optional comma-separated GOST check codes to evaluate, e.g. `S1,S3,F7,F9`. Omit the field to run all 20 checks; an empty value runs none. Codes: `S1`-`S9` (structural elements), `F1`-`F11` (formatting). |
 | `use_memory` | string | Optional. `0`/`false` skips plagiarism comparison against the stored fingerprint base (only files within the batch are compared). New reports are still added to the base. Default `1`. |
+| `weights` | string | Optional per-criterion weight for the recommended grade, `0`-`100` each: `S1:100,F1:20,F2:100`. Codes not listed keep `100`. The weights of the criteria actually selected are normalised to sum to 100. Omit the field to use the weights set by the administrator. |
+| `scale` | int | Optional grade scale, `2`-`100`. `100` (default) means the grade is a percentage; any other value also reports the grade in points of that scale. |
 
 `201 Created`:
 
@@ -110,9 +112,22 @@ List the jobs visible to the caller, keyed by `job_id`:
       "plag": 63,
       "threshold": 60,
       "clean": 8,
+      "grade": 74,
+      "grade_score": 7.4,
+      "scale": 10,
+      "weighted": true,
       "students": [
         { "fio": "Петров П. П.", "group": "ПР-21-1", "gost": 61,
-          "plag": 63, "fails": ["S2", "F3", "F7"], "error": null }
+          "plag": 63, "fails": ["S2", "F3", "F7"],
+          "flaws": [
+            { "code": "S2", "text": "Отсутствует лист задания на практику (курсовую работу)",
+              "details": "Лист задания не обнаружен" }
+          ],
+          "grade": {
+            "pct": 58, "score": 5.8, "scale": 10, "criteria": 20,
+            "lost": [{ "code": "F3", "name": "Основной текст 14 пт", "weight": 9.9 }]
+          },
+          "error": null }
       ],
       "matches": [
         { "a": "Петров П. П.", "b": "Белов А. Р. · ПР-20-1", "pct": 47,
@@ -127,6 +142,14 @@ List the jobs visible to the caller, keyed by `job_id`:
 
 `summary` is `null` until the check finishes; `matches[].pct` is `null` for
 duplicate images, which are a yes/no match rather than a share of the text.
+
+`grade` is the recommended formatting mark in percent — the share of the
+normalised criterion weights that the work earned; `grade_score` restates it in
+points of `scale` and is `null` when the scale is percent. `weighted` is `true`
+when the weights were not all equal. `students[].flaws` is the flat list the
+teacher pastes to the student portal: one plain-language line per failed
+criterion, in GOST order, with the checker's own wording in `details`.
+Checks that ran before this feature existed have no `grade` or `flaws`.
 
 ### GET `/jobs/<job_id>`
 Poll one job. Same shape as a list entry. Returns `done` with `progress: 100` if

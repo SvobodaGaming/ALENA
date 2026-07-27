@@ -75,11 +75,16 @@ def _find_passages(words1: list, words2: list) -> list:
     return passages[:6]
 
 
-def check_text_plagiarism(reports: list, threshold: float = 0.6) -> dict:
+def check_text_plagiarism(reports: list, threshold: float = 0.6,
+                          on_progress=None) -> dict:
     """
     Pairwise shingle-based similarity for all reports (including historical).
 
     Historical-vs-historical pairs are skipped (already compared in prior sessions).
+
+    on_progress(сравнено_пар, всего_пар) вызывается по ходу сравнения: на
+    большой партии этот этап идёт минутами, и без него полоса выполнения
+    замирает.
 
     Returns:
         pairs: flagged pairs sorted by similarity desc
@@ -105,7 +110,14 @@ def check_text_plagiarism(reports: list, threshold: float = 0.6) -> dict:
     matrix = {p: {p: 1.0} for p in paths}
     flagged = []
 
+    m = len(paths)
+    total_pairs = m * (m - 1) // 2
+    done_pairs = 0
+
     for i in range(len(paths)):
+        if on_progress is not None:
+            on_progress(done_pairs, total_pairs)
+            done_pairs += m - 1 - i
         for j in range(i + 1, len(paths)):
             p1, p2 = paths[i], paths[j]
 
@@ -135,6 +147,9 @@ def check_text_plagiarism(reports: list, threshold: float = 0.6) -> dict:
                     'similarity': sim,
                     'passages':   [p['text'][:300] for p in passages],
                 })
+
+    if on_progress is not None:
+        on_progress(total_pairs, total_pairs)
 
     flagged.sort(key=lambda x: -x['similarity'])
     return {'pairs': flagged, 'matrix': matrix, 'threshold': threshold}

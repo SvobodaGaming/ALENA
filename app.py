@@ -23,6 +23,7 @@ import json
 import os
 import re
 import secrets
+import time
 import uuid
 import zipfile
 import tempfile
@@ -445,8 +446,13 @@ def _may_touch(job: dict, user) -> bool:
 
 
 def _public_job(job: dict) -> dict:
-    """Job state without the heavy inline report HTML."""
-    return {k: v for k, v in job.items() if k != 'report_html'}
+    """Job state without the heavy inline report HTML.
+
+    Ключи с подчёркиванием — служебные отметки времени для троттлинга записи,
+    наружу они не идут.
+    """
+    return {k: v for k, v in job.items()
+            if k != 'report_html' and not k.startswith('_')}
 
 
 def _find_job(job_id: str):
@@ -818,32 +824,54 @@ def _safe_upload_name(raw: str):
     return name[:180]
 
 
-def _extract_zip(archive: str, dest_dir: str) -> None:
+def _pdf_entries(zf: zipfile.ZipFile) -> list:
+    """PDF-записи архива по его оглавлению, без распаковки."""
+    entries = []
+    for info in zf.infolist():
+        if info.is_dir():
+            continue
+        name = _safe_upload_name(info.filename)
+        if name is None or not name.lower().endswith('.pdf'):
+            continue
+        entries.append(info)
+    return entries
+
+
+def _zip_pdf_count(archive: str) -> int:
+    """Сколько PDF в архиве. Читается только оглавление — ответ мгновенный,
+    поэтому «в архиве нет PDF» видно сразу, а не после долгой распаковки."""
+    with zipfile.ZipFile(archive, 'r') as zf:
+        return len(_pdf_entries(zf))
+
+
+def _extract_zip(archive: str, dest_dir: str, on_file=None) -> None:
     """Распаковать только PDF и только внутрь папки задания.
 
     Имена берём по последнему сегменту пути: архив с записью вида
     `../../etc/passwd` не должен ничего написать за пределами tmp_dir. Заодно
     ограничиваем число файлов и суммарный размер — распаковка «архива-бомбы»
     иначе забьёт диск сервера.
+
+    on_file(готово, всего) вызывается после каждого файла: распаковка сотни
+    работ занимает заметное время, и о ней надо отчитываться.
     """
     total = 0
     written = 0
     with zipfile.ZipFile(archive, 'r') as zf:
-        for info in zf.infolist():
-            if info.is_dir():
-                continue
-            name = _safe_upload_name(info.filename)
-            if name is None or not name.lower().endswith('.pdf'):
-                continue
+        planned = _pdf_entries(zf)
+        for info in planned:
             total += info.file_size
             written += 1
             if written > ZIP_MAX_FILES or total > ZIP_MAX_TOTAL:
                 raise ValueError('архив слишком большой для распаковки')
+            name = _safe_upload_name(info.filename)
             target = Path(dest_dir) / name
             if target.exists():
                 target = Path(dest_dir) / f'{target.stem}_{written}{target.suffix}'
             with zf.open(info) as src, open(target, 'wb') as out:
                 shutil.copyfileobj(src, out, 1024 * 256)
+            if on_file is not None:
+                on_file(written, len(planned))
 
 
 def _parse_use_memory(raw) -> bool:
@@ -865,6 +893,10 @@ def _start_job(uploaded, threshold: float, owner, enabled_checks=None,
 
     Returns (job_id, error_message, http_status). On success error_message is
     None; on failure job_id is None.
+
+    Запрос завершается сразу после приёма файлов: распаковка архива идёт уже в
+    фоновом потоке. Иначе на большой партии браузер минутами ждал ответа, не
+    зная ни числа работ, ни того, что происходит.
     """
     if not uploaded or all(f.filename == '' for f in uploaded):
         return None, 'Файлы не выбраны', 400
@@ -872,7 +904,7 @@ def _start_job(uploaded, threshold: float, owner, enabled_checks=None,
     job_id = uuid.uuid4().hex[:10]
     tmp_dir = tempfile.mkdtemp(prefix=f'rc_{job_id}_')
 
-    pdf_paths = []
+    expected = 0
     try:
         for f in uploaded:
             name = _safe_upload_name(f.filename)
@@ -880,23 +912,17 @@ def _start_job(uploaded, threshold: float, owner, enabled_checks=None,
                 continue
             dest = os.path.join(tmp_dir, name)
             f.save(dest)
-            if name.lower().endswith('.zip'):
-                _extract_zip(dest, tmp_dir)
-                os.remove(dest)
-
-        for pdf in sorted(Path(tmp_dir).rglob('*.pdf')):
-            pdf_paths.append(str(pdf))
-        for pdf in sorted(Path(tmp_dir).rglob('*.PDF')):
-            pdf_paths.append(str(pdf))
-
-        seen: set = set()
-        pdf_paths = [p for p in pdf_paths if not (p in seen or seen.add(p))]
-
+            # Оглавление архива читается мгновенно: число работ известно сразу,
+            # а сама распаковка — уже в потоке проверки.
+            expected += _zip_pdf_count(dest) if name.lower().endswith('.zip') else 1
+    except zipfile.BadZipFile:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+        return None, 'Архив повреждён или это не ZIP', 400
     except Exception as e:
         shutil.rmtree(tmp_dir, ignore_errors=True)
         return None, f'Ошибка при загрузке: {e}', 500
 
-    if not pdf_paths:
+    if not expected:
         shutil.rmtree(tmp_dir, ignore_errors=True)
         return None, 'PDF-файлы не найдены в загруженных данных', 400
 
@@ -904,8 +930,8 @@ def _start_job(uploaded, threshold: float, owner, enabled_checks=None,
         jobs[job_id] = {
             'status':     'processing',
             'progress':   0,
-            'step':       'Старт...',
-            'total':      len(pdf_paths),
+            'step':       f'Файлы приняты: {expected} шт. Подготовка…',
+            'total':      expected,
             'done_files': 0,
             'text_pairs': 0,
             'img_pairs':  0,
@@ -923,7 +949,7 @@ def _start_job(uploaded, threshold: float, owner, enabled_checks=None,
 
     threading.Thread(
         target=_process_job,
-        args=(job_id, pdf_paths, tmp_dir, threshold, owner['login'],
+        args=(job_id, tmp_dir, threshold, owner['login'],
               enabled_checks, use_memory, weights or {},
               grading.clean_scale(scale)),
         daemon=True,
@@ -1221,49 +1247,115 @@ def user_delete(login_name):
 
 # ─────────────────────────  Processing  ─────────────────────────
 
-def _update(job_id: str, **kwargs):
+SAVE_EVERY = 1.0    # как часто состояние уходит в хранилище, секунд
+TICK_EVERY = 0.4    # как часто пересчитывается процент внутри этапа, секунд
+
+
+def _update(job_id: str, _force: bool = False, **kwargs):
+    """Обновить состояние проверки.
+
+    В памяти пишем всегда — страница берёт статус оттуда. На диск (или в
+    PostgreSQL) сбрасываем не чаще раза в секунду: на партии из сотни отчётов
+    прогресс меняется сотни раз, и переписывать jobs.json на каждый шаг дороже
+    самой проверки. Смена статуса сохраняется немедленно — по ней восстанавливают
+    историю после перезапуска.
+    """
     snapshot = None
     with jobs_lock:
-        if job_id in jobs:
-            jobs[job_id].update(kwargs)
-            snapshot = _public_job(jobs[job_id])
+        job = jobs.get(job_id)
+        if job is not None:
+            job.update(kwargs)
+            now = time.monotonic()
+            if (_force or 'status' in kwargs
+                    or now - job.get('_saved_at', 0.0) >= SAVE_EVERY):
+                job['_saved_at'] = now
+                snapshot = _public_job(job)
     if snapshot is not None:
         job_store.save(job_id, snapshot)
 
 
-def _process_job(job_id: str, pdf_paths: list, tmp_dir: str, threshold: float,
+def _tick(job_id: str, lo: int, hi: int, done: int, total: int, step: str):
+    """Процент внутри длинного этапа: lo…hi пропорционально done/total.
+
+    Без этого полоса замирает на одном значении на всё время сравнения пар —
+    на большой партии это минуты, и проверка выглядит зависшей.
+    """
+    now = time.monotonic()
+    with jobs_lock:
+        job = jobs.get(job_id)
+        if job is None:
+            return
+        if done < total and now - job.get('_ticked_at', 0.0) < TICK_EVERY:
+            return
+        job['_ticked_at'] = now
+    share = done / total if total else 1.0
+    _update(job_id, progress=int(lo + (hi - lo) * min(share, 1.0)), step=step)
+
+
+def _collect_pdfs(job_id: str, tmp_dir: str) -> list:
+    """Распаковать принятые архивы и собрать список PDF.
+
+    Живёт в потоке проверки, а не в обработчике запроса: на архиве в сотни
+    работ распаковка занимает минуты, и всё это время браузер не получал бы
+    даже номера проверки.
+    """
+    archives = sorted(Path(tmp_dir).glob('*.[zZ][iI][pP]'))
+    for k, arc in enumerate(archives):
+        _extract_zip(
+            str(arc), tmp_dir,
+            on_file=lambda done, total, k=k, name=arc.name: _tick(
+                job_id, 0, 4,
+                round((k + done / max(total, 1)) * 100), len(archives) * 100,
+                f'Распаковка {name[:50]}: {done} из {total}…'),
+        )
+        arc.unlink(missing_ok=True)
+
+    pdf_paths = [str(p) for p in sorted(Path(tmp_dir).rglob('*.pdf'))]
+    pdf_paths += [str(p) for p in sorted(Path(tmp_dir).rglob('*.PDF'))]
+    seen: set = set()
+    return [p for p in pdf_paths if not (p in seen or seen.add(p))]
+
+
+def _process_job(job_id: str, tmp_dir: str, threshold: float,
                  owner: str, enabled_checks=None, use_memory=True,
                  weights=None, scale=grading.DEFAULT_SCALE):
     try:
         from checker.memory_store import (load_store, to_virtual_report,
                                           upsert_report, save_store)
 
+        # 0. Unpack what was uploaded.
+        pdf_paths = _collect_pdfs(job_id, tmp_dir)
         n = len(pdf_paths)
+        if not n:
+            _update(job_id, status='error', progress=0,
+                    step='Ошибка: PDF-файлы не найдены в загруженных данных')
+            return
+        _update(job_id, progress=4, total=n, step=f'К проверке принято работ: {n}')
 
-        # 0. Load this teacher's slice of the base (they never see another's).
+        # 1. Load this teacher's slice of the base (they never see another's).
         #    Loaded even with use_memory=False — step 7 appends to it.
         store = load_store(owner)
         if use_memory:
-            _update(job_id, step=f'База загружена: {len(store)} записей')
+            _update(job_id, progress=5, step=f'База загружена: {len(store)} записей')
         else:
-            _update(job_id, step='Сравнение с базой отключено')
+            _update(job_id, progress=5, step='Сравнение с базой отключено')
 
-        # 1. Extract
+        # 2. Extract
         reports = []
         for i, path in enumerate(pdf_paths):
-            _update(job_id,
-                    progress=int(5 + 38 * i / n),
-                    step=f'Извлечение PDF {i+1}/{n}…',
-                    done_files=i)
+            _tick(job_id, 5, 44, i, n,
+                  f'Извлечение PDF {i+1} из {n}: {Path(path).name[:60]}…')
             reports.append(extract_report(path))
+            _update(job_id, done_files=i + 1)
         _update(job_id, progress=44, step='Извлечение завершено', done_files=n)
 
-        # 2. GOST
-        _update(job_id, progress=49, step='Проверка ГОСТ 7.32-2017…')
-        for r in reports:
+        # 3. GOST
+        for i, r in enumerate(reports):
+            _tick(job_id, 44, 52, i, n,
+                  f'Проверка ГОСТ 7.32-2017: {i+1} из {n}…')
             r['gost_results'] = check_gost(r, enabled_checks)
 
-        # 3. Build historical list, excluding students present in this batch.
+        # 4. Build historical list, excluding students present in this batch.
         #    Without this, a student's new report would match their own stored
         #    fingerprint from a previous session (false "self-plagiarism").
         def _key_base(r: dict) -> str:
@@ -1280,40 +1372,51 @@ def _process_job(job_id: str, pdf_paths: list, tmp_dir: str, threshold: float,
         else:
             historical = []
 
-        # 4. Text plagiarism (new + relevant historical)
+        # 5. Text plagiarism (new + relevant historical)
         pairs_count = n * (n - 1) // 2 + n * len(historical)
-        _update(job_id, progress=57,
+        _update(job_id, progress=52,
                 step=f'Анализ текста ({pairs_count} пар, вкл. базу)…')
-        text_plag = check_text_plagiarism(reports + historical, threshold=threshold)
+        text_plag = check_text_plagiarism(
+            reports + historical, threshold=threshold,
+            on_progress=lambda done, total: _tick(
+                job_id, 52, 75, done, total,
+                f'Анализ текста: {done} из {total} пар…'))
         flagged = len(text_plag.get('pairs', []))
-        _update(job_id, progress=76, text_pairs=flagged,
+        _update(job_id, progress=75, text_pairs=flagged,
                 step=f'Текст: {flagged} подозрительных пар')
 
-        # 5. Image plagiarism (new + historical)
+        # 6. Image plagiarism (new + historical)
         total_imgs = sum(len(r.get('images', [])) for r in reports)
-        _update(job_id, progress=81,
+        _update(job_id, progress=76,
                 step=f'Анализ изображений ({total_imgs} шт.)…')
-        img_plag = check_image_plagiarism(reports + historical)
+        img_plag = check_image_plagiarism(
+            reports + historical,
+            on_progress=lambda done, total: _tick(
+                job_id, 76, 88, done, total,
+                f'Анализ изображений: {done} из {total} пар…'))
         img_flagged = len([p for p in img_plag.get('pairs', [])
                            if not p.get('ui_review')])
         _update(job_id, img_pairs=img_flagged)
 
-        # 6. Generate HTML report
-        _update(job_id, progress=90, step='Генерация HTML-отчёта…')
+        # 7. Generate HTML report
+        _update(job_id, progress=88, step='Генерация HTML-отчёта…')
         html = generate_html_report(
             reports, historical, text_plag, img_plag, threshold, job_id=job_id,
             weights=weights, scale=scale
         )
         (REPORTS_DIR / f'{job_id}.html').write_text(html, encoding='utf-8')
 
-        # 7. Persist fingerprints to this teacher's base
-        _update(job_id, progress=97, step='Сохранение отпечатков в базу…')
+        # 8. Persist fingerprints to this teacher's base
+        _update(job_id, progress=95, step='Сохранение отпечатков в базу…')
         saved = 0
-        for r in reports:
+        for i, r in enumerate(reports):
+            _tick(job_id, 95, 99, i, n,
+                  f'Сохранение отпечатков: {i+1} из {n}…')
             if not r.get('error'):
                 upsert_report(store, r, job_id, owner)
                 saved += 1
         if saved:
+            _update(job_id, progress=99, step='Запись базы отпечатков…')
             save_store(store)
 
         _update(job_id,

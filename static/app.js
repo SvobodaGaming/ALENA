@@ -592,6 +592,45 @@
       recalcWeights();
     };
 
+    /* Полоса идёт сквозная: первые UPLOAD_SHARE процентов — передача файлов на
+       сервер, остальное — сама проверка. Иначе при загрузке пачки отчётов
+       страница минутами стоит на нуле: fetch не сообщает, сколько уже ушло. */
+    const UPLOAD_SHARE = 15;
+    const mb = bytes => (bytes / 1048576).toFixed(1);
+
+    const setBar = (pct, step) => {
+      const v = Math.max(0, Math.min(100, Math.round(pct)));
+      $('#run-pct').textContent = v + '%';
+      $('#run-bar').style.width = v + '%';
+      if (step != null) $('#run-step').textContent = step;
+    };
+
+    const sendFiles = data => new Promise((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      xhr.open('POST', '/upload');
+      xhr.setRequestHeader('X-CSRF-Token', CSRF);
+      xhr.upload.onprogress = e => {
+        if (!e.lengthComputable) return;
+        setBar(e.loaded / e.total * UPLOAD_SHARE,
+          e.loaded >= e.total
+            ? 'Файлы приняты, готовим проверку…'
+            : `Загрузка на сервер — ${mb(e.loaded)} из ${mb(e.total)} МБ…`);
+      };
+      xhr.onload = () => {
+        let out = {};
+        try { out = JSON.parse(xhr.responseText); } catch (_) { /* не JSON */ }
+        if (xhr.status === 413) {
+          reject(new Error('Слишком большой объём файлов — лимит 600 МБ на одну проверку'));
+        } else if (xhr.status >= 400 || !out.job_id) {
+          reject(new Error(out.error || 'Не удалось начать проверку'));
+        } else {
+          resolve(out.job_id);
+        }
+      };
+      xhr.onerror = () => reject(new Error('Связь с сервером прервалась'));
+      xhr.send(data);
+    });
+
     uploadForm.addEventListener('submit', async e => {
       e.preventDefault();
       const data = new FormData();
@@ -605,14 +644,11 @@
 
       startBtn.disabled = true;
       $('#run-progress').hidden = false;
-      $('#run-step').textContent = 'Загрузка файлов на сервер…';
+      setBar(0, 'Загрузка файлов на сервер…');
 
       let jobId;
       try {
-        const res = await post('/upload', { body: data });
-        const out = await res.json();
-        if (!res.ok) throw new Error(out.error || 'Не удалось начать проверку');
-        jobId = out.job_id;
+        jobId = await sendFiles(data);
       } catch (err) {
         $('#run-progress').hidden = true;
         startBtn.disabled = false;
@@ -624,9 +660,7 @@
         const res = await fetch(`/status/${jobId}`);
         if (!res.ok) { setTimeout(poll, 2000); return; }
         const j = await res.json();
-        $('#run-step').textContent = j.step || '';
-        $('#run-pct').textContent = (j.progress || 0) + '%';
-        $('#run-bar').style.width = (j.progress || 0) + '%';
+        setBar(UPLOAD_SHARE + (j.progress || 0) * (100 - UPLOAD_SHARE) / 100, j.step || '');
         $('#run-files').textContent = `${j.done_files || 0} / ${j.total || 0}`;
         $('#run-pairs').textContent = j.text_pairs || 0;
         $('#run-imgs').textContent = j.img_pairs || 0;

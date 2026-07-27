@@ -105,13 +105,16 @@ def image_meta(pil_img: Image.Image) -> dict:
     }
 
 
-def check_image_plagiarism(reports: list) -> dict:
+def check_image_plagiarism(reports: list, on_progress=None) -> dict:
     """
     Find identical / near-identical / cropped-copy images across reports.
 
     Accepts a mix of regular reports and historical virtual reports.
     Historical reports carry 'precomputed_images' (hashes + thumbnails) instead
     of 'images' (PIL objects).  Historical-vs-historical pairs are skipped.
+
+    on_progress(сравнено_пар, всего_пар) вызывается по ходу сравнения: пар
+    получается квадратично много, и без отчёта этап выглядит зависшим.
 
     Returns:
         pairs, list of dicts with thumbnail data URIs and match info
@@ -155,7 +158,14 @@ def check_image_plagiarism(reports: list) -> dict:
     pairs = []
     seen: set = set()
 
+    m = len(all_imgs)
+    total_pairs = m * (m - 1) // 2
+    done_pairs = 0
+
     for i in range(len(all_imgs)):
+        if on_progress is not None:
+            on_progress(done_pairs, total_pairs)
+            done_pairs += m - 1 - i
         for j in range(i + 1, len(all_imgs)):
             a, b = all_imgs[i], all_imgs[j]
 
@@ -208,6 +218,9 @@ def check_image_plagiarism(reports: list) -> dict:
                 'is_ui':     pair_is_ui,
                 'ui_review': ui_review,
             })
+
+    if on_progress is not None:
+        on_progress(total_pairs, total_pairs)
 
     pairs.sort(key=lambda x: x['distance'])
     return {'pairs': pairs}

@@ -7,6 +7,14 @@
   const esc = s => String(s == null ? '' : s)
     .replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
+  /* Токен сессии: сервер принимает изменяющий запрос только с ним, иначе
+     страницу можно было бы отправить с чужого сайта от имени вошедшего. */
+  const CSRF = (document.querySelector('meta[name="csrf-token"]') || {}).content || '';
+  const post = (url, opts = {}) => fetch(url, Object.assign({}, opts, {
+    method: 'POST',
+    headers: Object.assign({ 'X-CSRF-Token': CSRF }, opts.headers || {}),
+  }));
+
   /* ── Общее: тема, меню, всплывающие сообщения ── */
 
   const themeBtn = $('#theme-btn');
@@ -507,7 +515,7 @@
         body: `<p style="margin:0;font-size:13px;">Проверка <b class="mono">#${esc(b.dataset.del)}</b></p>`,
         okText: 'Удалить', danger: true,
         onOk: async () => {
-          const res = await fetch(`/jobs/${b.dataset.del}/delete`, { method: 'POST' });
+          const res = await post(`/jobs/${b.dataset.del}/delete`);
           const data = await res.json().catch(() => ({}));
           if (res.ok) { toast('Проверка удалена'); selected = null; load(); }
           else toast(data.error || 'Не удалось удалить проверку');
@@ -524,7 +532,7 @@
       sub: 'Будут удалены все ваши проверки, их отчёты и все сохранённые отпечатки. Отменить нельзя.',
       okText: 'Очистить всё', danger: true,
       onOk: async () => {
-        const res = await fetch('/jobs/clear', { method: 'POST' });
+        const res = await post('/jobs/clear');
         if (res.ok) { toast('История и база очищены'); load(); }
         else toast('Не удалось очистить');
       },
@@ -601,7 +609,7 @@
 
       let jobId;
       try {
-        const res = await fetch('/upload', { method: 'POST', body: data });
+        const res = await post('/upload', { body: data });
         const out = await res.json();
         if (!res.ok) throw new Error(out.error || 'Не удалось начать проверку');
         jobId = out.job_id;
@@ -648,8 +656,7 @@
       body: `<p style="margin:0;font-size:13px;">${esc(btn.dataset.who)}</p>`,
       okText: 'Удалить', danger: true,
       onOk: async () => {
-        const res = await fetch('/memory/delete', {
-          method: 'POST',
+        const res = await post('/memory/delete', {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ key: btn.dataset.forget }),
         });

@@ -21,6 +21,7 @@ import csv
 import io
 import json
 import os
+import re
 import secrets
 import uuid
 import zipfile
@@ -29,7 +30,7 @@ import shutil
 import threading
 from functools import wraps
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from flask import (Flask, Blueprint, request, jsonify, render_template,
                    send_file, abort, send_from_directory, session,
@@ -42,7 +43,8 @@ try:
 except Exception:
     WEASYPRINT_OK = False
 
-from checker import accounts, db, grading, job_store, summary as summary_mod
+from checker import (accounts, branding, db, grading, job_store, sqlmigrate,
+                     summary as summary_mod)
 from checker.extractor        import extract_report
 from checker.gost             import check_gost, GOST_CHECKS, ALL_CODES, FLAW_TEXT
 from checker.text_plagiarism  import check_text_plagiarism
@@ -50,15 +52,40 @@ from checker.image_plagiarism import check_image_plagiarism
 from checker.reporter         import generate_html_report
 
 
-APP_TITLE = 'АЛЁНА'
-APP_FULL_NAME = 'Автоматический Ловец Ёрничества, Небрежности и Аутентичности'
+APP_TITLE = branding.APP_TITLE
+APP_FULL_NAME = branding.APP_FULL_NAME
 
 app = Flask(__name__)
 app.config['MAX_CONTENT_LENGTH'] = 600 * 1024 * 1024
-app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'dev-secret-change-in-production')
+
+# Без SECRET_KEY из окружения ключ рождается случайным на каждый запуск: сессии
+# переживут только этот процесс, зато подделать их нельзя. Прежнее значение по
+# умолчанию было одинаковым у всех установок — с ним чужая cookie принималась
+# как своя.
+_secret = os.environ.get('SECRET_KEY', '').strip()
+if not _secret or _secret in ('dev-secret-change-in-production',
+                              'change-this-to-a-random-string'):
+    _secret = secrets.token_hex(32)
+    print('  ВНИМАНИЕ: SECRET_KEY не задан — сессии сбросятся при перезапуске. '
+          'Задайте его в .env для рабочей установки.')
+app.config['SECRET_KEY'] = _secret
+
+app.config.update(
+    SESSION_COOKIE_HTTPONLY=True,       # cookie недоступна скриптам страницы
+    SESSION_COOKIE_SAMESITE='Lax',      # не уходит по запросам с чужих сайтов
+    # За TLS ставится AU_HTTPS=1 (в nginx.conf.txt так и настроено).
+    SESSION_COOKIE_SECURE=os.environ.get('AU_HTTPS', '').strip() in ('1', 'true', 'yes'),
+    PERMANENT_SESSION_LIFETIME=timedelta(hours=12),
+    MAX_FORM_MEMORY_SIZE=2 * 1024 * 1024,
+)
 
 REPORTS_DIR = Path(__file__).parent / 'reports'
 REPORTS_DIR.mkdir(exist_ok=True)
+
+JOB_ID_RE = re.compile(r'^[0-9a-f]{6,40}$')     # id проверки — только hex
+UPLOAD_EXTS = ('.pdf', '.zip')
+ZIP_MAX_TOTAL = 1500 * 1024 * 1024   # предел распаковки: архив-бомба не съест диск
+ZIP_MAX_FILES = 2000
 
 jobs: dict = {}
 jobs_lock = threading.Lock()
@@ -71,6 +98,8 @@ def inject_globals():
         'user':          getattr(g, 'user', None),
         'app_title':     APP_TITLE,
         'app_full_name': APP_FULL_NAME,
+        'brand':         branding,
+        'csrf_token':    _csrf_token,
         'ROLES':         accounts.ROLES,
         'STATES':        accounts.STATES,
         'can':           accounts.can,
@@ -159,6 +188,90 @@ def _startup():
 _startup()
 
 
+# ─────────────────────────  Защита запросов  ─────────────────────────
+
+SAFE_METHODS = {'GET', 'HEAD', 'OPTIONS'}
+
+
+def _csrf_token() -> str:
+    """Токен сессии для форм. Шаблоны получают его как csrf_token()."""
+    token = session.get('csrf')
+    if not token:
+        token = secrets.token_urlsafe(32)
+        session['csrf'] = token
+    return token
+
+
+def _csrf_ok() -> bool:
+    sent = (request.form.get('csrf_token')
+            or request.headers.get('X-CSRF-Token', ''))
+    stored = session.get('csrf', '')
+    return bool(sent and stored and secrets.compare_digest(sent, stored))
+
+
+@app.before_request
+def _csrf_protect():
+    """Меняющий данные запрос принимается только со своим токеном.
+
+    Исключение — вызовы API по ключу: заголовок X-API-Key браузер сам к чужому
+    запросу не добавит, подделать такой вызов с постороннего сайта нельзя.
+    """
+    if request.method in SAFE_METHODS:
+        return None
+    if request.headers.get('X-API-Key') and request.path.startswith('/api/'):
+        return None
+    if _csrf_ok():
+        return None
+    if request.path.startswith('/api/') or \
+            request.headers.get('Accept', '').startswith('application/json'):
+        return jsonify({'error': 'Сессия устарела — обновите страницу '
+                                 'и повторите действие.'}), 403
+    return render_template('error.html', code=403,
+                           message='Сессия устарела или запрос пришёл со '
+                                   'стороннего сайта. Обновите страницу и '
+                                   'повторите действие.'), 403
+
+
+@app.after_request
+def _security_headers(response):
+    """Заголовки, которые закрывают типовые атаки на страницу."""
+    response.headers.setdefault('X-Content-Type-Options', 'nosniff')
+    response.headers.setdefault('Referrer-Policy', 'same-origin')
+    response.headers.setdefault('X-Frame-Options', 'DENY')
+    response.headers.setdefault(
+        'Content-Security-Policy',
+        # 'unsafe-inline' нужен: разметка страниц и сам отчёт держат стили и
+        # небольшие скрипты внутри. Всё остальное — только со своего адреса,
+        # никаких внешних загрузок и встраивания в чужие рамки.
+        "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; "
+        "script-src 'self' 'unsafe-inline'; font-src 'self' data:; "
+        "connect-src 'self'; form-action 'self'; base-uri 'none'; "
+        "object-src 'none'; frame-ancestors 'none'")
+    if request.path.startswith('/api/') or request.path.startswith('/status/'):
+        response.headers.setdefault('Cache-Control', 'no-store')
+    return response
+
+
+def _safe_next(raw: str) -> str:
+    """Куда вернуть после входа. Только свой сайт: со ссылкой вида
+    ?next=https://чужой.сайт вход превратился бы в удобный трамплин."""
+    if not raw:
+        return url_for('index')
+    if raw.startswith('//') or '\\' in raw or ':' in raw.split('/')[0]:
+        return url_for('index')
+    return raw if raw.startswith('/') else url_for('index')
+
+
+def _int_field(form, name: str, default: int, low: int, high: int) -> int:
+    """Целое из формы, зажатое в допустимые границы. Буквы вместо числа больше
+    не роняют сохранение настроек с ошибкой 500."""
+    try:
+        value = int(float(form.get(name, default)))
+    except (TypeError, ValueError):
+        return default
+    return max(low, min(high, value))
+
+
 # ─────────────────────────  Authentication  ─────────────────────────
 
 @app.before_request
@@ -178,7 +291,9 @@ def login_required(f):
     @wraps(f)
     def decorated(*args, **kwargs):
         if g.user is None:
-            return redirect(url_for('login', next=request.url))
+            # Относительный путь, а не request.url: возврат после входа
+            # разрешён только внутрь этого сайта (см. _safe_next).
+            return redirect(url_for('login', next=request.full_path.rstrip('?')))
         if g.user.get('must_change') and request.endpoint not in ('change_password', 'logout', 'static'):
             return redirect(url_for('change_password'))
         return f(*args, **kwargs)
@@ -229,10 +344,10 @@ def login():
         if user is not None:
             session.clear()
             session['login'] = user['login']
+            session.permanent = True
             if user.get('must_change'):
                 return redirect(url_for('change_password'))
-            next_url = request.form.get('next') or url_for('index')
-            return redirect(next_url)
+            return redirect(_safe_next(request.form.get('next', '')))
     return render_template('login.html', error=error, username=username,
                            next=request.args.get('next', ''))
 
@@ -336,6 +451,10 @@ def _public_job(job: dict) -> dict:
 
 def _find_job(job_id: str):
     """Live in-memory state if the job is running, else the stored record."""
+    # id проверки уходит в имя файла отчёта — принимаем только тот вид, в
+    # котором сами его выдаём, чтобы «../» из адреса никуда не привёл.
+    if not JOB_ID_RE.match(job_id or ''):
+        return None
     with jobs_lock:
         job = jobs.get(job_id)
         if job is not None:
@@ -429,18 +548,28 @@ def base_export():
     writer.writerow(['Студент', 'Группа', 'Файл', 'Версия', 'Страниц',
                      'Рисунков', 'Добавлен', 'Проверка', 'Преподаватель'])
     for e in get_summary(store):
-        writer.writerow([
+        writer.writerow(_csv_row([
             e['student'].get('name', ''), e['student'].get('group', ''),
             e['filename'], e['version'], e['pages_count'], e['image_count'],
             e['added_at'], e['job_id'],
             fio_by_login.get(e.get('owner', ''), e.get('owner', '')),
-        ])
+        ]))
     return send_file(
         io.BytesIO(b'\xef\xbb\xbf' + buf.getvalue().encode('utf-8')),
         mimetype='text/csv',
         as_attachment=True,
         download_name=f'alena-base-{stamp}.csv',
     )
+
+
+def _csv_row(values: list) -> list:
+    """Обезвредить ячейки, которые Excel примет за формулу.
+
+    Имя файла вида `=cmd|...` из чужой работы иначе выполнится у того, кто
+    откроет выгрузку. Апостроф в начале превращает такую ячейку в текст.
+    """
+    return [f"'{v}" if isinstance(v, str) and v[:1] in ('=', '+', '-', '@')
+            else v for v in values]
 
 
 @app.route('/profile')
@@ -486,16 +615,16 @@ def admin_settings():
         form = request.form
         picked = _parse_enabled_checks(form.get('gost'))
         accounts.save_settings({
-            'default_threshold':       float(form.get('threshold', 60)) / 100,
+            'default_threshold':       _int_field(form, 'threshold', 60, 10, 90) / 100,
             'default_gost':            picked if picked is not None else [],
             'gost_weights':            _parse_weights_form(form),
             'grade_scale':             grading.clean_scale(form.get('grade_scale')),
-            'retention_days':          int(form.get('retention_days', 0)),
-            'pw_min_len':              int(form.get('pw_min_len', 10)),
+            'retention_days':          _int_field(form, 'retention_days', 0, 0, 3650),
+            'pw_min_len':              _int_field(form, 'pw_min_len', 10, 6, 64),
             'pw_require_change_first': form.get('pw_require_change_first') == 'on',
-            'pw_expire_days':          int(form.get('pw_expire_days', 0)),
-            'lock_after_fails':        int(form.get('lock_after_fails', 5)),
-            'lock_minutes':            int(form.get('lock_minutes', 15)),
+            'pw_expire_days':          _int_field(form, 'pw_expire_days', 0, 0, 1095),
+            'lock_after_fails':        _int_field(form, 'lock_after_fails', 5, 0, 20),
+            'lock_minutes':            _int_field(form, 'lock_minutes', 15, 1, 1440),
         })
         flash('Настройки сохранены')
         return redirect(url_for('admin_settings'))
@@ -523,6 +652,68 @@ def admin_settings():
                                     for c in ALL_CODES},
                            scale=grading.clean_scale(conf.get('grade_scale')),
                            health=health)
+
+
+@app.route('/admin/migration')
+@admin_required
+def admin_migration():
+    return render_template('migration.html', page='migration',
+                           counts=sqlmigrate.counts(),
+                           db_enabled=db.DB_ENABLED,
+                           reports_count=len(list(REPORTS_DIR.glob('*.html'))))
+
+
+@app.route('/admin/migration/export')
+@admin_required
+def migration_export():
+    """Весь состав базы одним файлом .sql — схема, данные, порядок вставки."""
+    payload = sqlmigrate.dump().encode('utf-8')
+    stamp = datetime.now().strftime('%d.%m.%Y')
+    accounts.record_event(g.user['login'], True, _client_ip(),
+                          request.headers.get('User-Agent', ''),
+                          'выгрузка базы в SQL')
+    return send_file(io.BytesIO(payload), mimetype='application/sql',
+                     as_attachment=True, download_name=f'alena-db-{stamp}.sql')
+
+
+@app.route('/admin/migration/import', methods=['POST'])
+@admin_required
+def migration_import():
+    """Загрузка дампа. Файл разбирается, а не выполняется: в базу попадают
+    только строки известных таблиц (см. checker/sqlmigrate.py)."""
+    upload = request.files.get('dump')
+    if upload is None or not upload.filename:
+        flash('Выберите файл .sql')
+        return redirect(url_for('admin_migration'))
+    if not upload.filename.lower().endswith('.sql'):
+        flash('Ожидается файл с расширением .sql')
+        return redirect(url_for('admin_migration'))
+
+    try:
+        text = upload.read().decode('utf-8')
+    except UnicodeDecodeError:
+        flash('Файл не в кодировке UTF-8 — это не наш дамп')
+        return redirect(url_for('admin_migration'))
+
+    try:
+        rows = sqlmigrate.parse(text)
+        stats = sqlmigrate.restore(rows,
+                                   replace=request.form.get('replace') == 'on',
+                                   keep_login=g.user['login'])
+    except Exception as exc:
+        flash(f'Дамп не загружен: {exc}')
+        return redirect(url_for('admin_migration'))
+
+    accounts.record_event(g.user['login'], True, _client_ip(),
+                          request.headers.get('User-Agent', ''),
+                          'загрузка базы из SQL')
+    flash('Дамп загружен. Учётных записей: {users}, проверок: {jobs}, '
+          'отпечатков: {fingerprints}, записей журнала: {login_events}.'
+          .format(**stats))
+    if rows.get('skipped'):
+        flash(f'Пропущено непонятных инструкций: {rows["skipped"]} — '
+              'загружаются только INSERT в таблицы базы.')
+    return redirect(url_for('admin_migration'))
 
 
 def _overview_stats(user) -> dict:
@@ -613,6 +804,48 @@ def _grade_params(form) -> tuple:
     return weights, scale
 
 
+def _safe_upload_name(raw: str):
+    """Имя загружаемого файла, пригодное для записи на диск.
+
+    Кириллицу оставляем — из имени файла берутся фамилия и группа. Убираем
+    путь, служебные символы и всё, что не PDF или ZIP.
+    """
+    name = Path(raw or '').name.replace('\x00', '').strip()
+    if not name or name.startswith('.') or name in ('..', '.'):
+        return None
+    if not name.lower().endswith(UPLOAD_EXTS):
+        return None
+    return name[:180]
+
+
+def _extract_zip(archive: str, dest_dir: str) -> None:
+    """Распаковать только PDF и только внутрь папки задания.
+
+    Имена берём по последнему сегменту пути: архив с записью вида
+    `../../etc/passwd` не должен ничего написать за пределами tmp_dir. Заодно
+    ограничиваем число файлов и суммарный размер — распаковка «архива-бомбы»
+    иначе забьёт диск сервера.
+    """
+    total = 0
+    written = 0
+    with zipfile.ZipFile(archive, 'r') as zf:
+        for info in zf.infolist():
+            if info.is_dir():
+                continue
+            name = _safe_upload_name(info.filename)
+            if name is None or not name.lower().endswith('.pdf'):
+                continue
+            total += info.file_size
+            written += 1
+            if written > ZIP_MAX_FILES or total > ZIP_MAX_TOTAL:
+                raise ValueError('архив слишком большой для распаковки')
+            target = Path(dest_dir) / name
+            if target.exists():
+                target = Path(dest_dir) / f'{target.stem}_{written}{target.suffix}'
+            with zf.open(info) as src, open(target, 'wb') as out:
+                shutil.copyfileobj(src, out, 1024 * 256)
+
+
 def _parse_use_memory(raw) -> bool:
     """Form field `use_memory`: absent (legacy clients) means True."""
     if raw is None:
@@ -642,12 +875,13 @@ def _start_job(uploaded, threshold: float, owner, enabled_checks=None,
     pdf_paths = []
     try:
         for f in uploaded:
-            name = Path(f.filename).name
+            name = _safe_upload_name(f.filename)
+            if name is None:
+                continue
             dest = os.path.join(tmp_dir, name)
             f.save(dest)
             if name.lower().endswith('.zip'):
-                with zipfile.ZipFile(dest, 'r') as z:
-                    z.extractall(tmp_dir)
+                _extract_zip(dest, tmp_dir)
                 os.remove(dest)
 
         for pdf in sorted(Path(tmp_dir).rglob('*.pdf')):
@@ -877,20 +1111,31 @@ def list_jobs():
 @app.route('/admin/users/create', methods=['POST'])
 @admin_required
 def user_create():
+    """Учётная запись заводится сразу с рабочим паролем: администратор
+    задаёт его вместе с ФИО и передаёт лично. Временных паролей нет — не
+    остаётся окна, когда в систему можно войти по строке из общей переписки."""
     form = request.form
     login_name = form.get('login', '').strip().lower()
     fio = form.get('fio', '').strip()
-    password = form.get('password', '') or secrets.token_urlsafe(9)
+    password = form.get('password', '')
+    repeat = form.get('repeat', '')
+
     if not login_name or not fio:
         flash('Укажите логин и ФИО')
+    elif not re.fullmatch(r'[a-z0-9._-]{3,32}', login_name):
+        flash('Логин: латиница, цифры, точка, дефис и подчёркивание, 3–32 символа')
     elif accounts.get_user(login_name) is not None:
         flash(f'Логин {login_name} уже занят')
+    elif password != repeat:
+        flash('Пароль и повтор не совпадают')
+    elif accounts.password_problem(password):
+        flash(accounts.password_problem(password))
     else:
         accounts.create_user(
             login=login_name, fio=fio, password=password,
             role=form.get('role', 'teacher'), email=form.get('email', '').strip(),
-            must_change=True)
-        flash(f'Пользователь создан. Временный пароль: {password}')
+            must_change=form.get('must_change') == 'on')
+        flash(f'Учётная запись {login_name} создана — сообщите пароль лично.')
     return redirect(url_for('admin_users'))
 
 
@@ -915,12 +1160,21 @@ def user_perms(login_name):
 @app.route('/admin/users/<login_name>/password', methods=['POST'])
 @admin_required
 def user_reset_password(login_name):
+    """Новый пароль задаёт администратор — тем же способом, что и при
+    создании записи."""
     user = accounts.get_user(login_name)
     if user is None:
         abort(404)
-    password = secrets.token_urlsafe(9)
-    accounts.set_password(login_name, password, must_change=True)
-    flash(f'Временный пароль для {user["fio"]}: {password}')
+    password = request.form.get('password', '')
+    problem = (accounts.password_problem(password)
+               or ('Пароль и повтор не совпадают'
+                   if password != request.form.get('repeat', '') else ''))
+    if problem:
+        flash(f'{user["fio"]}: {problem}')
+    else:
+        accounts.set_password(login_name, password,
+                              must_change=request.form.get('must_change') == 'on')
+        flash(f'Пароль для {user["fio"]} изменён — сообщите его лично.')
     return redirect(url_for('admin_users'))
 
 

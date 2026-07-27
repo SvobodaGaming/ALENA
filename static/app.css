@@ -102,11 +102,14 @@ button, input, select, textarea { font: inherit; color: inherit; }
 }
 .rail-name { font-weight: 750; font-size: 15px; color: #fff; letter-spacing: .01em; }
 .rail-sub { font-size: 10.5px; color: #6f9c81; margin-top: 1px; }
+/* Расшифровка названия: слово на строке, выделенные буквы читаются сверху
+   вниз как АЛЁНА. Ради этого — список, а не абзац. */
 .rail-full {
-  padding: 0 18px 14px; font-size: 10.5px; line-height: 1.45; color: #6f9c81;
-  border-bottom: 1px solid rgba(255,255,255,.07); margin-bottom: 12px;
+  list-style: none; margin: 0 0 12px; padding: 0 18px 14px;
+  font-size: 11px; line-height: 1.55; color: #6f9c81;
+  border-bottom: 1px solid rgba(255,255,255,.07);
 }
-.rail-full b { color: #b7d6c2; font-weight: 700; }
+.rail-full b { color: #b7d6c2; font-weight: 800; }
 
 .rail-cta { margin: 0 14px 14px; }
 .btn-new {
@@ -336,6 +339,33 @@ input[type="range"] { width: 100%; accent-color: var(--brand); }
 .auth-body { padding: 20px; display: flex; flex-direction: column; gap: 14px; }
 .auth-foot { padding: 12px 20px; border-top: 1px solid var(--line-soft); background: var(--raised); font-size: 11px; color: var(--muted); text-align: center; line-height: 1.5; }
 .auth-body .btn.primary { justify-content: center; }
+
+/* Подпись команды: боковое меню, экраны входа, блок «О системе».
+   Логотип тёмный по контуру, поэтому всегда лежит на белой подложке —
+   иначе в тёмной теме от него остаётся только зелёный мозг. */
+.team {
+  display: flex; align-items: center; gap: 9px;
+  margin-top: 8px; padding: 9px 8px 3px;
+  border-top: 1px solid rgba(255,255,255,.07);
+}
+.team-logo, .team-line img, .about-top img {
+  flex: none; background: #fff; border-radius: 6px; padding: 2px;
+}
+.team-tag { display: block; font-size: 12px; font-weight: 700; color: #d8ebdf; }
+.team-note { display: block; font-size: 10px; color: #6f9c81; }
+
+.acronym {
+  list-style: none; display: inline-block; text-align: left;
+  margin: 9px 0 0; padding: 0; font-size: 11.5px; line-height: 1.6;
+}
+.acronym b { color: var(--ink-2); font-weight: 800; }
+.acronym.big { font-size: 13px; margin-top: 12px; }
+.team-line {
+  display: flex; align-items: center; justify-content: center; gap: 8px;
+  margin-top: 11px; padding-top: 10px; border-top: 1px solid var(--line-soft);
+}
+.about-top { display: flex; align-items: center; gap: 13px; }
+.about-name { font-size: 16px; font-weight: 750; letter-spacing: -.01em; }
 
 /* Подсказки к критериям */
 .has-hint { border-bottom: 1px dotted var(--muted); cursor: help; }

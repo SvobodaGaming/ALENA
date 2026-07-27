@@ -19,6 +19,7 @@
     </div>
 
     <form class="auth-body" method="post" action="{{ url_for('login') }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       {% if next %}<input type="hidden" name="next" value="{{ next }}">{% endif %}
 
       {% if error %}
@@ -44,7 +45,16 @@
     </form>
 
     <div class="auth-foot">
-      <b>{{ app_title }}</b> — {{ app_full_name }}
+      <b>{{ app_title }}</b>
+      <ul class="acronym">
+        {% for letter, word in brand.ACRONYM %}
+        <li><b>{{ letter }}</b>{{ word[1:] }}</li>
+        {% endfor %}
+      </ul>
+      <div class="team-line">
+        <img src="{{ url_for('logo') }}" alt="" width="20" height="20">
+        <b>{{ brand.TEAM }}</b> · {{ brand.TEAM_NOTE }}
+      </div>
     </div>
   </div>
 </div>

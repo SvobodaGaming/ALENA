@@ -50,15 +50,7 @@
           <td class="mono sub">{{ u.last_login or '—' }}</td>
           <td class="num">{{ u.checks_count }}</td>
           <td class="act">
-            <button class="btn sm" type="button" data-toggle="perms-{{ u.login }}">Права</button>
-
-            <form method="post" action="{{ url_for('user_reset_password', login_name=u.login) }}"
-                  style="display:inline;"
-                  data-confirm="Сбросить пароль?"
-                  data-confirm-sub="Будет выдан временный пароль, старый перестанет работать. Пользователя попросят сменить его при входе."
-                  data-confirm-ok="Сбросить">
-              <button class="btn sm" type="submit">Сбросить пароль</button>
-            </form>
+            <button class="btn sm" type="button" data-toggle="perms-{{ u.login }}">Права и пароль</button>
 
             <form method="post" action="{{ url_for('user_state', login_name=u.login) }}"
                   style="display:inline;"
@@ -66,6 +58,7 @@
                   data-confirm-sub="{{ 'Пользователь снова сможет войти.' if u.state == 'blocked' else 'Вход будет закрыт. Проверки и база отпечатков сохранятся.' }}"
                   data-confirm-ok="{{ 'Разблокировать' if u.state == 'blocked' else 'Заблокировать' }}"
                   data-confirm-danger="{{ 'no' if u.state == 'blocked' else 'yes' }}">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
               <button class="btn sm {% if u.state != 'blocked' %}danger{% endif %}" type="submit">
                 {{ 'Разблокировать' if u.state == 'blocked' else 'Заблокировать' }}
               </button>
@@ -76,6 +69,7 @@
         <tr hidden id="perms-{{ u.login }}">
           <td colspan="6" style="background:var(--raised);">
             <form method="post" action="{{ url_for('user_perms', login_name=u.login) }}" class="stack" style="padding:6px 0;">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
               <div class="form-grid">
                 <div class="field">
                   <label for="role-{{ u.login }}">Роль</label>
@@ -101,11 +95,37 @@
               </div>
             </form>
 
+            <form method="post" action="{{ url_for('user_reset_password', login_name=u.login) }}"
+                  class="stack" style="padding:0 0 12px;"
+                  data-confirm="Задать новый пароль?"
+                  data-confirm-sub="Старый пароль перестанет работать сразу. Передайте новый лично."
+                  data-confirm-ok="Задать пароль">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+              <div class="eyebrow">Новый пароль</div>
+              <div class="form-grid">
+                <div class="field">
+                  <label for="pw-{{ u.login }}">Пароль</label>
+                  <input type="password" id="pw-{{ u.login }}" name="password" autocomplete="new-password">
+                  <span class="hint">Буквы и цифры, не короче длины из настроек.</span>
+                </div>
+                <div class="field">
+                  <label for="pw2-{{ u.login }}">Повторите пароль</label>
+                  <input type="password" id="pw2-{{ u.login }}" name="repeat" autocomplete="new-password">
+                </div>
+              </div>
+              <label class="check">
+                <input type="checkbox" name="must_change">
+                <span>Попросить сменить пароль при первом входе</span>
+              </label>
+              <div><button class="btn sm" type="submit">Задать пароль</button></div>
+            </form>
+
             <div style="display:flex;gap:8px;flex-wrap:wrap;padding-bottom:10px;">
               <form method="post" action="{{ url_for('user_apikey', login_name=u.login) }}"
                     data-confirm="Выпустить новый ключ API?"
                     data-confirm-sub="Прежний ключ этой учётной записи перестанет работать."
                     data-confirm-ok="Выпустить">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                 <button class="btn sm" type="submit">
                   {{ 'Перевыпустить ключ API' if u.api_key else 'Выдать ключ API' }}
                 </button>
@@ -114,6 +134,7 @@
                     data-confirm="Удалить учётную запись?"
                     data-confirm-sub="Проверки и отпечатки этого преподавателя останутся в системе, но войти он больше не сможет."
                     data-confirm-ok="Удалить" data-confirm-danger="yes">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                 <button class="btn sm danger" type="submit">Удалить учётную запись</button>
               </form>
             </div>
@@ -129,6 +150,7 @@
   <div class="section-head"><h2>Новый пользователь</h2></div>
   <div class="section-body">
     <form method="post" action="{{ url_for('user_create') }}" class="stack">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       <div class="form-grid">
         <div class="field">
           <label for="n-fio">Фамилия, имя и отчество</label>
@@ -150,9 +172,22 @@
           </select>
           <span class="hint">Преподаватель работает только со своими проверками и своей базой отпечатков.</span>
         </div>
+        <div class="field">
+          <label for="n-pw">Пароль</label>
+          <input type="password" id="n-pw" name="password" autocomplete="new-password" required>
+          <span class="hint">Буквы и цифры, не короче длины из настроек.</span>
+        </div>
+        <div class="field">
+          <label for="n-pw2">Повторите пароль</label>
+          <input type="password" id="n-pw2" name="repeat" autocomplete="new-password" required>
+        </div>
       </div>
-      <p class="hint" style="margin:0;">Пароль сгенерируется автоматически и покажется один раз после создания.
-        Сменить его попросят при первом входе.</p>
+      <label class="check">
+        <input type="checkbox" name="must_change">
+        <span>Попросить сменить пароль при первом входе</span>
+      </label>
+      <p class="hint" style="margin:0;">Пароль задаёте вы и передаёте преподавателю лично.
+        Система его не показывает и не хранит в открытом виде.</p>
       <div style="display:flex;gap:8px;">
         <button class="btn primary" type="submit">Создать</button>
         <button class="btn" type="button" data-toggle="add-user">Отмена</button>

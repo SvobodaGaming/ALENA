@@ -3,6 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="csrf-token" content="{{ csrf_token() }}">
   <title>{% block title %}{{ app_title }}{% endblock %} — {{ app_title }}</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='app.css') }}">
   <link rel="icon" href="{{ url_for('logo') }}">
@@ -19,10 +20,12 @@
         <div class="rail-sub">Проверка студенческих отчётов</div>
       </div>
     </div>
-    <p class="rail-full">
-      <b>А</b>втоматический <b>Л</b>овец <b>Ё</b>рничества,<br>
-      <b>Н</b>ебрежности и <b>А</b>утентичности
-    </p>
+    {# Каждое слово на своей строке: подряд аббревиатура не читается. #}
+    <ul class="rail-full" aria-label="Расшифровка названия">
+      {% for letter, word in brand.ACRONYM %}
+      <li><b>{{ letter }}</b>{{ word[1:] }}</li>
+      {% endfor %}
+    </ul>
 
     {% if can(user, 'run_checks') %}
     <div class="rail-cta">
@@ -63,6 +66,10 @@
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="3"/><path d="M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3M5.2 5.2l2.1 2.1M16.7 16.7l2.1 2.1M18.8 5.2l-2.1 2.1M7.3 16.7l-2.1 2.1"/></svg>
         Настройки
       </a>
+      <a class="nav-item" href="{{ url_for('admin_migration') }}" {% if page == 'migration' %}aria-current="page"{% endif %}>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><ellipse cx="12" cy="5.5" rx="7.5" ry="2.8"/><path d="M4.5 5.5v13c0 1.5 3.4 2.8 7.5 2.8s7.5-1.3 7.5-2.8v-13"/><path d="M8.5 13.5h7M13 11l2.5 2.5L13 16"/></svg>
+        Миграция базы
+      </a>
       {% endif %}
     </div>
 
@@ -74,6 +81,13 @@
           <span class="who-role">{{ ROLES.get(user.role, user.role) }}</span>
         </span>
       </a>
+      <div class="team">
+        <img class="team-logo" src="{{ url_for('logo') }}" alt="" width="24" height="24">
+        <span>
+          <span class="team-tag">{{ brand.TEAM }}</span>
+          <span class="team-note">{{ brand.TEAM_NOTE }} · версия {{ brand.APP_VERSION }}</span>
+        </span>
+      </div>
     </div>
   </nav>
 
@@ -91,6 +105,7 @@
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M20 14.5A8.5 8.5 0 0 1 9.5 4a8.5 8.5 0 1 0 10.5 10.5z"/></svg>
         </button>
         <form method="post" action="{{ url_for('logout') }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
           <button class="icon-btn" type="submit" aria-label="Выйти" title="Выйти">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="M16 17l5-5-5-5"/><path d="M21 12H9"/></svg>
           </button>

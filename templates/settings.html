@@ -5,6 +5,7 @@
 
 {% block content %}
 <form method="post">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
   <div class="grid-2">
     <div>
       <div class="section">
@@ -142,6 +143,28 @@
           <p class="hint" style="margin:12px 0 0;">CSV — список работ: студент, группа, файл, версия,
             дата. JSON — полная копия с отпечатками текста и хешами изображений, годится
             для переноса базы на другой сервер.</p>
+        </div>
+      </div>
+
+      <div class="section">
+        <div class="section-head"><h2>О системе</h2></div>
+        <div class="section-body">
+          <div class="about-top">
+            <img src="{{ url_for('logo') }}" alt="Логотип {{ brand.TEAM }}" width="54" height="54">
+            <div>
+              <div class="about-name">{{ app_title }}</div>
+              <div class="hint">{{ brand.APP_TAGLINE }} · версия {{ brand.APP_VERSION }}</div>
+            </div>
+          </div>
+          <ul class="acronym big">
+            {% for letter, word in brand.ACRONYM %}
+            <li><b>{{ letter }}</b>{{ word[1:] }}</li>
+            {% endfor %}
+          </ul>
+          <p class="hint" style="margin:14px 0 0;">
+            <b>{{ brand.TEAM }}</b> — {{ brand.TEAM_NOTE | lower }}.<br>
+            {{ brand.REGISTRY_NOTE }}.
+          </p>
         </div>
       </div>
 

@@ -224,6 +224,25 @@ def record_event(login: str, ok: bool, ip: str, ua: str, reason: str = '') -> No
         _write_json(LOG_PATH, log[:LOG_KEEP])
 
 
+def add_events(events: list) -> int:
+    """Записать готовые события журнала, как есть — с их собственным временем.
+
+    Нужно загрузке дампа: record_event() проставил бы текущую дату и журнал
+    перестал бы соответствовать перенесённой истории.
+    """
+    if not events:
+        return 0
+    if db.DB_ENABLED:
+        for event in events:
+            db.log_add(event)
+        return len(events)
+    with _lock:
+        log = _read_json(LOG_PATH, [])
+        log = list(reversed(events)) + log
+        _write_json(LOG_PATH, log[:LOG_KEEP])
+    return len(events)
+
+
 def recent_logins(limit: int = 200, login=None) -> list:
     if db.DB_ENABLED:
         return db.log_recent(limit, login)

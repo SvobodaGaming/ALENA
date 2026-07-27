@@ -14,7 +14,17 @@ Two interchangeable methods are accepted:
   without it the key is rejected. `AU_API_KEY` from the environment is assigned
   to the first administrator when the instance bootstraps.
 - **Browser session:** a logged-in session cookie also authorizes the API, which
-  is what the built-in UI uses.
+  is what the built-in UI uses. Session-authorized calls that change state
+  (`POST`, `DELETE`) must also carry the CSRF token of that session in the
+  `X-CSRF-Token` header — the UI reads it from `<meta name="csrf-token">`.
+  Without it the call is refused:
+
+  ```json
+  { "error": "Сессия устарела — обновите страницу и повторите действие." }
+  ```
+
+  Calls authorized by `X-API-Key` are exempt: a browser never attaches that
+  header to a cross-site request, so there is nothing to forge.
 
 On a missing, wrong or unauthorized key the API responds `401`:
 

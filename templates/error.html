@@ -22,7 +22,16 @@
       <a class="btn primary" style="justify-content:center;" href="{{ url_for('index') }}">К проверкам</a>
     </div>
     <div class="auth-foot">
-      <b>{{ app_title }}</b> — {{ app_full_name }}
+      <b>{{ app_title }}</b>
+      <ul class="acronym">
+        {% for letter, word in brand.ACRONYM %}
+        <li><b>{{ letter }}</b>{{ word[1:] }}</li>
+        {% endfor %}
+      </ul>
+      <div class="team-line">
+        <img src="{{ url_for('logo') }}" alt="" width="20" height="20">
+        <b>{{ brand.TEAM }}</b> · {{ brand.TEAM_NOTE }}
+      </div>
     </div>
   </div>
 </div>

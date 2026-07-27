@@ -1,0 +1,94 @@
+{% extends "layout.html" %}
+{% block title %}Миграция базы{% endblock %}
+{% block heading %}Миграция базы данных{% endblock %}
+{% block subheading %}Выгрузка и восстановление в формате SQL{% endblock %}
+
+{% block content %}
+<div class="grid-2">
+  <div>
+    <div class="section">
+      <div class="section-head"><h2>Что сейчас в базе</h2></div>
+      <div class="tbl-wrap">
+        <table>
+          <tbody>
+            <tr><td>Хранилище</td>
+              <td class="act"><span class="chip {{ 'ok' if db_enabled else 'brand' }}">
+                {{ 'PostgreSQL' if db_enabled else 'JSON-файлы в папке memory/' }}</span></td></tr>
+            <tr><td>Учётные записи</td><td class="act num mono">{{ counts.users }}</td></tr>
+            <tr><td>Проверки в истории</td><td class="act num mono">{{ counts.jobs }}</td></tr>
+            <tr><td>Отпечатки работ</td><td class="act num mono">{{ counts.fingerprints }}</td></tr>
+            <tr><td>Записи журнала входов</td><td class="act num mono">{{ counts.login_events }}</td></tr>
+            <tr><td>Готовые HTML-отчёты</td><td class="act num mono">{{ reports_count }}</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="section-body" style="border-top:1px solid var(--line-soft);">
+        <p class="hint" style="margin:0;">Дамп не включает готовые отчёты — это отдельные
+          файлы в папке <span class="mono">reports/</span>. Переносите её обычным копированием,
+          иначе у старых проверок кнопка «Открыть отчёт» вернёт ошибку 404.</p>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="section-head"><h2>Выгрузка</h2></div>
+      <div class="section-body">
+        <p class="hint" style="margin:0 0 12px;">Один файл <span class="mono">.sql</span>:
+          схема таблиц, учётные записи, история проверок, база отпечатков, журнал входов
+          и системные настройки. Разворачивается и в PostgreSQL через
+          <span class="mono">psql</span>, и обратно сюда — кнопкой ниже.</p>
+        <a class="btn primary" href="{{ url_for('migration_export') }}">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M12 3v12M7.5 10.5L12 15l4.5-4.5"/><path d="M4 20h16"/></svg>
+          Скачать дамп .sql
+        </a>
+        <div class="note bad" style="margin:14px 0 0;">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M12 3.5L1.8 20.5h20.4z"/><path d="M12 10v4.4M12 17.6v.1"/></svg>
+          <span>В файле лежат хеши паролей, ключи API и тексты студенческих работ.
+            Храните его как резервную копию базы: без общего диска и без пересылки в мессенджерах.</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div>
+    <div class="section">
+      <div class="section-head"><h2>Загрузка дампа</h2></div>
+      <div class="section-body">
+        <form method="post" action="{{ url_for('migration_import') }}"
+              enctype="multipart/form-data" class="stack"
+              data-confirm="Загрузить дамп в базу?"
+              data-confirm-sub="Записи из файла перезапишут совпадающие по ключу. Отменить нельзя — сделайте выгрузку текущей базы перед загрузкой."
+              data-confirm-ok="Загрузить" data-confirm-danger="yes">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <div class="field">
+            <label for="dump-file">Файл дампа</label>
+            <input type="file" id="dump-file" name="dump" accept=".sql" required>
+          </div>
+          <label class="check">
+            <input type="checkbox" name="replace">
+            <span><b>Полная замена</b><br>
+              <span class="hint">Сначала очистить проверки и отпечатки и удалить учётные записи,
+                которых нет в файле. Ваша собственная запись не удаляется никогда.</span></span>
+          </label>
+          <div><button class="btn danger" type="submit">Загрузить в базу</button></div>
+        </form>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="section-head"><h2>Как это устроено</h2></div>
+      <div class="section-body">
+        <p class="hint" style="margin:0 0 10px;">Присланный SQL система <b>не выполняет</b>.
+          Файл разбирается: берутся только строки <span class="mono">INSERT</span> в известные
+          таблицы — <span class="mono">users</span>, <span class="mono">jobs</span>,
+          <span class="mono">fingerprints</span>, <span class="mono">login_events</span>,
+          <span class="mono">settings</span>. Всё остальное пропускается и попадает в счётчик.
+          Поэтому доступ к этой странице не превращается в право выполнить в базе
+          произвольную команду.</p>
+        <p class="hint" style="margin:0;">Перенос с этой машины на сервер с PostgreSQL:
+          выгрузите файл здесь, поднимите сервер с <span class="mono">DATABASE_URL</span>,
+          войдите администратором и загрузите файл на этой же странице.</p>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

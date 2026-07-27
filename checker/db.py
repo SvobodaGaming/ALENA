@@ -14,7 +14,9 @@ DB_ENABLED = bool(DATABASE_URL)
 _pool = None
 _pool_lock = threading.Lock()
 
-_SCHEMA = [
+# Схема таблиц. Отсюда же её берёт выгрузка дампа (checker/sqlmigrate.py),
+# поэтому список публичный.
+SCHEMA = [
     """
     CREATE TABLE IF NOT EXISTS fingerprints (
         entry_key       TEXT PRIMARY KEY,
@@ -90,7 +92,7 @@ def _get_pool():
                                       open=False, kwargs={'autocommit': False})
                 pool.open()
                 with pool.connection() as conn, conn.cursor() as cur:
-                    for stmt in _SCHEMA:
+                    for stmt in SCHEMA:
                         cur.execute(stmt)
                 _pool = pool
     return _pool
@@ -237,7 +239,7 @@ def jobs_delete(job_id: str) -> bool:
 
 # Accounts, login journal and system settings
 
-_USER_COLS = ('login', 'fio', 'email', 'role', 'state', 'password_hash',
+USER_COLS = ('login', 'fio', 'email', 'role', 'state', 'password_hash',
               'perms', 'api_key', 'must_change', 'created_at', 'last_login',
               'fail_count', 'locked_until')
 
@@ -245,9 +247,9 @@ _USER_COLS = ('login', 'fio', 'email', 'role', 'state', 'password_hash',
 def users_load_all() -> dict:
     out = {}
     with _conn() as conn, conn.cursor() as cur:
-        cur.execute(f"SELECT {', '.join(_USER_COLS)} FROM users")
+        cur.execute(f"SELECT {', '.join(USER_COLS)} FROM users")
         for row in cur.fetchall():
-            rec = dict(zip(_USER_COLS, row))
+            rec = dict(zip(USER_COLS, row))
             rec['perms'] = rec['perms'] or {}
             out[rec['login']] = rec
     return out
@@ -255,15 +257,15 @@ def users_load_all() -> dict:
 
 def users_save(user: dict) -> None:
     from psycopg.types.json import Json
-    assign = ', '.join(f'{c} = EXCLUDED.{c}' for c in _USER_COLS if c != 'login')
+    assign = ', '.join(f'{c} = EXCLUDED.{c}' for c in USER_COLS if c != 'login')
     values = []
-    for c in _USER_COLS:
+    for c in USER_COLS:
         v = user.get(c)
         values.append(Json(v or {}) if c == 'perms' else v)
     with _conn() as conn, conn.cursor() as cur:
         cur.execute(
-            f"INSERT INTO users ({', '.join(_USER_COLS)}) "
-            f"VALUES ({', '.join(['%s'] * len(_USER_COLS))}) "
+            f"INSERT INTO users ({', '.join(USER_COLS)}) "
+            f"VALUES ({', '.join(['%s'] * len(USER_COLS))}) "
             f"ON CONFLICT (login) DO UPDATE SET {assign}",
             values,
         )

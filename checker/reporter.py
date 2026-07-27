@@ -4,7 +4,7 @@ import html as _html
 from pathlib import Path
 from datetime import datetime
 
-from . import grading
+from . import branding, grading
 
 
 def _esc(s: str) -> str:
@@ -15,12 +15,12 @@ def _cell_inline_style(sim: float, threshold: float) -> str:
     """Compute inline background for matrix cell, works in PDF (no JS needed)."""
     if sim >= threshold:
         intensity = min(1.0, 0.3 + (sim - threshold) / max(1 - threshold, 0.001) * 0.7)
-        text_color = 'white' if intensity > 0.55 else '#1e293b'
-        return (f'background:rgba(239,68,68,{intensity:.2f});'
+        text_color = 'white' if intensity > 0.55 else '#101c14'
+        return (f'background:rgba(179,38,30,{intensity:.2f});'
                 f'color:{text_color};font-weight:600;')
     if sim >= threshold * 0.55:
         intensity = (sim - threshold * 0.55) / (threshold * 0.45 + 0.001) * 0.45
-        return f'background:rgba(245,158,11,{intensity:.2f});'
+        return f'background:rgba(208,135,0,{intensity:.2f});'
     return ''
 
 
@@ -87,7 +87,7 @@ def _render_matrix(new_reports: list, historical_relevant: list,
     matrix = text_plagiarism.get('matrix', {})
     all_reports = new_reports + historical_relevant
     if not matrix or len(all_reports) < 2:
-        return '<p style="color:#94a3b8">Недостаточно отчётов для матрицы.</p>'
+        return '<p style="color:#8ba394">Недостаточно отчётов для матрицы.</p>'
 
     threshold_pct = int(threshold * 100)
     hist_paths = {r['path'] for r in historical_relevant}
@@ -115,7 +115,7 @@ def _render_matrix(new_reports: list, historical_relevant: list,
 
     def _th_style(p):
         if p in hist_paths:
-            return ' style="background:#fef3c7;color:#92400e;"'
+            return ' style="background:#fbf0d8;color:#7a4a12;"'
         return ''
 
     # Column headers: name rotated 90° (reads bottom-to-top), narrow fixed cell.
@@ -129,14 +129,14 @@ def _render_matrix(new_reports: list, historical_relevant: list,
     rows = []
     for p1 in paths:
         is_h1 = p1 in hist_paths
-        row_th_style = ' style="background:#fef9e7;color:#92400e;"' if is_h1 else ''
+        row_th_style = ' style="background:#fbf6e6;color:#7a4a12;"' if is_h1 else ''
         name1 = _esc(_short_name(report_by_path[p1]))
         cells = []
         for p2 in paths:
             if p1 == p2:
                 cells.append('<td class="mc cell-self">·</td>')
             elif p1 in hist_paths and p2 in hist_paths:
-                cells.append('<td class="mc cell-self" style="color:#cbd5e1;">·</td>')
+                cells.append('<td class="mc cell-self" style="color:#c2d2c6;">·</td>')
             else:
                 sim = matrix.get(p1, {}).get(p2, 0.0)
                 pct = int(sim * 100)
@@ -163,7 +163,7 @@ def _render_matrix(new_reports: list, historical_relevant: list,
     if historical_relevant:
         hist_note = (
             f'<span style="display:inline-block;width:14px;height:14px;'
-            f'background:#fef3c7;border:1px solid #fcd34d;border-radius:2px;vertical-align:middle;"></span>'
+            f'background:#fbf0d8;border:1px solid #e3c169;border-radius:2px;vertical-align:middle;"></span>'
             f' Строки/столбцы на жёлтом — отчёты из базы предыдущих сессий &nbsp;'
         )
 
@@ -174,9 +174,9 @@ def _render_matrix(new_reports: list, historical_relevant: list,
   <tbody>{"".join(rows)}</tbody>
 </table>
 </div>
-<p style="font-size:0.78rem;color:#94a3b8;margin-top:8px;">
-  <span style="display:inline-block;width:14px;height:14px;background:#fca5a5;border-radius:2px;vertical-align:middle;"></span> ≥{threshold_pct}% — заимствование &nbsp;
-  <span style="display:inline-block;width:14px;height:14px;background:#fde68a;border-radius:2px;vertical-align:middle;"></span> {int(threshold_pct*0.55)}–{threshold_pct}% — близко &nbsp;
+<p style="font-size:0.78rem;color:#8ba394;margin-top:8px;">
+  <span style="display:inline-block;width:14px;height:14px;background:#eab3ae;border-radius:2px;vertical-align:middle;"></span> ≥{threshold_pct}% — заимствование &nbsp;
+  <span style="display:inline-block;width:14px;height:14px;background:#f0dba6;border-radius:2px;vertical-align:middle;"></span> {int(threshold_pct*0.55)}–{threshold_pct}% — близко &nbsp;
   {hist_note}
 </p>'''
 
@@ -195,7 +195,7 @@ def _render_image_summary(image_plagiarism: dict, report_by_path: dict) -> str:
         head_badges.append('<span class="badge badge-green">не найдено</span>')
 
     if not pairs:
-        body = ('<p style="color:#16a34a;font-weight:600;">'
+        body = ('<p style="color:#17805a;font-weight:600;">'
                 '✓ Одинаковых изображений между отчётами не найдено.</p>')
         return f'''<div class="section">
   <div class="section-head">
@@ -216,7 +216,7 @@ def _render_image_summary(image_plagiarism: dict, report_by_path: dict) -> str:
             if rep.get('is_historical'):
                 v = rep.get('historical_version', '?')
                 d = rep.get('historical_date', '')
-                return (f'{name} <span style="background:#fef3c7;color:#92400e;'
+                return (f'{name} <span style="background:#fbf0d8;color:#7a4a12;'
                         f'padding:1px 6px;border-radius:3px;font-size:0.73rem;">'
                         f'база v{v}</span>')
             return name
@@ -225,16 +225,16 @@ def _render_image_summary(image_plagiarism: dict, report_by_path: dict) -> str:
         n2_html = _name_with_badge(r2, n2)
 
         if p.get('ui_review'):
-            match_badge = '<span style="background:#dbeafe;color:#1d4ed8;padding:2px 8px;border-radius:4px;font-size:0.76rem;font-weight:600;">похожий интерфейс — проверьте вручную</span>'
+            match_badge = '<span style="background:#dfe9f5;color:#245a9c;padding:2px 8px;border-radius:4px;font-size:0.76rem;font-weight:600;">похожий интерфейс — проверьте вручную</span>'
         elif p.get('is_crop'):
-            match_badge = '<span style="background:#fef3c7;color:#b45309;padding:2px 8px;border-radius:4px;font-size:0.76rem;font-weight:600;">обрезанная копия</span>'
+            match_badge = '<span style="background:#fbf0d8;color:#8a5200;padding:2px 8px;border-radius:4px;font-size:0.76rem;font-weight:600;">обрезанная копия</span>'
         else:
-            match_badge = '<span style="background:#fee2e2;color:#dc2626;padding:2px 8px;border-radius:4px;font-size:0.76rem;font-weight:600;">точная копия</span>'
+            match_badge = '<span style="background:#fae4e2;color:#b3261e;padding:2px 8px;border-radius:4px;font-size:0.76rem;font-weight:600;">точная копия</span>'
 
         img1_html = (f'<img src="{p["img1"]}" alt="img1">' if p.get('img1')
-                     else '<div style="width:120px;height:80px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:4px;display:flex;align-items:center;justify-content:center;color:#94a3b8;font-size:0.75rem;">нет превью</div>')
+                     else '<div style="width:120px;height:80px;background:#f6f9f4;border:1px solid #dbe4dc;border-radius:4px;display:flex;align-items:center;justify-content:center;color:#8ba394;font-size:0.75rem;">нет превью</div>')
         img2_html = (f'<img src="{p["img2"]}" alt="img2">' if p.get('img2')
-                     else '<div style="width:120px;height:80px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:4px;display:flex;align-items:center;justify-content:center;color:#94a3b8;font-size:0.75rem;">нет превью</div>')
+                     else '<div style="width:120px;height:80px;background:#f6f9f4;border:1px solid #dbe4dc;border-radius:4px;display:flex;align-items:center;justify-content:center;color:#8ba394;font-size:0.75rem;">нет превью</div>')
 
         items.append(f'''
 <div class="img-pair">
@@ -242,20 +242,20 @@ def _render_image_summary(image_plagiarism: dict, report_by_path: dict) -> str:
     {img1_html}
     <div class="img-info">{n1_html}<br>стр. {p["page1"]}</div>
   </div>
-  <div style="align-self:center;font-size:1.5rem;color:#ef4444;">≈</div>
+  <div style="align-self:center;font-size:1.5rem;color:#b3261e;">≈</div>
   <div>
     {img2_html}
     <div class="img-info">{n2_html}<br>стр. {p["page2"]}</div>
   </div>
   <div class="img-info" style="align-self:center;">
     {match_badge}<br>
-    <span style="color:#94a3b8;font-size:0.75rem;">расст. {p["distance"]}/144</span>
+    <span style="color:#8ba394;font-size:0.75rem;">расст. {p["distance"]}/144</span>
   </div>
 </div>''')
 
     review_note = ''
     if review:
-        review_note = ('<p style="color:#64748b;font-size:0.82rem;margin:4px 0 10px;">'
+        review_note = ('<p style="color:#64786a;font-size:0.82rem;margin:4px 0 10px;">'
                        'Пары «похожий интерфейс» — это скриншоты одинаковых программ '
                        '(терминал, Zabbix и т.п.): совпадение оформления ожидаемо, '
                        'в статистику заимствований они не входят.</p>')
@@ -281,7 +281,7 @@ def _render_gost_table(gost_results: list) -> str:
             icon = '<span class="check-warn">⚠</span>'
         else:
             icon = '<span class="check-fail">✗</span>'
-        details = (f'<span style="color:#64748b;font-size:0.82rem;">{_esc(c["details"])}</span>'
+        details = (f'<span style="color:#64786a;font-size:0.82rem;">{_esc(c["details"])}</span>'
                    if c['details'] else '')
         rows.append(
             f'<tr><td>{icon}</td><td><b>{_esc(c["name"])}</b></td>'
@@ -307,13 +307,13 @@ def _render_text_plag_for_report(path: str, text_plagiarism: dict, threshold: fl
     sims.sort(key=lambda x: -x[1])
 
     if not sims:
-        return '<p style="color:#94a3b8;font-size:0.85rem;">Нет данных.</p>'
+        return '<p style="color:#8ba394;font-size:0.85rem;">Нет данных.</p>'
 
     max_other, max_sim = sims[0]
 
     if max_sim < threshold * 0.3:
         return (
-            '<p style="color:#16a34a;font-weight:600;font-size:0.9rem;">'
+            '<p style="color:#17805a;font-weight:600;font-size:0.9rem;">'
             f'✓ Заимствования не обнаружено (макс. схожесть {max_sim:.0%})</p>'
         )
 
@@ -331,16 +331,16 @@ def _render_text_plag_for_report(path: str, text_plagiarism: dict, threshold: fl
             badge_cls = 'badge-red' if sim >= threshold else 'badge-amber'
             label     = 'ИЗ БАЗЫ' if sim >= threshold else 'База (близко)'
             ref_html  = (
-                f'<span style="color:#92400e;">{other_name}</span> '
-                f'<span style="color:#b45309;font-size:0.78rem;">'
+                f'<span style="color:#7a4a12;">{other_name}</span> '
+                f'<span style="color:#8a5200;font-size:0.78rem;">'
                 f'(база v{hist_ver}, {hist_date})</span>'
             )
-            alert_style = 'background:#fffbeb;border-color:#fde68a;'
+            alert_style = 'background:#fdf8ea;border-color:#f0dba6;'
         else:
             anchor    = _anchor(other_rep)
             badge_cls = 'badge-red' if sim >= threshold else 'badge-amber'
             label     = 'ЗАИМСТВОВАНИЕ' if sim >= threshold else 'Близко'
-            ref_html  = f'<a href="#{anchor}" style="color:#be123c;">{other_name}</a>'
+            ref_html  = f'<a href="#{anchor}" style="color:#8f1d17;">{other_name}</a>'
             alert_style = ''
 
         passages_html = ''
@@ -363,7 +363,7 @@ def _render_text_plag_for_report(path: str, text_plagiarism: dict, threshold: fl
         )
 
     return ''.join(parts) if parts else (
-        '<p style="color:#f59e0b;font-size:0.85rem;">'
+        '<p style="color:#d08700;font-size:0.85rem;">'
         f'Схожесть до {max_sim:.0%}, ниже порога {threshold:.0%}</p>'
     )
 
@@ -375,7 +375,7 @@ def _render_img_plag_for_report(path: str, image_plagiarism: dict,
         if p['report1'] == path or p['report2'] == path
     ]
     if not my_pairs:
-        return '<p style="color:#16a34a;font-weight:600;font-size:0.9rem;">✓ Дублей изображений нет</p>'
+        return '<p style="color:#17805a;font-weight:600;font-size:0.9rem;">✓ Дублей изображений нет</p>'
 
     confirmed = [p for p in my_pairs if not p.get('ui_review')]
     review    = [p for p in my_pairs if p.get('ui_review')]
@@ -398,7 +398,7 @@ def _render_img_plag_for_report(path: str, image_plagiarism: dict,
             d = other_rep.get('historical_date', '')
             other_label = (
                 f'{other_name} '
-                f'<span style="background:#fef3c7;color:#92400e;'
+                f'<span style="background:#fbf0d8;color:#7a4a12;'
                 f'padding:1px 5px;border-radius:3px;font-size:0.72rem;">база v{v}</span>'
                 f'<br>стр.{other_page}'
             )
@@ -408,8 +408,8 @@ def _render_img_plag_for_report(path: str, image_plagiarism: dict,
         other_img_html = (
             f'<img src="{other_img}" alt="other" style="max-height:100px;">'
             if other_img else
-            '<div style="width:100px;height:70px;background:#f8fafc;border:1px solid #e2e8f0;'
-            'display:flex;align-items:center;justify-content:center;color:#94a3b8;font-size:0.72rem;">нет превью</div>'
+            '<div style="width:100px;height:70px;background:#f6f9f4;border:1px solid #dbe4dc;'
+            'display:flex;align-items:center;justify-content:center;color:#8ba394;font-size:0.72rem;">нет превью</div>'
         )
 
         review_badge = ''
@@ -424,7 +424,7 @@ def _render_img_plag_for_report(path: str, image_plagiarism: dict,
             f'<div class="img-pair" style="margin:6px 0;">'
             f'<div><img src="{my_img}" alt="my" style="max-height:100px;">'
             f'<div class="img-info">Эта работа, стр.{my_page}</div></div>'
-            f'<div style="align-self:center;color:#ef4444;font-size:1.3rem;">≈</div>'
+            f'<div style="align-self:center;color:#b3261e;font-size:1.3rem;">≈</div>'
             f'<div>{other_img_html}'
             f'<div class="img-info">{other_label}</div></div>'
             f'{review_badge}'
@@ -455,8 +455,8 @@ def _render_feedback(report: dict, gost_results: list, max_sim: float,
     plain = grading.feedback_text(student, thr_pct)
 
     pct = mark['pct'] or 0
-    color = '#22c55e' if pct >= 85 else '#f59e0b' if pct >= 60 else '#ef4444'
-    in_points = (f' &nbsp;<span style="font-size:0.8rem;color:#64748b;">'
+    color = '#17805a' if pct >= 85 else '#d08700' if pct >= 60 else '#b3261e'
+    in_points = (f' &nbsp;<span style="font-size:0.8rem;color:#64786a;">'
                  f'{mark["score"]:g} из {mark["scale"]}</span>'
                  if mark['score'] is not None else '')
 
@@ -464,7 +464,7 @@ def _render_feedback(report: dict, gost_results: list, max_sim: float,
         items = ''.join(f'<li>{_esc(l)}</li>' for l in lines)
         body = f'<ul class="flaw-list">{items}</ul>'
     else:
-        body = ('<p style="color:#16a34a;font-size:0.85rem;margin:0;">'
+        body = ('<p style="color:#17805a;font-size:0.85rem;margin:0;">'
                 'Замечаний по оформлению нет.</p>')
 
     costly = ''
@@ -504,16 +504,16 @@ def _render_card(report: dict, text_plagiarism: dict, image_plagiarism: dict,
 
     if has_text_plag or has_img_plag:
         badge = '<span class="badge badge-red">Заимствование</span>'
-        header_border = 'border-left:4px solid #ef4444;'
+        header_border = 'border-left:4px solid #b3261e;'
     elif passed < total * 0.7:
         badge = '<span class="badge badge-amber">Нарушения ГОСТ</span>'
-        header_border = 'border-left:4px solid #f59e0b;'
+        header_border = 'border-left:4px solid #d08700;'
     else:
         badge = '<span class="badge badge-green">OK</span>'
-        header_border = 'border-left:4px solid #22c55e;'
+        header_border = 'border-left:4px solid #17805a;'
 
-    score_color = ('#22c55e' if score_pct >= 85 else
-                   '#f59e0b' if score_pct >= 60 else '#ef4444')
+    score_color = ('#17805a' if score_pct >= 85 else
+                   '#d08700' if score_pct >= 60 else '#b3261e')
 
     s = report.get('student', {})
     meta_parts = []
@@ -538,8 +538,8 @@ def _render_card(report: dict, text_plagiarism: dict, image_plagiarism: dict,
     <span class="badge badge-red">Ошибка чтения</span>
   </div>
   <div class="report-body">
-    <p style="color:#ef4444;">{_esc(report["error"])}</p>
-    <p style="color:#64748b;font-size:0.8rem;">{fname_disp}</p>
+    <p style="color:#b3261e;">{_esc(report["error"])}</p>
+    <p style="color:#64786a;font-size:0.8rem;">{fname_disp}</p>
   </div>
 </div>'''
 
@@ -552,15 +552,15 @@ def _render_card(report: dict, text_plagiarism: dict, image_plagiarism: dict,
   <div class="report-header" style="{header_border}">
     <span style="font-size:1rem;font-weight:600;flex:1;">{_esc(_display_name(report))}</span>
     {badge}
-    <span style="font-size:0.82rem;color:#64748b;white-space:nowrap;">
+    <span style="font-size:0.82rem;color:#64786a;white-space:nowrap;">
       ГОСТ: {passed}/{total} &nbsp;|&nbsp; Схожесть: {max_sim:.0%}
     </span>
     <span class="toggle-arrow">▼</span>
   </div>
   <div class="report-body">
     {scan_warn}
-    {f'<p style="color:#64748b;font-size:0.84rem;margin-bottom:10px;">{meta}</p>' if meta else ''}
-    <p style="font-size:0.76rem;color:#94a3b8;margin-bottom:16px;">📄 {fname_disp}</p>
+    {f'<p style="color:#64786a;font-size:0.84rem;margin-bottom:10px;">{meta}</p>' if meta else ''}
+    <p style="font-size:0.76rem;color:#8ba394;margin-bottom:16px;">📄 {fname_disp}</p>
 
     {_render_feedback(report, gost_results, max_sim, threshold, weights, scale)}
 
@@ -569,11 +569,11 @@ def _render_card(report: dict, text_plagiarism: dict, image_plagiarism: dict,
       <div>
         <h3>ГОСТ 7.32-2017</h3>
         <div class="score-bar" style="margin-bottom:10px;">
-          <span style="font-size:0.82rem;color:#64748b;width:32px;">{score_pct}%</span>
+          <span style="font-size:0.82rem;color:#64786a;width:32px;">{score_pct}%</span>
           <div class="score-track">
             <div class="score-fill" style="width:{score_pct}%;background:{score_color};"></div>
           </div>
-          <span style="font-size:0.82rem;color:#64748b;">{passed}/{total}</span>
+          <span style="font-size:0.82rem;color:#64786a;">{passed}/{total}</span>
         </div>
         {gost_table}
       </div>
@@ -701,7 +701,7 @@ def generate_html_report(reports: list, historical: list,
             d = other_rep.get('historical_date', '')
             other_name_html = (
                 f'{_esc(_display_name(other_rep))} '
-                f'<span style="color:#d97706;font-size:0.75rem;">(база v{v}, {d})</span>'
+                f'<span style="color:#b26a00;font-size:0.75rem;">(база v{v}, {d})</span>'
             )
         elif other_rep:
             anc = _anchor(other_rep)
@@ -721,7 +721,7 @@ def generate_html_report(reports: list, historical: list,
         )
         plag_badge = (f'<span class="badge badge-red">{sim:.0%}</span>'
                       if sim >= threshold else
-                      f'<span style="color:#64748b;">{sim:.0%}</span>')
+                      f'<span style="color:#64786a;">{sim:.0%}</span>')
         gost_badge = (
             f'<span class="badge badge-green">{p}/{t}</span>' if p == t else
             f'<span class="badge {"badge-amber" if p >= t * 0.7 else "badge-red"}">{p}/{t}</span>'
@@ -731,7 +731,7 @@ def generate_html_report(reports: list, historical: list,
         elif review_count:
             img_badge = f'<span class="badge badge-blue">{review_count} на проверку</span>'
         else:
-            img_badge = '<span style="color:#16a34a;">—</span>'
+            img_badge = '<span style="color:#17805a;">—</span>'
         mark = grading.grade(r.get('gost_results', []), weights, scale)
         mark_pct = mark['pct'] or 0
         mark_text = (f'{mark["score"]:g} из {mark["scale"]}'
@@ -782,42 +782,79 @@ def generate_html_report(reports: list, historical: list,
         dl_btn = ''
 
 
+    # Логотип встраивается один раз — фоном для двух меток, иначе строка
+    # base64 весом под 70 КБ лежала бы в файле дважды.
+    logo = branding.logo_data_uri()
+    logo_css = f'.logo-mark {{ background-image: url({logo}); }}' if logo else ''
+    logo_img = '<span class="brand-logo logo-mark"></span>' if logo else ''
+    acronym = ''.join(f'<li><b>{letter}</b>{word[1:]}</li>'
+                      for letter, word in branding.ACRONYM)
+
     page_rule = f'''@page {{
   size: A4 portrait;
   margin: 15mm 20mm 24mm 20mm;
   @bottom-left {{
-    content: "#au-team · АЛЁНА (Автоматический Ловец Ёрничества, Небрежности и Аутентичности) · Проверка студенческих отчётов";
+    content: "{branding.TEAM} · {branding.APP_TITLE} — {branding.APP_FULL_NAME}";
     font-size: 7.5pt;
-    color: #94a3b8;
+    color: #8ba394;
     font-family: Arial, sans-serif;
   }}
   @bottom-right {{
     content: "Сформировано: {now}  ·  стр. " counter(page) " / " counter(pages);
     font-size: 7.5pt;
-    color: #94a3b8;
+    color: #8ba394;
     font-family: Arial, sans-serif;
   }}
 }}'''
 
     css = page_rule + '''
 * { box-sizing: border-box; margin: 0; padding: 0; }
-body { font-family: 'Segoe UI', Arial, sans-serif; background: #f1f5f9; color: #1e293b; line-height: 1.5; font-size: 14px; }
+body { font-family: 'Segoe UI', Arial, sans-serif; background: #eef2ec; color: #101c14; line-height: 1.5; font-size: 14px; }
 .container { max-width: 1400px; margin: 0 auto; padding: 24px; }
-h1 { font-size: 1.7rem; font-weight: 700; }
+h1 { font-size: 1.5rem; font-weight: 700; letter-spacing: -.01em; }
 h2 { font-size: 1.15rem; font-weight: 600; margin: 0 0 12px; }
 h3 { font-size: 0.95rem; font-weight: 600; margin-bottom: 8px; }
-.subtitle { color: #64748b; font-size: 0.88rem; margin: 6px 0 24px; }
-a { color: #3b82f6; text-decoration: none; }
+.subtitle { color: #64786a; font-size: 0.88rem; margin: 6px 0 0; }
+a { color: #0a7333; text-decoration: none; }
 a:hover { text-decoration: underline; }
+
+/* Шапка и подвал: та же марка, что и в интерфейсе — логотип #au_team,
+   название и расшифровка по буквам. */
+.brand-head {
+  display: flex; align-items: flex-start; gap: 16px; flex-wrap: wrap;
+  background: #04361a; color: #cfe3d6; border-radius: 12px;
+  padding: 18px 22px; margin-bottom: 18px;
+}
+.logo-mark {
+  background-color: #fff; background-repeat: no-repeat; background-position: center;
+  background-size: contain; background-origin: content-box; display: inline-block;
+}
+.brand-logo { width: 54px; height: 54px; flex: none; border-radius: 10px; padding: 4px; }
+.brand-head h1 { color: #fff; }
+.brand-head .subtitle { color: #8fb69f; }
+.brand-acronym { list-style: none; margin: 0 0 0 auto; padding: 0 0 0 18px; font-size: 0.76rem; line-height: 1.5; color: #8fb69f; border-left: 1px solid rgba(255,255,255,.12); }
+.brand-acronym b { color: #d8ebdf; font-weight: 800; }
+.brand-team { font-size: 0.78rem; color: #8fb69f; margin-top: 8px; }
+.brand-team b { color: #d8ebdf; }
+
+.brand-foot {
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  margin-top: 26px; padding: 14px 18px; background: white;
+  border: 1px solid #dbe4dc; border-radius: 12px;
+  font-size: 0.78rem; color: #64786a;
+}
+.brand-foot .logo-mark { width: 32px; height: 32px; flex: none; border-radius: 7px; padding: 2px; }
+.brand-foot b { color: #101c14; }
+.brand-foot .right { margin-left: auto; text-align: right; }
 
 .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 14px; margin-bottom: 28px; }
 .stat-card { background: white; border-radius: 12px; padding: 18px 20px; box-shadow: 0 1px 3px rgba(0,0,0,.08); }
 .stat-num { font-size: 2.2rem; font-weight: 700; line-height: 1; }
-.stat-lbl { color: #64748b; font-size: 0.82rem; margin-top: 4px; }
-.c-blue .stat-num   { color: #3b82f6; }
-.c-red .stat-num    { color: #ef4444; }
-.c-amber .stat-num  { color: #f59e0b; }
-.c-green .stat-num  { color: #22c55e; }
+.stat-lbl { color: #64786a; font-size: 0.82rem; margin-top: 4px; }
+.c-blue .stat-num   { color: #0a7333; }
+.c-red .stat-num    { color: #b3261e; }
+.c-amber .stat-num  { color: #d08700; }
+.c-green .stat-num  { color: #17805a; }
 
 .section { background: white; border-radius: 12px; padding: 22px 24px; box-shadow: 0 1px 3px rgba(0,0,0,.08); margin-bottom: 22px; }
 .section-head { display: flex; align-items: center; gap: 10px; cursor: pointer; }
@@ -827,57 +864,57 @@ a:hover { text-decoration: underline; }
 .section-body.open { display: block; }
 
 .summary-table { width: 100%; border-collapse: collapse; font-size: 0.86rem; }
-.summary-table th { text-align: left; padding: 8px 12px; background: #f8fafc; color: #64748b; font-weight: 600; border-bottom: 2px solid #e2e8f0; }
-.summary-table td { padding: 8px 12px; border-bottom: 1px solid #f1f5f9; vertical-align: middle; }
-.tr-red   td:first-child { border-left: 3px solid #ef4444; }
-.tr-amber td:first-child { border-left: 3px solid #f59e0b; }
-.tr-green td:first-child { border-left: 3px solid #22c55e; }
+.summary-table th { text-align: left; padding: 8px 12px; background: #f6f9f4; color: #64786a; font-weight: 600; border-bottom: 2px solid #dbe4dc; }
+.summary-table td { padding: 8px 12px; border-bottom: 1px solid #eef2ec; vertical-align: middle; }
+.tr-red   td:first-child { border-left: 3px solid #b3261e; }
+.tr-amber td:first-child { border-left: 3px solid #d08700; }
+.tr-green td:first-child { border-left: 3px solid #17805a; }
 
 .badge { display: inline-block; padding: 2px 9px; border-radius: 999px; font-size: 0.76rem; font-weight: 600; }
-.badge-red   { background: #fee2e2; color: #dc2626; }
-.badge-amber { background: #fef3c7; color: #d97706; }
-.badge-green { background: #dcfce7; color: #16a34a; }
-.badge-blue  { background: #dbeafe; color: #1d4ed8; }
+.badge-red   { background: #fae4e2; color: #b3261e; }
+.badge-amber { background: #fbf0d8; color: #b26a00; }
+.badge-green { background: #e3f2ec; color: #17805a; }
+.badge-blue  { background: #dfe9f5; color: #245a9c; }
 
 .matrix-scroll { overflow-x: auto; }
 .matrix-table { border-collapse: collapse; table-layout: fixed; margin: 0 auto; }
-.matrix-table th, .matrix-table td { border: 1px solid #e2e8f0; }
+.matrix-table th, .matrix-table td { border: 1px solid #dbe4dc; }
 .matrix-table td.mc { text-align: center; padding: 0; height: 18px; line-height: 1.1; overflow: hidden; }
-.matrix-table thead th.mh { position: relative; background: #f8fafc; vertical-align: bottom; padding: 0; overflow: hidden; }
+.matrix-table thead th.mh { position: relative; background: #f6f9f4; vertical-align: bottom; padding: 0; overflow: hidden; }
 .matrix-table thead th.mh > span { position: absolute; bottom: 4px; left: 50%; transform-origin: left bottom; transform: rotate(-90deg); white-space: nowrap; font-weight: 600; line-height: 1; }
-.matrix-table thead th.corner { background: #f8fafc; }
-.matrix-table tbody th.rh { text-align: left; font-weight: 500; background: #f8fafc; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 2px 6px; }
-.cell-self { background: #e2e8f0 !important; }
+.matrix-table thead th.corner { background: #f6f9f4; }
+.matrix-table tbody th.rh { text-align: left; font-weight: 500; background: #f6f9f4; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 2px 6px; }
+.cell-self { background: #dbe4dc !important; }
 .matrix-cell { }
 
 .report-card { background: white; border-radius: 12px; box-shadow: 0 1px 3px rgba(0,0,0,.08); margin-bottom: 14px; overflow: hidden; }
 .report-header { padding: 14px 18px; display: flex; align-items: center; gap: 10px; cursor: pointer; }
-.report-header:hover { background: #f8fafc; }
-.report-body { padding: 20px; display: none; border-top: 1px solid #f1f5f9; }
+.report-header:hover { background: #f6f9f4; }
+.report-body { padding: 20px; display: none; border-top: 1px solid #eef2ec; }
 .report-body.open { display: block; }
-.toggle-arrow { color: #94a3b8; font-size: 0.8rem; transition: transform .2s; margin-left: auto; }
+.toggle-arrow { color: #8ba394; font-size: 0.8rem; transition: transform .2s; margin-left: auto; }
 .toggle-arrow.open { transform: rotate(180deg); }
 
 .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
 @media (max-width: 860px) { .grid-2 { grid-template-columns: 1fr; } }
 
 .checks-table { width: 100%; border-collapse: collapse; font-size: 0.83rem; }
-.checks-table th { text-align: left; padding: 6px 10px; background: #f8fafc; color: #64748b; font-weight: 600; border-bottom: 1px solid #e2e8f0; }
-.checks-table td { padding: 6px 10px; border-bottom: 1px solid #f8fafc; vertical-align: top; }
-.check-pass { color: #16a34a; font-weight: 700; }
-.check-fail { color: #dc2626; font-weight: 700; }
-.check-warn { color: #d97706; font-weight: 700; }
+.checks-table th { text-align: left; padding: 6px 10px; background: #f6f9f4; color: #64786a; font-weight: 600; border-bottom: 1px solid #dbe4dc; }
+.checks-table td { padding: 6px 10px; border-bottom: 1px solid #f6f9f4; vertical-align: top; }
+.check-pass { color: #17805a; font-weight: 700; }
+.check-fail { color: #b3261e; font-weight: 700; }
+.check-warn { color: #b26a00; font-weight: 700; }
 
 .score-bar { display: flex; align-items: center; gap: 8px; }
-.score-track { flex: 1; height: 5px; background: #e2e8f0; border-radius: 3px; overflow: hidden; }
+.score-track { flex: 1; height: 5px; background: #dbe4dc; border-radius: 3px; overflow: hidden; }
 .score-fill { height: 100%; border-radius: 3px; }
 
-.plagiarism-alert { background: #fff1f2; border: 1px solid #fecdd3; border-radius: 7px; padding: 10px 14px; margin-bottom: 8px; font-size: 0.86rem; }
-.passage { background: #fef9c3; border-left: 3px solid #fbbf24; padding: 8px 12px; margin: 6px 0; border-radius: 0 5px 5px 0; font-size: 0.8rem; font-family: 'Consolas', monospace; white-space: pre-wrap; word-break: break-word; }
+.plagiarism-alert { background: #fdf1f0; border: 1px solid #f0cdc9; border-radius: 7px; padding: 10px 14px; margin-bottom: 8px; font-size: 0.86rem; }
+.passage { background: #fbf4d4; border-left: 3px solid #d9a521; padding: 8px 12px; margin: 6px 0; border-radius: 0 5px 5px 0; font-size: 0.8rem; font-family: 'Consolas', monospace; white-space: pre-wrap; word-break: break-word; }
 
-.img-pair { display: flex; gap: 14px; align-items: center; flex-wrap: wrap; margin: 10px 0; padding: 12px; background: #fff7ed; border-radius: 8px; border: 1px solid #fed7aa; }
-.img-pair img { max-width: 200px; max-height: 150px; object-fit: contain; border: 1px solid #e2e8f0; border-radius: 4px; background: white; }
-.img-info { font-size: 0.8rem; color: #64748b; margin-top: 4px; }
+.img-pair { display: flex; gap: 14px; align-items: center; flex-wrap: wrap; margin: 10px 0; padding: 12px; background: #fdf6ec; border-radius: 8px; border: 1px solid #ecd7b4; }
+.img-pair img { max-width: 200px; max-height: 150px; object-fit: contain; border: 1px solid #dbe4dc; border-radius: 4px; background: white; }
+.img-info { font-size: 0.8rem; color: #64786a; margin-top: 4px; }
 
 .print-btn { display:inline-flex; align-items:center; gap:6px; padding:8px 18px; background:#015D1E; color:white; border:none; border-radius:7px; font-size:0.84rem; font-weight:700; cursor:pointer; text-decoration:none; }
 .print-btn:hover { background:#014818; }
@@ -886,10 +923,22 @@ a:hover { text-decoration: underline; }
 @media print {
   body { background: white; font-size: 11px; }
   .print-btn, .toggle-arrow { display: none !important; }
+  /* Тёмная плашка шапки на бумаге только съедает тонер. */
+  .brand-head { background: white; color: #101c14; border: 1px solid #dbe4dc; }
+  .brand-head h1 { color: #101c14; }
+  .brand-head .subtitle, .brand-acronym, .brand-team { color: #64786a; }
+  .brand-acronym { border-left-color: #dbe4dc; }
+  .brand-acronym b, .brand-team b { color: #101c14; }
+  .brand-head, .brand-foot { break-inside: avoid; }
+  /* На печати grid раскладывается в столбик и съедает страницу — плитки
+     ставим потоком. */
+  .stats { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 18px; }
+  .stat-card { flex: 1 1 150px; padding: 12px 14px; }
+  .stat-num { font-size: 1.6rem; }
   .report-body, .section-body { display: block !important; }
   .section-head { cursor: default; }
   .report-header { cursor: default; }
-  .report-card, .section { break-inside: avoid; box-shadow: none; border: 1px solid #e2e8f0; }
+  .report-card, .section { break-inside: avoid; box-shadow: none; border: 1px solid #dbe4dc; }
   .matrix-scroll { overflow: visible; }
   .grid-2 { grid-template-columns: 1fr 1fr; }
   .passage { white-space: pre-wrap; }
@@ -899,24 +948,24 @@ a:hover { text-decoration: underline; }
 
 /* Рекомендуемая оценка и готовый отзыв */
 .verdict {
-  border: 1px solid #e2e8f0; border-left: 4px solid #015D1E;
+  border: 1px solid #dbe4dc; border-left: 4px solid #015D1E;
   border-radius: 8px; padding: 12px 14px; margin-bottom: 16px;
-  background: #f8fafc; break-inside: avoid;
+  background: #f6f9f4; break-inside: avoid;
 }
 .verdict-head { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
 .verdict-head h3 { font-size: 0.86rem; }
 .verdict-grade { font-size: 1.1rem; font-weight: 700; }
 .copy-btn {
   margin-left: auto; font: inherit; font-size: 0.78rem; cursor: pointer;
-  border: 1px solid #cbd5e1; background: #fff; color: #0f172a;
+  border: 1px solid #c2d2c6; background: #fff; color: #101c14;
   border-radius: 6px; padding: 5px 10px;
 }
 .copy-btn:hover { background: #015D1E; border-color: #015D1E; color: #fff; }
 .flaw-list { margin: 0; padding-left: 20px; font-size: 0.85rem; line-height: 1.55; }
 .flaw-list li { margin-bottom: 2px; }
-.flaw-note { margin: 8px 0 0; font-size: 0.78rem; color: #64748b; }
+.flaw-note { margin: 8px 0 0; font-size: 0.78rem; color: #64786a; }
 @media print { .copy-btn { display: none; } }
-'''
+''' + logo_css
 
     js = '''
 document.querySelectorAll('.report-header, .section-head').forEach(function(h) {
@@ -960,19 +1009,28 @@ document.querySelectorAll('.copy-btn').forEach(function(btn) {
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>АЛЁНА — проверка отчётов, {now}</title>
+<title>{branding.APP_TITLE} — проверка отчётов, {now}</title>
 <style>{css}</style>
 </head>
 <body>
 <div class="container">
 
+<div class="brand-head">
+  {logo_img}
+  <div>
+    <h1>{branding.APP_TITLE}</h1>
+    <p class="subtitle">{branding.APP_TAGLINE} · ГОСТ 7.32-2017</p>
+    <p class="brand-team"><b>{branding.TEAM}</b> — {branding.TEAM_NOTE.lower()}</p>
+  </div>
+  <ul class="brand-acronym">{acronym}</ul>
+</div>
+
 <div class="report-toolbar">
   <div>
-    <h1>АЛЁНА <span style="font-weight:600;font-size:.85rem;opacity:.7;">· Проверка студенческих отчётов</span></h1>
-    <p class="subtitle">
-      Сгенерировано: {now} &nbsp;|&nbsp;
-      Порог: {thr_pct}% &nbsp;|&nbsp;
-      ГОСТ 7.32-2017
+    <p class="subtitle" style="margin:0;">
+      Сформировано: {now} &nbsp;|&nbsp;
+      Отчётов: {n} &nbsp;|&nbsp;
+      Порог заимствования: {thr_pct}%
     </p>
   </div>
   {dl_btn}
@@ -1004,7 +1062,7 @@ document.querySelectorAll('.copy-btn').forEach(function(btn) {
 
 <div class="section">
   <h2>Матрица схожести текстов</h2>
-  <p style="color:#64748b;font-size:0.83rem;margin-bottom:14px;">
+  <p style="color:#64786a;font-size:0.83rem;margin-bottom:14px;">
     Жаккар по 5-граммам слов. Красный — выше порога {thr_pct}%, жёлтый — {int(thr_pct*0.55)}–{thr_pct}%.
     {'Включены совпадения с предыдущими сессиями (выделены желтоватым фоном).' if historical_relevant else ''}
   </p>
@@ -1012,12 +1070,24 @@ document.querySelectorAll('.copy-btn').forEach(function(btn) {
 </div>
 
 <h2 style="margin-bottom:12px;">Детальный анализ по каждому отчёту</h2>
-<p style="color:#64748b;font-size:0.83rem;margin-bottom:14px;">
+<p style="color:#64786a;font-size:0.83rem;margin-bottom:14px;">
   Нажмите на карточку, чтобы раскрыть подробности.
 </p>
 {cards}
 
 {img_summary}
+
+<div class="brand-foot">
+  {'<span class="logo-mark"></span>' if logo else ''}
+  <div>
+    <b>{branding.APP_TITLE}</b> — {branding.APP_FULL_NAME}.<br>
+    {branding.TEAM} · {branding.TEAM_NOTE.lower()} · версия {branding.APP_VERSION}
+  </div>
+  <div class="right">
+    Сформировано: {now}<br>
+    {branding.REGISTRY_NOTE}
+  </div>
+</div>
 
 </div>
 <script>{js}</script>

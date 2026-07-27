@@ -14,7 +14,7 @@
 
   <nav class="rail" id="rail" aria-label="Разделы">
     <div class="rail-brand">
-      <div class="rail-mark">АЛ</div>
+      <img class="rail-mark" src="{{ url_for('logo') }}" alt="" width="34" height="34">
       <div>
         <div class="rail-name">{{ app_title }}</div>
         <div class="rail-sub">Проверка студенческих отчётов</div>
@@ -82,11 +82,8 @@
         </span>
       </a>
       <div class="team">
-        <img class="team-logo" src="{{ url_for('logo') }}" alt="" width="24" height="24">
-        <span>
-          <span class="team-tag">{{ brand.TEAM }}</span>
-          <span class="team-note">{{ brand.TEAM_NOTE }} · версия {{ brand.APP_VERSION }}</span>
-        </span>
+        <span class="team-tag">{{ brand.TEAM }}</span>
+        <span class="team-note">версия {{ brand.APP_VERSION }}</span>
       </div>
     </div>
   </nav>

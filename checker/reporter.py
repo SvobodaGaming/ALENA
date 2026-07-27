@@ -1020,7 +1020,7 @@ document.querySelectorAll('.copy-btn').forEach(function(btn) {
   <div>
     <h1>{branding.APP_TITLE}</h1>
     <p class="subtitle">{branding.APP_TAGLINE} · ГОСТ 7.32-2017</p>
-    <p class="brand-team"><b>{branding.TEAM}</b> — {branding.TEAM_NOTE.lower()}</p>
+    <p class="brand-team"><b>{branding.TEAM}</b></p>
   </div>
   <ul class="brand-acronym">{acronym}</ul>
 </div>
@@ -1081,7 +1081,7 @@ document.querySelectorAll('.copy-btn').forEach(function(btn) {
   {'<span class="logo-mark"></span>' if logo else ''}
   <div>
     <b>{branding.APP_TITLE}</b> — {branding.APP_FULL_NAME}.<br>
-    {branding.TEAM} · {branding.TEAM_NOTE.lower()} · версия {branding.APP_VERSION}
+    {branding.TEAM} · версия {branding.APP_VERSION}
   </div>
   <div class="right">
     Сформировано: {now}<br>

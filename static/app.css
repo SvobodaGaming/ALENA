@@ -94,11 +94,11 @@ button, input, select, textarea { font: inherit; color: inherit; }
 
 .rail { background: var(--rail); color: var(--rail-ink); display: flex; flex-direction: column; min-height: 0; }
 .rail-brand { padding: 18px 18px 14px; display: flex; gap: 11px; align-items: center; }
+/* Марка приложения — логотип. Белая подложка обязательна: контур у него
+   тёмный и на тёмной шапке пропадает. */
 .rail-mark {
   width: 34px; height: 34px; flex: none; border-radius: 8px;
-  background: linear-gradient(150deg, #167a37 0%, #0a5029 100%);
-  display: grid; place-items: center;
-  font-weight: 800; font-size: 15px; color: #fff; letter-spacing: -.02em;
+  background: #fff; padding: 3px; object-fit: contain; display: block;
 }
 .rail-name { font-weight: 750; font-size: 15px; color: #fff; letter-spacing: .01em; }
 .rail-sub { font-size: 10.5px; color: #6f9c81; margin-top: 1px; }
@@ -340,19 +340,15 @@ input[type="range"] { width: 100%; accent-color: var(--brand); }
 .auth-foot { padding: 12px 20px; border-top: 1px solid var(--line-soft); background: var(--raised); font-size: 11px; color: var(--muted); text-align: center; line-height: 1.5; }
 .auth-body .btn.primary { justify-content: center; }
 
-/* Подпись команды: боковое меню, экраны входа, блок «О системе».
-   Логотип тёмный по контуру, поэтому всегда лежит на белой подложке —
-   иначе в тёмной теме от него остаётся только зелёный мозг. */
+/* Подпись команды: боковое меню, экраны входа, блок «О системе». */
 .team {
-  display: flex; align-items: center; gap: 9px;
+  display: flex; align-items: baseline; gap: 8px;
   margin-top: 8px; padding: 9px 8px 3px;
   border-top: 1px solid rgba(255,255,255,.07);
 }
-.team-logo, .team-line img, .about-top img {
-  flex: none; background: #fff; border-radius: 6px; padding: 2px;
-}
-.team-tag { display: block; font-size: 12px; font-weight: 700; color: #d8ebdf; }
-.team-note { display: block; font-size: 10px; color: #6f9c81; }
+.about-top img { flex: none; background: #fff; border-radius: 8px; padding: 3px; }
+.team-tag { font-size: 12px; font-weight: 700; color: #d8ebdf; }
+.team-note { font-size: 10px; color: #6f9c81; margin-left: auto; }
 
 .acronym {
   list-style: none; display: inline-block; text-align: left;

@@ -11,7 +11,7 @@
 <div class="centered">
   <div class="auth-card">
     <div class="auth-top">
-      <div class="rail-mark">АЛ</div>
+      <img class="rail-mark" src="{{ url_for('logo') }}" alt="" width="34" height="34">
       <div>
         <div class="rail-name">{{ app_title }}</div>
         <div class="rail-sub">Проверка студенческих отчётов</div>
@@ -51,10 +51,7 @@
         <li><b>{{ letter }}</b>{{ word[1:] }}</li>
         {% endfor %}
       </ul>
-      <div class="team-line">
-        <img src="{{ url_for('logo') }}" alt="" width="20" height="20">
-        <b>{{ brand.TEAM }}</b> · {{ brand.TEAM_NOTE }}
-      </div>
+      <div class="team-line"><b>{{ brand.TEAM }}</b></div>
     </div>
   </div>
 </div>

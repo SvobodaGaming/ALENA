@@ -10,7 +10,6 @@ Backed by PostgreSQL when DATABASE_URL is set, otherwise by JSON files next to
 the fingerprint store (same fallback strategy as checker/memory_store.py).
 """
 
-import json
 import os
 import secrets
 import threading
@@ -19,7 +18,7 @@ from pathlib import Path
 
 from werkzeug.security import check_password_hash, generate_password_hash
 
-from checker import db
+from checker import db, jsonstore
 
 DATA_DIR    = Path(__file__).parent.parent / 'memory'
 USERS_PATH  = DATA_DIR / 'users.json'
@@ -77,18 +76,11 @@ def default_perms(role: str) -> dict:
 # JSON fallback helpers
 
 def _read_json(path: Path, fallback):
-    if not path.exists():
-        return fallback
-    try:
-        return json.loads(path.read_text(encoding='utf-8'))
-    except Exception:
-        return fallback
+    return jsonstore.read_json(path, fallback)
 
 
 def _write_json(path: Path, value) -> None:
-    DATA_DIR.mkdir(exist_ok=True)
-    path.write_text(json.dumps(value, ensure_ascii=False, indent=2),
-                    encoding='utf-8')
+    jsonstore.write_json(path, value)
 
 
 # Accounts

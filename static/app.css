@@ -298,8 +298,12 @@ input[type="range"] { width: 100%; accent-color: var(--brand); }
 .progress-step { display: flex; align-items: baseline; gap: 10px; font-size: 13px; }
 .progress-step .mono { margin-left: auto; font-weight: 650; }
 .stat-row { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
-.stat-chip { font-size: 11.5px; color: var(--ink-2); background: var(--raised); border: 1px solid var(--line); border-radius: 20px; padding: 3px 10px; }
+.stat-chip { display: inline-flex; align-items: center; font-size: 11.5px; color: var(--ink-2); background: var(--raised); border: 1px solid var(--line); border-radius: 20px; padding: 3px 10px; }
 .stat-chip b { font-family: var(--mono); }
+/* Крестик «убрать файл» внутри плашки выбранного файла */
+.chip-x { border: 0; background: none; color: var(--muted); cursor: pointer; font-size: 15px; line-height: 1; padding: 0 0 0 7px; margin: 0 -2px 0 0; }
+.chip-x:hover { color: var(--crit); }
+.chip-x:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; border-radius: 3px; }
 
 /* Модальное окно */
 .modal-back { position: fixed; inset: 0; background: rgba(6,26,14,.45); display: grid; place-items: center; padding: 20px; z-index: 50; }

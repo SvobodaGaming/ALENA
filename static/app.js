@@ -292,7 +292,9 @@
       const done = list.filter(j => j.status === 'done' && j.summary);
       const files = list.reduce((n, j) => n + (j.total || 0), 0);
       const gosts = done.map(j => j.summary.gost).filter(v => v);
-      const matches = done.reduce((n, j) => n + (j.summary.matches || []).length, 0);
+      const matches = done.reduce((n, j) =>
+        n + (j.summary.matches_total != null
+          ? j.summary.matches_total : (j.summary.matches || []).length), 0);
       const set = (id, v) => { const el = $(id); if (el) el.textContent = v; };
       set('#t-checks', list.length);
       set('#t-files', files);
@@ -413,12 +415,19 @@
         </tr>`;
       }).join('');
 
-      const matches = (s.matches || []).length ? s.matches.map(m => `
+      // Совпадений может быть десятки тысяч — в дайджесте лежат самые заметные.
+      const shownMatches = (s.matches || []).length;
+      const totalMatches = s.matches_total != null ? s.matches_total : shownMatches;
+      const moreMatches = totalMatches > shownMatches
+        ? `<tr><td colspan="5" class="sub" style="padding:12px;">Показаны ${shownMatches}
+             самых заметных совпадений из ${totalMatches}. Полный список — в отчёте.</td></tr>`
+        : '';
+      const matches = shownMatches ? s.matches.map(m => `
         <tr>
           <td>${esc(m.a)}</td><td>${esc(m.b)}</td><td>${esc(m.kind)}</td>
           <td class="sub">${esc(m.where)}</td>
           <td class="num">${m.pct == null ? chip('crit', 'дубликат') : chip(plagTone(m.pct, thr), m.pct + '%')}</td>
-        </tr>`).join('')
+        </tr>`).join('') + moreMatches
         : '<tr><td colspan="5" class="empty" style="padding:22px;">Совпадений выше порога не найдено.</td></tr>';
 
       const fails = (s.fail_counts || []);
@@ -553,20 +562,66 @@
     const startBtn = $('#start-btn');
     const thr = $('#threshold');
 
-    const showFiles = () => {
-      const files = [...(input.files || [])];
-      fileList.innerHTML = files.length
-        ? '<div class="stat-row">' + files.map(f =>
-            `<span class="stat-chip">${esc(f.name)} · <b>${(f.size / 1048576).toFixed(1)} МБ</b></span>`).join('') + '</div>'
-        : '';
-      startBtn.disabled = !files.length;
+    const mb = bytes => (bytes / 1048576).toFixed(1);
+    const limitMb = parseInt(uploadForm.dataset.maxMb || '0', 10);
+
+    /* Свой список выбранного, а не input.files: FileList доступен только для
+       чтения, а файлы нужно проверять при добавлении, докладывать в несколько
+       заходов и убирать по одному. Отправляется тоже он. */
+    const OK_NAME = /\.(pdf|zip)$/i;
+    let picked = [];
+    let overLimit = false;
+
+    const same = (a, b) => a.name === b.name && a.size === b.size
+      && a.lastModified === b.lastModified;
+
+    const listNames = names => names.slice(0, 3).map(n => `«${n}»`).join(', ')
+      + (names.length > 3 ? ` и ещё ${names.length - 3}` : '');
+
+    /* Формат проверяем до отправки: перетащить можно что угодно, а узнавать об
+       отказе после получаса загрузки — обидно. */
+    const addFiles = list => {
+      const wrong = [], empty = [], dup = [];
+      for (const f of list) {
+        if (!OK_NAME.test(f.name)) wrong.push(f.name);
+        else if (!f.size) empty.push(f.name);
+        else if (picked.some(p => same(p, f))) dup.push(f.name);
+        else picked.push(f);
+      }
+      if (wrong.length) toast(`Принимаются только PDF и ZIP. Не взято: ${listNames(wrong)}`);
+      else if (empty.length) toast(`Пустой файл, брать нечего: ${listNames(empty)}`);
+      else if (dup.length) toast(`Уже в списке: ${listNames(dup)}`);
+      showFiles();
     };
-    input.addEventListener('change', showFiles);
+
+    const showFiles = () => {
+      const total = picked.reduce((s, f) => s + f.size, 0);
+      overLimit = !!limitMb && total / 1048576 > limitMb;
+      fileList.innerHTML = !picked.length ? '' :
+        '<div class="stat-row">' + picked.map((f, i) =>
+          `<span class="stat-chip">${esc(f.name)} · <b>${mb(f.size)} МБ</b>` +
+          `<button type="button" class="chip-x" data-drop="${i}" title="Убрать файл"` +
+          ` aria-label="Убрать ${esc(f.name)}">×</button></span>`).join('') + '</div>' +
+        `<p class="hint" style="margin:8px 0 0;">Выбрано файлов: ${picked.length} · ${mb(total)} МБ` +
+        (overLimit ? ` — больше допустимых ${limitMb} МБ, уберите лишние` : '') + '</p>';
+
+      $$('#file-list [data-drop]').forEach(b => {
+        b.onclick = () => { picked.splice(+b.dataset.drop, 1); showFiles(); };
+      });
+      startBtn.disabled = !picked.length || overLimit;
+    };
+
+    input.addEventListener('change', () => {
+      addFiles(input.files);
+      // Сброс поля: иначе повторный выбор того же файла не считается
+      // изменением, и вернуть только что убранный файл было бы нечем.
+      input.value = '';
+    });
     ['dragenter', 'dragover'].forEach(ev =>
       zone.addEventListener(ev, e => { e.preventDefault(); zone.classList.add('over'); }));
     ['dragleave', 'drop'].forEach(ev =>
       zone.addEventListener(ev, e => { e.preventDefault(); zone.classList.remove('over'); }));
-    zone.addEventListener('drop', e => { input.files = e.dataTransfer.files; showFiles(); });
+    zone.addEventListener('drop', e => addFiles(e.dataTransfer.files));
 
     if (thr) thr.oninput = () => { $('#thr-val').textContent = thr.value + '%'; };
 
@@ -596,7 +651,6 @@
        сервер, остальное — сама проверка. Иначе при загрузке пачки отчётов
        страница минутами стоит на нуле: fetch не сообщает, сколько уже ушло. */
     const UPLOAD_SHARE = 15;
-    const mb = bytes => (bytes / 1048576).toFixed(1);
 
     const setBar = (pct, step) => {
       const v = Math.max(0, Math.min(100, Math.round(pct)));
@@ -687,10 +741,10 @@
 
     uploadForm.addEventListener('submit', async e => {
       e.preventDefault();
-      const files = [...input.files];
-      const limitMb = parseInt(uploadForm.dataset.maxMb || '0', 10);
-      const totalMb = files.reduce((s, f) => s + f.size, 0) / 1048576;
-      if (limitMb && totalMb > limitMb) {
+      const files = picked.slice();
+      if (!files.length) { toast('Сначала выберите отчёты'); return; }
+      if (overLimit) {
+        const totalMb = files.reduce((s, f) => s + f.size, 0) / 1048576;
         toast(`Выбрано ${totalMb.toFixed(0)} МБ — больше допустимых ${limitMb} МБ`);
         return;
       }

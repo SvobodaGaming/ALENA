@@ -9,6 +9,8 @@ from collections import Counter
 
 from . import grading
 
+MAX_MATCHES = 500   # сколько совпадений хранится в дайджесте, см. build()
+
 
 def _gost_pct(report: dict) -> int:
     results = report.get('gost_results', []) or []
@@ -121,6 +123,11 @@ def build(reports: list, historical: list, text_plag: dict, img_plag: dict,
         })
 
     matches.sort(key=lambda m: (m['pct'] is None, -(m['pct'] or 0)))
+    # Полсотни работ с одинаковыми скриншотами дают десятки тысяч совпадений.
+    # Дайджест лежит в истории и уходит в браузер при каждом обновлении списка
+    # проверок, поэтому храним самые заметные, а общее число — отдельным полем.
+    matches_total = len(matches)
+    matches = matches[:MAX_MATCHES]
 
     scored = [s for s in students if s['gost'] is not None]
     groups = sorted({s['group'] for s in students if s['group']})
@@ -138,6 +145,7 @@ def build(reports: list, historical: list, text_plag: dict, img_plag: dict,
         'threshold':   round(threshold * 100),
         'students':    students,
         'matches':     matches,
+        'matches_total': matches_total,
         'fail_counts': fails.most_common(),
         'clean':       sum(1 for s in scored if not s['fails']),
         'grade':       grade_pct,

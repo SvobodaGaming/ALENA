@@ -11,25 +11,18 @@ small JPEG thumbnail per image.
 
 import base64
 import io
-import json
 import threading
 from datetime import datetime
 from pathlib import Path
 
-from checker import db
+from checker import db, jsonstore
 
 STORE_PATH = Path(__file__).parent.parent / 'memory' / 'store.json'
 _lock = threading.Lock()
 
 
 def _read_all() -> dict:
-    STORE_PATH.parent.mkdir(exist_ok=True)
-    if not STORE_PATH.exists():
-        return {}
-    try:
-        return json.loads(STORE_PATH.read_text(encoding='utf-8'))
-    except Exception:
-        return {}
+    return jsonstore.read_json(STORE_PATH, {})
 
 
 def load_store(owner=None) -> dict:
@@ -55,9 +48,7 @@ def save_store(store: dict) -> None:
     with _lock:
         full = _read_all()
         full.update(store)
-        STORE_PATH.write_text(
-            json.dumps(full, ensure_ascii=False, indent=2), encoding='utf-8'
-        )
+        jsonstore.write_json(STORE_PATH, full)
 
 
 def clear_store(owner=None) -> int:
@@ -73,9 +64,7 @@ def clear_store(owner=None) -> int:
         doomed = [k for k, v in store.items() if v.get('owner', '') == owner]
         for k in doomed:
             del store[k]
-        STORE_PATH.write_text(
-            json.dumps(store, ensure_ascii=False, indent=2), encoding='utf-8'
-        )
+        jsonstore.write_json(STORE_PATH, store)
     return len(doomed)
 
 
@@ -84,16 +73,11 @@ def delete_entry(entry_key: str) -> bool:
     if db.DB_ENABLED:
         return db.fp_delete(entry_key)
     with _lock:
-        try:
-            store = json.loads(STORE_PATH.read_text(encoding='utf-8'))
-        except Exception:
-            return False
+        store = _read_all()
         if entry_key not in store:
             return False
         del store[entry_key]
-        STORE_PATH.write_text(
-            json.dumps(store, ensure_ascii=False, indent=2), encoding='utf-8'
-        )
+        jsonstore.write_json(STORE_PATH, store)
     return True
 
 

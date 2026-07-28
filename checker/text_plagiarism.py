@@ -15,10 +15,17 @@ def normalize_text(text: str) -> str:
 
 
 def _shingles(text: str, n: int = SHINGLE_SIZE) -> set:
+    """Множество хешей словесных n-грамм.
+
+    Хеши, а не сами кортежи слов: для Жаккара нужны только совпадения, а
+    отчёт на сорок страниц даёт двенадцать тысяч n-грамм — кортежами это
+    2 МБ на работу, и при сравнении с базой в сотни отчётов память кончается.
+    Совпадение хешей 64-битное: ложное пересечение на таких объёмах невероятно.
+    """
     words = text.split()
     if len(words) < n:
-        return {tuple(words)} if words else set()
-    return {tuple(words[i:i + n]) for i in range(len(words) - n + 1)}
+        return {hash(tuple(words))} if words else set()
+    return {hash(tuple(words[i:i + n])) for i in range(len(words) - n + 1)}
 
 
 def _jaccard(a: set, b: set) -> float:
@@ -121,16 +128,17 @@ def check_text_plagiarism(reports: list, threshold: float = 0.6,
         for j in range(i + 1, len(paths)):
             p1, p2 = paths[i], paths[j]
 
+            # Несравнённые пары в матрицу не пишем: она квадратична по числу
+            # отчётов, и на базе в тысячу работ миллион нулей — это сотня
+            # мегабайт впустую. Читатели матрицы берут отсутствующую ячейку
+            # за ноль.
+
             # Skip: both historical (compared in prior sessions)
             if is_historical[p1] and is_historical[p2]:
-                matrix[p1][p2] = 0.0
-                matrix[p2][p1] = 0.0
                 continue
 
             # Skip: same student (same name + group → comparing with themselves)
             if student_key[p1] and student_key[p1] == student_key[p2]:
-                matrix[p1][p2] = 0.0
-                matrix[p2][p1] = 0.0
                 continue
 
             sim = _jaccard(shingles_map[p1], shingles_map[p2])

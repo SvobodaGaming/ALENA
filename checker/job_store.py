@@ -6,12 +6,11 @@ deployments. Ownership matters: a report is served only to its owner (or to an
 account allowed to see everything), and that decision needs the record.
 """
 
-import json
 import threading
 from datetime import datetime
 from pathlib import Path
 
-from checker import db
+from checker import db, jsonstore
 
 STORE_PATH = Path(__file__).parent.parent / 'memory' / 'jobs.json'
 _lock = threading.Lock()
@@ -20,19 +19,11 @@ _STAMP = '%d.%m.%Y %H:%M'
 
 
 def _read_all() -> dict:
-    STORE_PATH.parent.mkdir(exist_ok=True)
-    if not STORE_PATH.exists():
-        return {}
-    try:
-        return json.loads(STORE_PATH.read_text(encoding='utf-8'))
-    except Exception:
-        return {}
+    return jsonstore.read_json(STORE_PATH, {})
 
 
 def _write_all(data: dict) -> None:
-    STORE_PATH.parent.mkdir(exist_ok=True)
-    STORE_PATH.write_text(json.dumps(data, ensure_ascii=False, indent=2),
-                          encoding='utf-8')
+    jsonstore.write_json(STORE_PATH, data)
 
 
 def save(job_id: str, data: dict) -> None:

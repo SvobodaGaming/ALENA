@@ -112,6 +112,7 @@ List the jobs visible to the caller, keyed by `job_id`:
     "text_pairs": 3,
     "img_pairs": 1,
     "created_at": "28.06.2026 11:40",
+    "beat": 1782639600.42,
     "owner": "sokolova",
     "owner_fio": "Соколова Елена Викторовна",
     "threshold": 60,
@@ -143,6 +144,7 @@ List the jobs visible to the caller, keyed by `job_id`:
         { "a": "Петров П. П.", "b": "Белов А. Р. · ПР-20-1", "pct": 47,
           "kind": "текст", "where": "база, 18.06.2025" }
       ],
+      "matches_total": 7,
       "fail_counts": [["F7", 4], ["S2", 2]]
     },
     "error": null
@@ -152,6 +154,16 @@ List the jobs visible to the caller, keyed by `job_id`:
 
 `summary` is `null` until the check finishes; `matches[].pct` is `null` for
 duplicate images, which are a yes/no match rather than a share of the text.
+`matches` carries at most the 500 most prominent matches and `matches_total`
+says how many there were: a course of screenshot-heavy reports produces tens of
+thousands, and the digest is re-sent on every poll of the check list. The full
+picture is in the HTML report, which likewise shows the closest image pairs
+rather than all of them.
+
+`beat` is a Unix timestamp the running check refreshes every 15 seconds. A
+check still marked `processing` whose `beat` is over 90 seconds old is treated
+as lost — the process that ran it died — and is reported as an error on the
+next read. Clients need not act on it; poll `status` as before.
 
 `grade` is the recommended formatting mark in percent — the share of the
 normalised criterion weights that the work earned; `grade_score` restates it in

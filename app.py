@@ -125,6 +125,11 @@ ZIP_MAX_FILES = 5000
 jobs: dict = {}
 jobs_lock = threading.Lock()
 
+# Идущая проверка отмечается в хранилище каждые JOB_BEAT_EVERY секунд. Молчание
+# дольше JOB_STALE_AFTER значит, что процесс с её потоком не жив.
+JOB_BEAT_EVERY = 15
+JOB_STALE_AFTER = 90
+
 # Частичные загрузки: id → каталог, владелец, объём. Ключ выдаётся сервером и
 # проверяется по владельцу — чужую партию не дополнить.
 uploads: dict = {}
@@ -146,19 +151,50 @@ def inject_globals():
     }
 
 
+def _mark_if_stale(job_id: str, data: dict) -> dict:
+    """Пометить ошибкой проверку, которую никто не ведёт.
+
+    Признак — не факт перезапуска, а молчание: поток проверки отмечается в
+    хранилище каждые JOB_BEAT_EVERY секунд, и если отметки нет дольше
+    JOB_STALE_AFTER, процесс с этим потоком умер (кончилась память, сервер
+    перезапустили, случился сбой). Раньше все идущие проверки списывались при
+    старте процесса — и второй рабочий процесс gunicorn, поднявшись, гасил
+    живую проверку соседа сообщением о перезагрузке, которой не было.
+    """
+    if data.get('status') != 'processing':
+        return data
+    try:
+        quiet = time.time() - float(data.get('beat') or 0)
+    except (TypeError, ValueError):
+        quiet = JOB_STALE_AFTER + 1
+    if quiet < JOB_STALE_AFTER:
+        return data
+
+    data = dict(
+        data,
+        status='error',
+        step=('Проверка оборвалась: процесс проверки остановлен. Чаще всего '
+              'серверу не хватило памяти на большой партии — попробуйте '
+              'разделить её на части. Последний шаг: '
+              f'«{data.get("step") or "неизвестен"}».'),
+        error='job thread gone: no heartbeat',
+    )
+    try:
+        job_store.save(job_id, data)
+    except Exception:
+        pass
+    return data
+
+
 def _recover_stale_jobs():
-    """Processing threads do not survive a restart. Any job still marked
-    'processing' at boot is orphaned — flag it as an error so the UI does not
-    show it as running forever (and so it can be deleted)."""
+    """Проверки, чей поток не пережил остановку процесса, при старте помечаются
+    ошибкой — иначе они висят «выполняется» вечно и их нельзя даже удалить.
+
+    Молчащие меньше JOB_STALE_AFTER не трогаем: их мог вести соседний процесс.
+    """
     try:
         for jid, data in job_store.load_all().items():
-            if data.get('status') == 'processing':
-                data.update(
-                    status='error',
-                    step='Прервано перезапуском сервера — запустите проверку заново.',
-                    error='stale job recovered at startup',
-                )
-                job_store.save(jid, data)
+            _mark_if_stale(jid, data)
     except Exception:
         pass  # storage not reachable yet; stale rows stay until the next boot
 
@@ -533,12 +569,14 @@ def _find_job(job_id: str):
         job = jobs.get(job_id)
         if job is not None:
             return _public_job(job)
-    return job_store.get(job_id)
+    stored = job_store.get(job_id)
+    return stored if stored is None else _mark_if_stale(job_id, stored)
 
 
 def _all_jobs(user):
     scope = _scope(user)
-    merged = job_store.load_all(scope)
+    merged = {jid: _mark_if_stale(jid, data)
+              for jid, data in job_store.load_all(scope).items()}
     with jobs_lock:
         for jid, j in jobs.items():
             if scope is None or j.get('owner', '') == scope:
@@ -1056,6 +1094,7 @@ def _launch(tmp_dir: str, threshold: float, owner, enabled_checks=None,
             'text_pairs': 0,
             'img_pairs':  0,
             'created_at': datetime.now().strftime('%d.%m.%Y %H:%M'),
+            'beat':       time.time(),
             'owner':      owner['login'],
             'owner_fio':  owner.get('fio', owner['login']),
             'threshold':  round(threshold * 100),
@@ -1492,6 +1531,9 @@ def _update(job_id: str, _force: bool = False, **kwargs):
             if (_force or 'status' in kwargs
                     or now - job.get('_saved_at', 0.0) >= SAVE_EVERY):
                 job['_saved_at'] = now
+                # Отметка «проверка жива»: по ней отличают идущую проверку от
+                # брошенной вместе с умершим процессом (см. _mark_if_stale).
+                job['beat'] = time.time()
                 snapshot = _public_job(job)
     if snapshot is not None:
         job_store.save(job_id, snapshot)
@@ -1513,6 +1555,17 @@ def _tick(job_id: str, lo: int, hi: int, done: int, total: int, step: str):
         job['_ticked_at'] = now
     share = done / total if total else 1.0
     _update(job_id, progress=int(lo + (hi - lo) * min(share, 1.0)), step=step)
+
+
+def _beat(job_id: str, stop: threading.Event):
+    """Отмечать в хранилище, что проверка ещё идёт.
+
+    Между шагами бывают долгие паузы — сборка отчёта на сотне работ занимает
+    минуты и не обновляет ни процент, ни надпись. Без отметки такую проверку
+    сочли бы брошенной и погасили ошибкой.
+    """
+    while not stop.wait(JOB_BEAT_EVERY):
+        _update(job_id, _force=True)
 
 
 def _collect_pdfs(job_id: str, tmp_dir: str) -> list:
@@ -1542,6 +1595,8 @@ def _collect_pdfs(job_id: str, tmp_dir: str) -> list:
 def _process_job(job_id: str, tmp_dir: str, threshold: float,
                  owner: str, enabled_checks=None, use_memory=True,
                  weights=None, scale=grading.DEFAULT_SCALE):
+    stop_beat = threading.Event()
+    threading.Thread(target=_beat, args=(job_id, stop_beat), daemon=True).start()
     try:
         from checker.memory_store import (load_store, to_virtual_report,
                                           upsert_report, save_store)
@@ -1656,6 +1711,7 @@ def _process_job(job_id: str, tmp_dir: str, threshold: float,
                 step=f'Ошибка: {exc}',
                 error=traceback.format_exc())
     finally:
+        stop_beat.set()
         shutil.rmtree(tmp_dir, ignore_errors=True)
 
 

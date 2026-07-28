@@ -181,6 +181,31 @@ def _render_matrix(new_reports: list, historical_relevant: list,
 </p>'''
 
 
+# Сколько пар изображений показывать. Превью каждой картинки лежит в HTML
+# целиком, поэтому пара весит десяток килобайт. Курс из полусотни работ с
+# одинаковыми скриншотами даёт десятки тысяч пар — полный список раздувает
+# отчёт до гигабайтов: сервер не собирает его, а браузер не открывает. Пары
+# посчитаны все, выводятся самые близкие.
+SUMMARY_PAIRS = 200      # в общем разделе «Дублирование изображений»
+CARD_PAIRS    = 12       # в карточке одной работы
+
+
+def _pairs_note(shown: int, total: int, where: str) -> str:
+    if shown >= total:
+        return ''
+    return (f'<p style="color:#64786a;font-size:0.82rem;margin:4px 0 10px;">'
+            f'Показаны {shown} самых близких пар из {total}. Остальные учтены '
+            f'в счётчиках{where}, но не выведены: с полным списком отчёт '
+            f'весил бы сотни мегабайт и не открылся бы.</p>')
+
+
+def _by_importance(pairs: list) -> list:
+    """Сначала совпадения, потом «похожий интерфейс»; внутри — от близких к
+    далёким (список приходит отсортированным по расстоянию)."""
+    return ([p for p in pairs if not p.get('ui_review')]
+            + [p for p in pairs if p.get('ui_review')])
+
+
 def _render_image_summary(image_plagiarism: dict, report_by_path: dict) -> str:
     pairs = image_plagiarism.get('pairs', [])
     confirmed = [p for p in pairs if not p.get('ui_review')]
@@ -205,8 +230,10 @@ def _render_image_summary(image_plagiarism: dict, report_by_path: dict) -> str:
   <div class="section-body">{body}</div>
 </div>'''
 
+    shown = _by_importance(pairs)[:SUMMARY_PAIRS]
+
     items = []
-    for p in pairs:
+    for p in shown:
         r1 = report_by_path.get(p['report1'], {'path': p['report1']})
         r2 = report_by_path.get(p['report2'], {'path': p['report2']})
         n1 = _esc(_display_name(r1))
@@ -267,6 +294,7 @@ def _render_image_summary(image_plagiarism: dict, report_by_path: dict) -> str:
   </div>
   <div class="section-body">
   {review_note}
+  {_pairs_note(len(shown), len(pairs), ' и в карточках работ')}
   {''.join(items)}
   </div>
 </div>'''
@@ -379,9 +407,10 @@ def _render_img_plag_for_report(path: str, image_plagiarism: dict,
 
     confirmed = [p for p in my_pairs if not p.get('ui_review')]
     review    = [p for p in my_pairs if p.get('ui_review')]
+    shown     = _by_importance(my_pairs)[:CARD_PAIRS]
 
     items = []
-    for p in my_pairs:
+    for p in shown:
         is_mine_first = p['report1'] == path
         other_path = p['report2'] if is_mine_first else p['report1']
         other_page = p['page2']   if is_mine_first else p['page1']
@@ -436,7 +465,8 @@ def _render_img_plag_for_report(path: str, image_plagiarism: dict,
         badges.append(f'<span class="badge badge-red">{len(confirmed)} дублей</span>')
     if review:
         badges.append(f'<span class="badge badge-blue">{len(review)} на ручную проверку</span>')
-    return ' '.join(badges) + ''.join(items)
+    return (' '.join(badges) + _pairs_note(len(shown), len(my_pairs), '')
+            + ''.join(items))
 
 
 def _render_feedback(report: dict, gost_results: list, max_sim: float,

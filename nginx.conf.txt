@@ -32,7 +32,9 @@ server {
     ssl_certificate     /etc/letsencrypt/live/report.mxd3v.tech/fullchain.pem;
     ssl_certificate_key /etc/letsencrypt/live/report.mxd3v.tech/privkey.pem;
 
-    # Лимит загрузки, совпадает с MAX_CONTENT_LENGTH в app.py
+    # Предел одного запроса, совпадает с MAX_CONTENT_LENGTH в app.py. Партию
+    # отчётов браузер шлёт кусками по 16 МБ, поэтому её общий объём этим не
+    # ограничен — он задаётся переменной AU_MAX_UPLOAD_MB.
     client_max_body_size 620m;
 
     # Таймауты с запасом на обработку 150+ PDF

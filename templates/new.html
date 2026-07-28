@@ -4,7 +4,7 @@
 {% block subheading %}Загрузите отчёты и выберите, что проверять{% endblock %}
 
 {% block content %}
-<form id="upload-form">
+<form id="upload-form" data-max-mb="{{ upload_max_mb }}">
   <div class="grid-2">
     <div>
       <div class="section">
@@ -13,7 +13,7 @@
           <div class="dropzone" id="dropzone">
             <input type="file" id="file-input" name="files" multiple accept=".pdf,.zip" aria-label="Выбрать файлы">
             <div class="dz-title">Перетащите отчёты сюда</div>
-            <div class="dz-sub">ZIP-архив группы или отдельные PDF · до 600 МБ</div>
+            <div class="dz-sub">ZIP-архив группы или отдельные PDF · до {{ upload_max_text }}</div>
           </div>
           <div id="file-list" style="margin-top:12px;"></div>
         </div>

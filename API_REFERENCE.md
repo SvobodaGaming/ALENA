@@ -75,7 +75,7 @@ Start a check. `multipart/form-data`:
 
 | Field | Type | Notes |
 |-------|------|-------|
-| `files` | file(s) | One or more `.pdf` files, or a `.zip` of PDFs. Repeat the field for several files. |
+| `files` | file(s) | One or more `.pdf` files, or a `.zip` of PDFs. Repeat the field for several files. The request body must stay under 600 MB — split a larger batch into several checks. (The web interface has no such limit: it uploads in chunks, up to `AU_MAX_UPLOAD_MB`.) |
 | `threshold` | float | Text-similarity threshold, `0.0`-`1.0` (default `0.6`). |
 | `gost` | string | Optional comma-separated GOST check codes to evaluate, e.g. `S1,S3,F7,F9`. Omit the field to run all 20 checks; an empty value runs none. Codes: `S1`-`S9` (structural elements), `F1`-`F11` (formatting). |
 | `use_memory` | string | Optional. `0`/`false` skips plagiarism comparison against the stored fingerprint base (only files within the batch are compared). New reports are still added to the base. Default `1`. |

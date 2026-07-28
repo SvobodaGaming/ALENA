@@ -605,36 +605,97 @@
       if (step != null) $('#run-step').textContent = step;
     };
 
-    const sendFiles = data => new Promise((resolve, reject) => {
+    /* Запрос с телом: XHR, а не fetch, — нужен ход отправки. */
+    const send = (url, data, onSent) => new Promise((resolve, reject) => {
       const xhr = new XMLHttpRequest();
-      xhr.open('POST', '/upload');
+      xhr.open('POST', url);
       xhr.setRequestHeader('X-CSRF-Token', CSRF);
-      xhr.upload.onprogress = e => {
-        if (!e.lengthComputable) return;
-        setBar(e.loaded / e.total * UPLOAD_SHARE,
-          e.loaded >= e.total
-            ? 'Файлы приняты, готовим проверку…'
-            : `Загрузка на сервер — ${mb(e.loaded)} из ${mb(e.total)} МБ…`);
+      if (onSent) xhr.upload.onprogress = e => {
+        if (e.lengthComputable) onSent(e.loaded);
       };
       xhr.onload = () => {
         let out = {};
         try { out = JSON.parse(xhr.responseText); } catch (_) { /* не JSON */ }
-        if (xhr.status === 413) {
-          reject(new Error('Слишком большой объём файлов — лимит 600 МБ на одну проверку'));
-        } else if (xhr.status >= 400 || !out.job_id) {
-          reject(new Error(out.error || 'Не удалось начать проверку'));
-        } else {
-          resolve(out.job_id);
-        }
+        if (xhr.status >= 400) {
+          const err = new Error(out.error || `Сервер ответил ${xhr.status}`);
+          err.status = xhr.status;
+          reject(err);
+        } else resolve(out);
       };
       xhr.onerror = () => reject(new Error('Связь с сервером прервалась'));
+      xhr.ontimeout = () => reject(new Error('Сервер не ответил вовремя'));
       xhr.send(data);
     });
 
+    /* Файлы уходят кусками: партия за курс — это гигабайты, одним запросом
+       столько не проходит (лимит nginx, таймаут, память). Куски пишутся на
+       сервере в один каталог, проверка запускается после последнего. */
+    const sendFiles = async (files, extra) => {
+      const start = await send('/upload/start', new FormData());
+      const chunkSize = start.chunk_size || 16 * 1048576;
+      const totalBytes = files.reduce((s, f) => s + f.size, 0);
+      let doneBytes = 0;
+
+      const show = sent => setBar(
+        totalBytes ? (doneBytes + sent) / totalBytes * UPLOAD_SHARE : 0,
+        `Загрузка на сервер — ${mb(doneBytes + sent)} из ${mb(totalBytes)} МБ…`);
+
+      /* Кусок помечен смещением, поэтому повтор после обрыва связи не
+         задваивает байты — сервер узнаёт уже записанное и пропускает его. */
+      const sendChunk = async (f, off) => {
+        for (let attempt = 1; ; attempt++) {
+          const part = new FormData();
+          part.append('upload_id', start.upload_id);
+          part.append('name', f.name);
+          part.append('offset', String(off));
+          part.append('chunk', f.slice(off, off + chunkSize), 'part');
+          try {
+            return await send('/upload/part', part, sent => show(sent));
+          } catch (err) {
+            // Отказ по сути — не тот файл, нет прав, превышен объём — повторять
+            // бессмысленно. Повтор только для обрыва связи и сбоя сервера.
+            const worth = !err.status || err.status >= 500;
+            if (!worth || attempt >= 3) throw err;
+            setBar(totalBytes ? doneBytes / totalBytes * UPLOAD_SHARE : 0,
+              `Связь прервалась, повтор ${attempt} из 3…`);
+            await new Promise(r => setTimeout(r, 1500 * attempt));
+          }
+        }
+      };
+
+      try {
+        for (const f of files) {
+          for (let off = 0; off < f.size || off === 0; off += chunkSize) {
+            await sendChunk(f, off);
+            doneBytes += Math.min(chunkSize, f.size - off);
+            show(0);
+          }
+        }
+      } catch (err) {
+        const cancel = new FormData();
+        cancel.append('upload_id', start.upload_id);
+        send('/upload/cancel', cancel).catch(() => { /* уже неважно */ });
+        throw err;
+      }
+
+      setBar(UPLOAD_SHARE, 'Файлы приняты, готовим проверку…');
+      extra.append('upload_id', start.upload_id);
+      const out = await send('/upload/finish', extra);
+      if (!out.job_id) throw new Error('Не удалось начать проверку');
+      return out.job_id;
+    };
+
     uploadForm.addEventListener('submit', async e => {
       e.preventDefault();
+      const files = [...input.files];
+      const limitMb = parseInt(uploadForm.dataset.maxMb || '0', 10);
+      const totalMb = files.reduce((s, f) => s + f.size, 0) / 1048576;
+      if (limitMb && totalMb > limitMb) {
+        toast(`Выбрано ${totalMb.toFixed(0)} МБ — больше допустимых ${limitMb} МБ`);
+        return;
+      }
+
       const data = new FormData();
-      [...input.files].forEach(f => data.append('files', f));
       data.append('threshold', (thr.value / 100).toFixed(2));
       data.append('gost', $$('.gost-cb:checked').map(c => c.value).join(','));
       data.append('use_memory', $('#use-memory').checked ? '1' : '0');
@@ -648,7 +709,7 @@
 
       let jobId;
       try {
-        jobId = await sendFiles(data);
+        jobId = await sendFiles(files, data);
       } catch (err) {
         $('#run-progress').hidden = true;
         startBtn.disabled = false;

@@ -57,6 +57,9 @@ APP_TITLE = branding.APP_TITLE
 APP_FULL_NAME = branding.APP_FULL_NAME
 
 app = Flask(__name__)
+
+# Предел одного запроса. Партия отчётов приходит кусками, поэтому её общий
+# объём этим не ограничен — см. UPLOAD_MAX_TOTAL.
 app.config['MAX_CONTENT_LENGTH'] = 600 * 1024 * 1024
 
 # Без SECRET_KEY из окружения ключ рождается случайным на каждый запуск: сессии
@@ -85,11 +88,47 @@ REPORTS_DIR.mkdir(exist_ok=True)
 
 JOB_ID_RE = re.compile(r'^[0-9a-f]{6,40}$')     # id проверки — только hex
 UPLOAD_EXTS = ('.pdf', '.zip')
-ZIP_MAX_TOTAL = 1500 * 1024 * 1024   # предел распаковки: архив-бомба не съест диск
-ZIP_MAX_FILES = 2000
+
+
+def _mb_text(mb: int) -> str:
+    """«800 МБ» или «5 ГБ» — как удобнее читать преподавателю."""
+    if mb < 1024:
+        return f'{mb} МБ'
+    return f"{f'{mb / 1024:.1f}'.rstrip('0').rstrip('.')} ГБ"
+
+
+def _mb_env(name: str, default: int) -> int:
+    try:
+        return max(1, int(os.environ.get(name, '').strip() or default))
+    except ValueError:
+        return default
+
+
+# Курс целиком — это гигабайты. Один запрос столько не тянет: nginx, таймауты и
+# память рвутся раньше, поэтому браузер шлёт партию кусками, а здесь ограничен
+# её суммарный объём.
+UPLOAD_MAX_MB = _mb_env('AU_MAX_UPLOAD_MB', 5120)   # 5 ГБ
+UPLOAD_MAX_TOTAL = UPLOAD_MAX_MB * 1024 * 1024
+UPLOAD_CHUNK = 16 * 1024 * 1024      # рекомендуемый браузеру размер куска
+UPLOAD_TTL = 6 * 3600                # брошенная загрузка живёт не дольше
+
+# Где держать принятые файлы и распакованные PDF. По умолчанию системный temp,
+# но на многих серверах это tmpfs в оперативной памяти — партия на гигабайты
+# положит машину. AU_TMP_DIR переводит её на обычный диск.
+TMP_ROOT = os.environ.get('AU_TMP_DIR', '').strip() or None
+if TMP_ROOT:
+    Path(TMP_ROOT).mkdir(parents=True, exist_ok=True)
+
+ZIP_MAX_TOTAL = UPLOAD_MAX_TOTAL * 2  # предел распаковки: архив-бомба не съест диск
+ZIP_MAX_FILES = 5000
 
 jobs: dict = {}
 jobs_lock = threading.Lock()
+
+# Частичные загрузки: id → каталог, владелец, объём. Ключ выдаётся сервером и
+# проверяется по владельцу — чужую партию не дополнить.
+uploads: dict = {}
+uploads_lock = threading.Lock()
 
 
 @app.context_processor
@@ -178,12 +217,30 @@ def _migrate_settings():
         accounts.save_settings({'gost_schema': GOST_SCHEMA, 'default_gost': []})
 
 
+def _purge_temp_dirs(older_than: float = 24 * 3600):
+    """Убрать временные каталоги загрузок и проверок, брошенные перезапуском.
+
+    Порог в сутки: идущую проверку соседнего процесса задеть нельзя, а гигабайты
+    от оборванных загрузок за неделю забьют диск.
+    """
+    now = time.time()
+    root = Path(TMP_ROOT or tempfile.gettempdir())
+    for prefix in ('up_', 'rc_'):
+        for item in root.glob(f'{prefix}*'):
+            try:
+                if item.is_dir() and now - item.stat().st_mtime > older_than:
+                    shutil.rmtree(item, ignore_errors=True)
+            except OSError:
+                pass
+
+
 def _startup():
     accounts.bootstrap()
     _migrate_settings()
     _migrate_legacy_ownership()
     _recover_stale_jobs()
     _purge_expired()
+    _purge_temp_dirs()
 
 
 _startup()
@@ -420,6 +477,17 @@ def forbidden(exc):
                            message=exc.description), 403
 
 
+@app.errorhandler(413)
+def too_large(exc):
+    """Тело запроса больше предела. Загрузка идёт из скрипта — отвечаем JSON,
+    иначе на странице просто оборвётся связь без объяснения."""
+    limit = app.config['MAX_CONTENT_LENGTH'] // (1024 * 1024)
+    text = f'Запрос больше {limit} МБ — уменьшите порцию файлов'
+    if request.path.startswith('/api/') or request.path.startswith('/upload'):
+        return jsonify({'error': text, 'status': 413}), 413
+    return render_template('error.html', code=413, message=text), 413
+
+
 @app.route('/health')
 def health():
     return jsonify({'ok': True})
@@ -505,6 +573,8 @@ def new_check():
                            weights={c: weights.get(c, grading.DEFAULT_WEIGHT)
                                     for c in ALL_CODES},
                            scale=grading.clean_scale(conf.get('grade_scale')),
+                           upload_max_mb=UPLOAD_MAX_MB,
+                           upload_max_text=_mb_text(UPLOAD_MAX_MB),
                            threshold=int(float(conf.get('default_threshold', 0.6)) * 100))
 
 
@@ -881,9 +951,66 @@ def _parse_use_memory(raw) -> bool:
     return raw.strip().lower() not in ('0', 'false', 'no', 'off')
 
 
+def _upload_slot(upload_id):
+    """Открытая загрузка по её номеру.
+
+    Номер выдан сервером и привязан к учётной записи: чужую партию не дополнить
+    и не запустить, даже зная номер.
+
+    Returns (slot, error_message, http_status).
+    """
+    with uploads_lock:
+        slot = uploads.get(upload_id or '')
+        if slot is None:
+            return None, 'Загрузка не найдена или устарела — начните заново', 404
+        if slot['owner'] != g.user['login']:
+            return None, 'Загрузка принадлежит другой учётной записи', 403
+        return slot, None, 200
+
+
+def _sweep_uploads():
+    """Убрать брошенные загрузки: вкладку закрыли, связь оборвалась.
+
+    Иначе принятые куски навсегда остаются во временном каталоге сервера.
+    """
+    now = time.monotonic()
+    stale = []
+    with uploads_lock:
+        for uid, slot in list(uploads.items()):
+            if now - slot['at'] > UPLOAD_TTL:
+                stale.append(uploads.pop(uid))
+    for slot in stale:
+        shutil.rmtree(slot['dir'], ignore_errors=True)
+
+
 def _start_job(uploaded, threshold: float, owner, enabled_checks=None,
                use_memory=True, weights=None, scale=grading.DEFAULT_SCALE):
-    """Validate uploaded files and spawn the processing thread.
+    """Принять файлы одним запросом и запустить проверку.
+
+    Так работают API и старые клиенты: объём такой загрузки ограничен пределом
+    одного запроса. Интерфейс шлёт партию кусками — см. /upload/part.
+    """
+    if not uploaded or all(f.filename == '' for f in uploaded):
+        return None, 'Файлы не выбраны', 400
+
+    tmp_dir = tempfile.mkdtemp(prefix='rc_', dir=TMP_ROOT)
+    try:
+        for f in uploaded:
+            name = _safe_upload_name(f.filename)
+            if name is None:
+                continue
+            f.save(os.path.join(tmp_dir, name))
+    except Exception as e:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+        return None, f'Ошибка при загрузке: {e}', 500
+
+    return _launch(tmp_dir, threshold, owner, enabled_checks, use_memory,
+                   weights, scale)
+
+
+def _launch(tmp_dir: str, threshold: float, owner, enabled_checks=None,
+            use_memory=True, weights=None, scale=grading.DEFAULT_SCALE):
+    """Пересчитать принятые файлы и запустить поток проверки.
 
     enabled_checks: list of GOST check codes to evaluate, or None for all.
     use_memory: when False, skip comparison against stored fingerprints
@@ -894,27 +1021,20 @@ def _start_job(uploaded, threshold: float, owner, enabled_checks=None,
     Returns (job_id, error_message, http_status). On success error_message is
     None; on failure job_id is None.
 
-    Запрос завершается сразу после приёма файлов: распаковка архива идёт уже в
+    Запрос завершается сразу после подсчёта работ: распаковка архива идёт уже в
     фоновом потоке. Иначе на большой партии браузер минутами ждал ответа, не
     зная ни числа работ, ни того, что происходит.
     """
-    if not uploaded or all(f.filename == '' for f in uploaded):
-        return None, 'Файлы не выбраны', 400
-
     job_id = uuid.uuid4().hex[:10]
-    tmp_dir = tempfile.mkdtemp(prefix=f'rc_{job_id}_')
-
     expected = 0
     try:
-        for f in uploaded:
-            name = _safe_upload_name(f.filename)
-            if name is None:
+        for item in sorted(Path(tmp_dir).iterdir()):
+            if not item.is_file():
                 continue
-            dest = os.path.join(tmp_dir, name)
-            f.save(dest)
             # Оглавление архива читается мгновенно: число работ известно сразу,
             # а сама распаковка — уже в потоке проверки.
-            expected += _zip_pdf_count(dest) if name.lower().endswith('.zip') else 1
+            expected += (_zip_pdf_count(str(item))
+                         if item.name.lower().endswith('.zip') else 1)
     except zipfile.BadZipFile:
         shutil.rmtree(tmp_dir, ignore_errors=True)
         return None, 'Архив повреждён или это не ZIP', 400
@@ -1081,6 +1201,109 @@ def upload():
     if error:
         return jsonify({'error': error}), status_code
     return jsonify({'job_id': job_id})
+
+
+@app.route('/upload/start', methods=['POST'])
+@permission_required('run_checks')
+def upload_start():
+    """Открыть частичную загрузку.
+
+    Партия за курс — это гигабайты, одним запросом столько не проходит:
+    упирается в лимит nginx и в таймаут. Браузер берёт отсюда номер загрузки и
+    досылает файлы кусками.
+    """
+    _sweep_uploads()
+    upload_id = uuid.uuid4().hex[:16]
+    with uploads_lock:
+        uploads[upload_id] = {
+            'dir':   tempfile.mkdtemp(prefix='up_', dir=TMP_ROOT),
+            'owner': g.user['login'],
+            'bytes': 0,
+            'at':    time.monotonic(),
+        }
+    return jsonify({
+        'upload_id':  upload_id,
+        'chunk_size': UPLOAD_CHUNK,
+        'max_bytes':  UPLOAD_MAX_TOTAL,
+    })
+
+
+@app.route('/upload/part', methods=['POST'])
+@permission_required('run_checks')
+def upload_part():
+    """Дописать кусок файла в открытую загрузку."""
+    slot, error, code = _upload_slot(request.form.get('upload_id'))
+    if error:
+        return jsonify({'error': error}), code
+
+    name = _safe_upload_name(request.form.get('name'))
+    if name is None:
+        return jsonify({'error': 'Принимаются только PDF и ZIP'}), 400
+    chunk = request.files.get('chunk')
+    if chunk is None:
+        return jsonify({'error': 'Кусок файла не передан'}), 400
+
+    # Имя уже очищено от пути, поэтому запись остаётся внутри каталога загрузки.
+    dest = os.path.join(slot['dir'], name)
+    have = os.path.getsize(dest) if os.path.exists(dest) else 0
+    offset = _int_field(request.form, 'offset', have, 0, UPLOAD_MAX_TOTAL)
+    if offset > have:
+        return jsonify({'error': 'Кусок пришёл не по порядку — начните заново',
+                        'have': have}), 409
+    if offset < have:
+        # Повтор после обрыва: эти байты уже записаны, второй раз не дописываем.
+        return jsonify({'ok': True, 'bytes': slot['bytes'], 'repeat': True})
+
+    data = chunk.read()
+    with uploads_lock:
+        over = slot['bytes'] + len(data) > UPLOAD_MAX_TOTAL
+        if not over:
+            slot['bytes'] += len(data)
+            slot['at'] = time.monotonic()
+    if over:
+        return jsonify({'error': f'Объём партии больше допустимых '
+                                 f'{UPLOAD_MAX_MB} МБ'}), 413
+
+    with open(dest, 'wb' if offset == 0 else 'ab') as out:
+        out.write(data)
+    return jsonify({'ok': True, 'bytes': slot['bytes']})
+
+
+@app.route('/upload/finish', methods=['POST'])
+@permission_required('run_checks')
+def upload_finish():
+    """Закрыть загрузку и запустить проверку по собранным файлам."""
+    upload_id = request.form.get('upload_id')
+    slot, error, code = _upload_slot(upload_id)
+    if error:
+        return jsonify({'error': error}), code
+
+    with uploads_lock:
+        uploads.pop(upload_id, None)
+
+    threshold = float(request.form.get('threshold', 0.6))
+    enabled = _parse_enabled_checks(request.form.get('gost'))
+    use_memory = _parse_use_memory(request.form.get('use_memory'))
+    weights, scale = _grade_params(request.form)
+    job_id, error, status_code = _launch(
+        slot['dir'], threshold, g.user, enabled, use_memory, weights, scale)
+    if error:
+        return jsonify({'error': error}), status_code
+    return jsonify({'job_id': job_id})
+
+
+@app.route('/upload/cancel', methods=['POST'])
+@permission_required('run_checks')
+def upload_cancel():
+    """Отменить загрузку — вкладку закрыли или связь оборвалась."""
+    upload_id = request.form.get('upload_id')
+    slot, error, code = _upload_slot(upload_id)
+    if error:
+        return jsonify({'error': error}), code
+    with uploads_lock:
+        uploads.pop(upload_id, None)
+    shutil.rmtree(slot['dir'], ignore_errors=True)
+    return jsonify({'ok': True})
 
 
 @app.route('/status/<job_id>')

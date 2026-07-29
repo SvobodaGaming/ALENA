@@ -24,15 +24,32 @@ def _median(values: list) -> float:
 
 
 CAPTION_RE = re.compile(r'^\s*(рисунок|рис\.|таблица|табл\.)\s*\d', re.IGNORECASE)
-TASK_RE = re.compile(r'ЗАДАНИЕ', re.IGNORECASE)
+# Заголовок листа задания: «ЗАДАНИЕ», «Индивидуальное задание на практику».
+# После «задание» стоит граница слова — «заданием», «задания» в обычной фразе
+# заголовком не считаются.
+TASK_HEAD_RE = re.compile(
+    r'^(?:индивидуальное|календарное|примерное|тематическое)?\s*задание\b',
+    re.IGNORECASE)
 TASK_KIND_RE = re.compile(r'(практик|курсов|выпускн|дипломн)', re.IGNORECASE)
+TASK_HEAD_LINES = 20      # заголовок листа стоит вверху, под шапкой вуза
+TASK_HEAD_MAX = 60        # строка заголовка короче строки основного текста
 
 
 def _is_task_page(text: str) -> bool:
     """A «задание на практику / на курсовую работу» sheet. Together with the
-    title page it is exempt from the 14 pt rule — only the typeface counts."""
-    head = text[:400]
-    return bool(TASK_RE.search(head) and TASK_KIND_RE.search(head))
+    title page it is exempt from the 14 pt rule — only the typeface counts.
+
+    Слово ищется в заголовке — отдельной короткой строкой вверху листа. Раньше
+    хватало любого «задание» среди первых четырёхсот знаков, и обычная фраза
+    «в соответствии с индивидуальным заданием на практику» превращала лист в
+    задание: с него не брались ни поля, ни размер шрифта, ни номер страницы.
+    """
+    lines = [ln.strip() for ln in text.splitlines() if ln.strip()][:TASK_HEAD_LINES]
+    if not lines or not TASK_KIND_RE.search('\n'.join(lines)):
+        return False
+    return any(TASK_HEAD_RE.match(ln) and not ln.endswith('.')
+               and (len(ln) <= TASK_HEAD_MAX or ln.isupper())
+               for ln in lines)
 
 
 def _table_bboxes(page) -> list:
@@ -94,11 +111,37 @@ def _merge_counts(target: dict, source: dict) -> None:
         target[key] = target.get(key, 0) + n
 
 
+HEAD_BAND_MM = 20      # колонтитул целиком лежит внутри обязательного поля
+HEAD_MAX_CHARS = 60    # и занимает строку короче строки основного текста
+
+
+def _text_lines(words: list) -> list:
+    """Слова, собранные в строки: их вершины совпадают с точностью до пункта."""
+    lines = []
+    for w in sorted(words, key=lambda w: (w['top'], w['x0'])):
+        if not w['text'].strip():
+            continue
+        if lines and w['top'] - lines[-1]['top'] <= 3:
+            ln = lines[-1]
+            ln['bottom'] = max(ln['bottom'], w['bottom'])
+            ln['x0'] = min(ln['x0'], w['x0'])
+            ln['x1'] = max(ln['x1'], w['x1'])
+            ln['text'] += ' ' + w['text']
+        else:
+            lines.append({'top': w['top'], 'bottom': w['bottom'],
+                          'x0': w['x0'], 'x1': w['x1'], 'text': w['text']})
+    return lines
+
+
 def _content_bounds(page):
     """Bounding box (x0, x1, top, bottom) of the page's text body, in points.
 
-    Standalone short numbers near the top/bottom edge are page numbers: they
-    live inside the required margin and must not shrink the measured one.
+    Колонтитулы в измерении не участвуют: номер страницы, «- 5 -», «Отчёт по
+    практике» стоят внутри обязательного поля по замыслу, и отчёт с полями
+    точно по ГОСТу объявлялся из-за них нарушением. Колонтитул — короткая
+    строка, целиком лежащая в полосе поля; строка основного текста туда
+    целиком не помещается, поэтому съехавшие поля по-прежнему видны.
+
     Returns None when the page has no qualifying words.
     """
     try:
@@ -106,17 +149,24 @@ def _content_bounds(page):
     except Exception:
         return None
     h = float(page.height)
-    content = [
-        w for w in words
-        if not (w['text'].strip().isdigit() and len(w['text'].strip()) <= 4
-                and (w['top'] < 0.1 * h or w['bottom'] > 0.9 * h))
-    ]
+    band = HEAD_BAND_MM * PT_PER_MM
+    content = []
+    for ln in _text_lines(words):
+        short = len(ln['text']) <= HEAD_MAX_CHARS
+        if short and (ln['bottom'] <= band or ln['top'] >= h - band):
+            continue
+        # Отдельный номер страницы бывает и дальше от края — например, когда
+        # поле задано с запасом. Такое число полем тоже не считается.
+        if (short and ln['text'].strip().isdigit() and len(ln['text']) <= 4
+                and (ln['top'] < 0.1 * h or ln['bottom'] > 0.9 * h)):
+            continue
+        content.append(ln)
     if not content:
         return None
-    return (min(w['x0'] for w in content),
-            max(w['x1'] for w in content),
-            min(w['top'] for w in content),
-            max(w['bottom'] for w in content))
+    return (min(ln['x0'] for ln in content),
+            max(ln['x1'] for ln in content),
+            min(ln['top'] for ln in content),
+            max(ln['bottom'] for ln in content))
 
 
 def extract_report(pdf_path: str) -> dict:
@@ -161,6 +211,15 @@ def extract_report(pdf_path: str) -> dict:
                         'top': bounds[2], 'bottom': bounds[3],
                     }
                 pages_meta.append(meta)
+
+            # Титульный лист и задание не участвуют в статистике размера
+            # шрифта и в измерении полей. Если особыми вышли все листы до
+            # единого, разметка ошиблась — проверять было бы нечего, и три
+            # критерия разом отвалились бы с «определить не удалось».
+            if len(pages_meta) > 2 and all(m['is_title'] or m['is_task']
+                                           for m in pages_meta):
+                for m in pages_meta[1:]:
+                    m['is_task'] = False
 
             result['pages'] = pages_meta
             result['full_text'] = '\n'.join(result['text_by_page'])

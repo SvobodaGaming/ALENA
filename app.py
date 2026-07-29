@@ -18,6 +18,8 @@ Run on server (production):
 """
 
 import csv
+import errno
+import hashlib
 import io
 import json
 import os
@@ -918,6 +920,34 @@ def _grade_params(form) -> tuple:
     return weights, scale
 
 
+# Предел длины имени файла. Файловые системы меряют его в байтах, а не в
+# буквах: 255 байт на ext4. Кириллическая буква занимает два байта, арабская
+# или китайская — три, так что «безопасные» 180 букв превращались в 400 байт и
+# запись падала с «File name too long». Оставляем запас на приписку _N, которой
+# разводятся одинаковые имена внутри архива.
+NAME_MAX_BYTES = 200
+
+
+def _fit_name(name: str, limit: int = NAME_MAX_BYTES) -> str:
+    """Укоротить имя до limit байт, сохранив расширение.
+
+    Расширение обязано уцелеть: по нему отбираются PDF, и обрезанное «в лоб»
+    имя выпадало из проверки вместе с работой студента.
+    """
+    if len(name.encode('utf-8')) <= limit:
+        return name
+    stem, dot, tail = name.rpartition('.')
+    ext = dot + tail if dot else ''
+    # Метка по полному имени. Две работы из Moodle различаются иногда только
+    # хвостом имени; без метки они после обрезки совпали бы, и вторая дописалась
+    # бы в первую вместо своего файла.
+    mark = '_' + hashlib.sha1(name.encode('utf-8')).hexdigest()[:6]
+    room = max(limit - len((mark + ext).encode('utf-8')), 0)
+    # Режем по байтам и отбрасываем разрубленную пополам букву.
+    cut = (stem or name).encode('utf-8')[:room].decode('utf-8', 'ignore').strip()
+    return (cut or 'file') + mark + ext
+
+
 def _safe_upload_name(raw: str):
     """Имя загружаемого файла, пригодное для записи на диск.
 
@@ -929,7 +959,22 @@ def _safe_upload_name(raw: str):
         return None
     if not name.lower().endswith(UPLOAD_EXTS):
         return None
-    return name[:180]
+    return _fit_name(name)
+
+
+def _zip_name(info: zipfile.ZipInfo) -> str:
+    """Имя записи архива в читаемом виде.
+
+    Архив без флага UTF-8 zipfile разбирает как cp437 — русские и арабские
+    фамилии превращаются в мусор вроде «Ð˜Ð²Ð°Ð½Ð¾Ð²». Возвращаем байты назад
+    и читаем их как UTF-8: так собирают архивы Moodle и большинство архиваторов.
+    """
+    if info.flag_bits & 0x800:
+        return info.filename
+    try:
+        return info.filename.encode('cp437').decode('utf-8')
+    except (UnicodeEncodeError, UnicodeDecodeError):
+        return info.filename
 
 
 def _pdf_entries(zf: zipfile.ZipFile) -> list:
@@ -938,7 +983,7 @@ def _pdf_entries(zf: zipfile.ZipFile) -> list:
     for info in zf.infolist():
         if info.is_dir():
             continue
-        name = _safe_upload_name(info.filename)
+        name = _safe_upload_name(_zip_name(info))
         if name is None or not name.lower().endswith('.pdf'):
             continue
         entries.append(info)
@@ -972,10 +1017,11 @@ def _extract_zip(archive: str, dest_dir: str, on_file=None) -> None:
             written += 1
             if written > ZIP_MAX_FILES or total > ZIP_MAX_TOTAL:
                 raise ValueError('архив слишком большой для распаковки')
-            name = _safe_upload_name(info.filename)
+            name = _safe_upload_name(_zip_name(info))
             target = Path(dest_dir) / name
             if target.exists():
-                target = Path(dest_dir) / f'{target.stem}_{written}{target.suffix}'
+                target = Path(dest_dir) / _fit_name(
+                    f'{target.stem}_{written}{target.suffix}')
             with zf.open(info) as src, open(target, 'wb') as out:
                 shutil.copyfileobj(src, out, 1024 * 256)
             if on_file is not None:
@@ -1592,6 +1638,29 @@ def _collect_pdfs(job_id: str, tmp_dir: str) -> list:
     return [p for p in pdf_paths if not (p in seen or seen.add(p))]
 
 
+# Сбои, о которых стоит сказать по-человечески: преподаватель видит эту строку
+# вместо отчёта, и «[Errno 36] File name too long» ему ничего не объясняет.
+_OS_REASON = {
+    errno.ENAMETOOLONG: 'слишком длинное имя файла',
+    errno.ENOSPC:       'на сервере кончилось место на диске',
+    errno.EACCES:       'серверу не хватило прав на временный каталог',
+    errno.EMFILE:       'на сервере кончились свободные файловые дескрипторы',
+}
+
+
+def _error_text(exc: Exception, step: str) -> str:
+    """Сообщение об обрыве проверки. Подробности остаются в поле error."""
+    if isinstance(exc, MemoryError):
+        reason = ('серверу не хватило памяти на этой партии — попробуйте '
+                  'разделить её на части')
+    elif isinstance(exc, OSError) and exc.errno in _OS_REASON:
+        reason = _OS_REASON[exc.errno]
+    else:
+        reason = f'{type(exc).__name__}: {exc}'
+    tail = f' Последний шаг: «{step}».' if step else ''
+    return f'Проверка прервана: {reason}.{tail}'
+
+
 def _process_job(job_id: str, tmp_dir: str, threshold: float,
                  owner: str, enabled_checks=None, use_memory=True,
                  weights=None, scale=grading.DEFAULT_SCALE):
@@ -1706,9 +1775,11 @@ def _process_job(job_id: str, tmp_dir: str, threshold: float,
 
     except Exception as exc:
         import traceback
+        with jobs_lock:
+            last_step = (jobs.get(job_id) or {}).get('step', '')
         _update(job_id,
                 status='error',
-                step=f'Ошибка: {exc}',
+                step=_error_text(exc, last_step),
                 error=traceback.format_exc())
     finally:
         stop_beat.set()

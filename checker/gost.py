@@ -7,7 +7,13 @@ MARGIN_LEFT   = 30
 MARGIN_RIGHT  = 15
 MARGIN_TOP    = 20
 MARGIN_BOTTOM = 20
-MARGIN_TOL    = 6   # mm tolerance for text intruding into a margin
+# Допуск на заход текста в поле, мм. Слева и справа замер точный: строка
+# начинается ровно на границе набора, на образце с полями 30/15 измеряется
+# 30.0/15.0. Сверху и снизу мерить нечем, кроме чернил букв — над строкой
+# остаётся просвет межстрочного интервала, а внизу мешают колонтитулы, поэтому
+# там допуск вдвое шире.
+MARGIN_TOL      = 3
+MARGIN_TOL_VERT = 6
 # Wider slack the other way: margins are measured by the ink extents of the
 # glyphs, so paragraph spacing before a heading always reads as a larger
 # margin than the page setup actually declares.
@@ -675,8 +681,10 @@ def _margins(report: dict) -> Check:
     """
     skip = {m['page'] for m in (report.get('pages') or [])
             if m.get('is_title') or m.get('is_task')}
-    pages = [p for p in (report.get('margins_by_page') or [])
-             if p.get('page') not in skip]
+    all_pages = report.get('margins_by_page') or []
+    # Если после пропусков не осталось ничего, меряем по всем листам: лучше
+    # учесть титульный, чем молча отменить проверку полей.
+    pages = [p for p in all_pages if p.get('page') not in skip] or all_pages
 
     if not pages:
         return Check('F11', 'Поля страницы', False,
@@ -690,17 +698,17 @@ def _margins(report: dict) -> Check:
     # Снизу нельзя: раздел, кончившийся в середине листа, оставляет пустоту
     # законно, и это не увеличенное нижнее поле.
     sides = [
-        ('Лев.',  MARGIN_LEFT,   [p['x0'] / PT_PER_MM for p in pages], True),
-        ('Пр.',   MARGIN_RIGHT,  [(p['page_w'] - p['x1']) / PT_PER_MM for p in pages], True),
-        ('Верх.', MARGIN_TOP,    [p['top'] / PT_PER_MM for p in pages], True),
-        ('Ниж.',  MARGIN_BOTTOM, [(p['page_h'] - p['bottom']) / PT_PER_MM for p in pages], False),
+        ('Лев.',  MARGIN_LEFT,   [p['x0'] / PT_PER_MM for p in pages], True, MARGIN_TOL),
+        ('Пр.',   MARGIN_RIGHT,  [(p['page_w'] - p['x1']) / PT_PER_MM for p in pages], True, MARGIN_TOL),
+        ('Верх.', MARGIN_TOP,    [p['top'] / PT_PER_MM for p in pages], True, MARGIN_TOL_VERT),
+        ('Ниж.',  MARGIN_BOTTOM, [(p['page_h'] - p['bottom']) / PT_PER_MM for p in pages], False, MARGIN_TOL_VERT),
     ]
 
     measured, intrudes, indented = [], [], []
-    for label, expected, values, wide_matters in sides:
+    for label, expected, values, wide_matters, tol in sides:
         closest = min(values)
         measured.append(f'{label} {closest:.0f}мм')
-        if closest < expected - MARGIN_TOL:
+        if closest < expected - tol:
             worst = pages[values.index(closest)]['page']
             intrudes.append(f'{label} {closest:.0f}мм при норме {expected}мм '
                             f'(стр. {worst})')

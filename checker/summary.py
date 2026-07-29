@@ -27,7 +27,12 @@ def _failed_codes(report: dict) -> list:
 
 def _display_name(report: dict) -> str:
     student = report.get('student', {}) or {}
-    return student.get('name') or report.get('filename') or 'Без имени'
+    # Когда фамилию из отчёта вытащить не удалось, показываем имя файла — но
+    # только начало: выгрузка Moodle даёт имена в две сотни символов, и таблица
+    # от них разъезжается. В отчёте подрезано так же (reporter._display_name).
+    return (student.get('name')
+            or (report.get('filename') or '')[:60]
+            or 'Без имени')
 
 
 def _group_of(report: dict) -> str:

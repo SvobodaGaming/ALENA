@@ -53,6 +53,9 @@ Reading or deleting another teacher's check answers `403`:
 
 Actions also honour per-account permissions: `run_checks` for `POST /jobs`,
 `delete_own` for the delete endpoints, `manage_base` for `DELETE /memory/<key>`.
+Reading a check the account already owns (`GET /jobs`, `/jobs/<id>`, its report
+and export) needs no extra permission beyond authentication — revoking
+`run_checks` stops new checks, it does not hide the account's own history.
 
 ## Base URL
 
@@ -76,7 +79,7 @@ Start a check. `multipart/form-data`:
 | Field | Type | Notes |
 |-------|------|-------|
 | `files` | file(s) | One or more `.pdf` files, or a `.zip` of PDFs. Repeat the field for several files. The request body must stay under 600 MB — split a larger batch into several checks. (The web interface has no such limit: it uploads in chunks, up to `AU_MAX_UPLOAD_MB`.) |
-| `threshold` | float | Text-similarity threshold, `0.0`-`1.0` (default `0.6`). |
+| `threshold` | float | Text-similarity threshold, `0.0`-`1.0` (default `0.6`). Values outside the range are clamped to it; anything unparsable (`abc`, `NaN`, `inf`, empty) falls back to the default instead of failing the request. |
 | `gost` | string | Optional comma-separated GOST check codes to evaluate, e.g. `S1,S3,F7,F9`. Omit the field to run all 20 checks; an empty value runs none. Codes: `S1`-`S9` (structural elements), `F1`-`F11` (formatting). |
 | `use_memory` | string | Optional. `0`/`false` skips plagiarism comparison against the stored fingerprint base (only files within the batch are compared). New reports are still added to the base. Default `1`. |
 | `weights` | string | Optional per-criterion weight for the recommended grade, `0`-`100` each: `S1:100,F1:20,F2:100`. Codes not listed keep `100`. The weights of the criteria actually selected are normalised to sum to 100. Omit the field to use the weights set by the administrator. |
@@ -127,9 +130,10 @@ List the jobs visible to the caller, keyed by `job_id`:
       "grade_score": 7.4,
       "scale": 10,
       "weighted": true,
+      "no_text": 1,
       "students": [
         { "fio": "Петров П. П.", "group": "ПР-21-1", "gost": 61,
-          "plag": 63, "fails": ["S2", "F3", "F7"],
+          "plag": 63, "no_text": false, "fails": ["S2", "F3", "F7"],
           "flaws": [
             { "code": "S2", "text": "Отсутствует лист задания на практику (курсовую работу)",
               "details": "Лист задания не обнаружен" }
@@ -154,6 +158,12 @@ List the jobs visible to the caller, keyed by `job_id`:
 
 `summary` is `null` until the check finishes; `matches[].pct` is `null` for
 duplicate images, which are a yes/no match rather than a share of the text.
+
+`students[].no_text` is `true` when too little text could be extracted from the
+file to compare it with anything — a scan, or a PDF whose fonts carry no usable
+encoding. Such a work takes no part in the similarity matrix at all and its
+`plag` is `null`, not `0`: borrowing in it is *unknown*, not *absent*, and has
+to be checked by hand. `summary.no_text` counts them for the batch.
 `matches` carries at most the 500 most prominent matches and `matches_total`
 says how many there were: a course of screenshot-heavy reports produces tens of
 thousands, and the digest is re-sent on every poll of the check list. The full
@@ -174,9 +184,9 @@ criterion, in GOST order, with the checker's own wording in `details`.
 Checks that ran before this feature existed have no `grade` or `flaws`.
 
 ### GET `/jobs/<job_id>`
-Poll one job. Same shape as a list entry. Returns `done` with `progress: 100` if
-the job is gone from memory (e.g. after a restart) but the report file still
-exists on disk. `404` if neither is found.
+Poll one job. Same shape as a list entry. The record is read from the running
+check when there is one, otherwise from stored history — so a restart does not
+lose it. `404` when the id is unknown or malformed.
 
 ### GET `/jobs/<job_id>/report`
 The self-contained HTML report (`Content-Type: text/html`). `404` if missing.

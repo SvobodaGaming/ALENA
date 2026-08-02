@@ -273,19 +273,23 @@ def parse(text: str) -> dict:
 def restore(rows: dict, replace: bool = False, keep_login: str = '') -> dict:
     """Записать разобранный дамп в текущее хранилище.
 
-    replace — предварительно очистить проверки и отпечатки и удалить учётные
-    записи, которых в дампе нет. Учётная запись `keep_login` (тот, кто грузит
-    файл) не удаляется никогда, иначе восстановление отрезало бы админа от
-    системы, если дамп снят с другого сервера.
+    replace — предварительно очистить проверки, отпечатки и журнал входов и
+    удалить учётные записи, которых в дампе нет. Учётная запись `keep_login`
+    (тот, кто грузит файл) не удаляется никогда, иначе восстановление отрезало
+    бы админа от системы, если дамп снят с другого сервера.
     """
     stats = {name: 0 for name in TABLES}
     stats['deleted_users'] = 0
+    stats['cleared_jobs'] = 0
 
     if replace:
         memory_store.clear_store(None)
-        for job_id in job_store.clear(None):
-            stats.setdefault('cleared_jobs', 0)
+        for _ in job_store.clear(None):
             stats['cleared_jobs'] += 1
+        # Журнал тоже: он не «дописывается» к дампу, а заменяется им — иначе
+        # каждое восстановление удваивало записи. Тот же смысл несёт строка
+        # DELETE FROM login_events в самом дампе, когда его скармливают psql.
+        accounts.clear_events()
         incoming = {r.get('login') for r in rows.get('users', [])}
         for login in list(accounts.load_users()):
             if login not in incoming and login != keep_login:

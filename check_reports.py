@@ -14,7 +14,6 @@
 """
 
 import sys
-import os
 import argparse
 import zipfile
 import tempfile
@@ -105,10 +104,9 @@ def main():
     print(f'Порог заимствования: {args.threshold:.0%}')
     print()
 
-    tmp = None
     try:
         # 1. Extraction
-        print(f'[1/4] Извлечение содержимого...')
+        print('[1/4] Извлечение содержимого...')
         reports = []
         for i, pdf_path in enumerate(pdfs, 1):
             name = Path(pdf_path).name[:70]
@@ -117,11 +115,11 @@ def main():
             if report.get('error'):
                 print(f'        ⚠ Ошибка: {report["error"]}')
             elif report.get('is_scanned'):
-                print(f'        ⚠ Вероятно отсканированный PDF, текст не извлечён')
+                print('        ⚠ Вероятно отсканированный PDF, текст не извлечён')
             reports.append(report)
 
         # 2. GOST
-        print(f'\n[2/4] Проверка ГОСТ 7.32-2017...')
+        print('\n[2/4] Проверка ГОСТ 7.32-2017...')
         for r in reports:
             r['gost_results'] = check_gost(r)
 

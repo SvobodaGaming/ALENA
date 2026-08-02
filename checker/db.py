@@ -60,6 +60,10 @@ SCHEMA = [
         locked_until  TEXT
     )
     """,
+    # Дата последней смены пароля — по ней считается срок его действия
+    # (настройка pw_expire_days). У записей, заведённых раньше, пусто:
+    # отсчёт для них идёт от даты создания.
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS pw_changed_at TEXT",
     """
     CREATE TABLE IF NOT EXISTS login_events (
         id     BIGSERIAL PRIMARY KEY,
@@ -166,6 +170,44 @@ def fp_upsert_many(store: dict) -> None:
             )
 
 
+def fp_insert_versioned(key_base: str, entry: dict) -> int:
+    """Вставить отпечаток следующей свободной версией. Возвращает её номер.
+
+    Номер и вставка идут одной транзакцией, а столкновение по первичному ключу
+    гасится повтором: два рабочих процесса, сохраняющих отпечаток одного
+    студента одновременно, получают разные версии, а не затирают друг друга.
+    """
+    from psycopg.errors import UniqueViolation
+    from psycopg.types.json import Json
+
+    for _ in range(8):
+        try:
+            with _conn() as conn, conn.cursor() as cur:
+                cur.execute(
+                    "SELECT COALESCE(MAX(version), 0) + 1 FROM fingerprints "
+                    "WHERE key_base = %s", (key_base,))
+                version = cur.fetchone()[0]
+                cur.execute(
+                    """
+                    INSERT INTO fingerprints
+                      (entry_key, key_base, version, filename, student,
+                       normalized_text, image_data, pages_count, job_id,
+                       added_at, owner)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    """,
+                    (f'{key_base}|v{version}', key_base, version,
+                     entry.get('filename', ''), Json(entry.get('student', {})),
+                     entry.get('normalized_text', ''),
+                     Json(entry.get('image_data', [])),
+                     entry.get('pages_count', 0), entry.get('job_id', ''),
+                     entry.get('added_at', ''), entry.get('owner', '')),
+                )
+            return version
+        except UniqueViolation:
+            continue    # номер занял сосед — берём следующий
+    raise RuntimeError('не удалось подобрать свободный номер версии отпечатка')
+
+
 def fp_clear(owner=None) -> int:
     """Wipe the fingerprint base — all of it, or one owner's slice."""
     with _conn() as conn, conn.cursor() as cur:
@@ -240,8 +282,8 @@ def jobs_delete(job_id: str) -> bool:
 # Accounts, login journal and system settings
 
 USER_COLS = ('login', 'fio', 'email', 'role', 'state', 'password_hash',
-              'perms', 'api_key', 'must_change', 'created_at', 'last_login',
-              'fail_count', 'locked_until')
+              'perms', 'api_key', 'must_change', 'created_at', 'pw_changed_at',
+              'last_login', 'fail_count', 'locked_until')
 
 
 def users_load_all() -> dict:
@@ -285,6 +327,11 @@ def log_add(event: dict) -> None:
             (event.get('ts', ''), event.get('login', ''), bool(event.get('ok')),
              event.get('ip', ''), event.get('ua', ''), event.get('reason', '')),
         )
+
+
+def log_clear() -> None:
+    with _conn() as conn, conn.cursor() as cur:
+        cur.execute("DELETE FROM login_events")
 
 
 def log_recent(limit: int = 200, login=None) -> list:

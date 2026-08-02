@@ -5,6 +5,13 @@ from collections import defaultdict
 SHINGLE_SIZE = 5        # word n-gram size
 MIN_PASSAGE_WORDS = 8   # min words to display a common passage
 
+# Ниже этого числа слов сравнивать нечем. Из скана или из PDF со сломанной
+# кодировкой шрифта извлекается пара слов на весь отчёт — раньше такие работы
+# сводились к одному хешу и любые две из них совпадали на 100 %, то есть группа
+# сканов обвинялась в списывании целиком. Теперь они выводятся из сравнения и
+# помечаются отдельно: заимствование в них проверяют глазами.
+MIN_COMPARE_WORDS = 30
+
 
 def normalize_text(text: str) -> str:
     text = text.lower()
@@ -21,10 +28,13 @@ def _shingles(text: str, n: int = SHINGLE_SIZE) -> set:
     отчёт на сорок страниц даёт двенадцать тысяч n-грамм — кортежами это
     2 МБ на работу, и при сравнении с базой в сотни отчётов память кончается.
     Совпадение хешей 64-битное: ложное пересечение на таких объёмах невероятно.
+
+    Текст короче n слов даёт пустое множество, а не один хеш на весь документ:
+    иначе две работы с одинаковым огрызком текста совпадали бы на 100 %.
     """
     words = text.split()
     if len(words) < n:
-        return {hash(tuple(words))} if words else set()
+        return set()
     return {hash(tuple(words[i:i + n])) for i in range(len(words) - n + 1)}
 
 
@@ -59,15 +69,13 @@ def _find_passages(words1: list, words2: list) -> list:
             continue
 
         best_len = 0
-        best_j = -1
         for j in positions[:20]:
             length = n
             while (i + length < len(words1)
                    and j + length < len(words2)
                    and words1[i + length] == words2[j + length]):
                 length += 1
-            if length > best_len:
-                best_len, best_j = length, j
+            best_len = max(best_len, length)
 
         if best_len >= n:
             passages.append({
@@ -96,12 +104,15 @@ def check_text_plagiarism(reports: list, threshold: float = 0.6,
     Returns:
         pairs: flagged pairs sorted by similarity desc
         matrix: {path: {path: float}}
+        no_text: пути работ, из которых текста извлеклось слишком мало для
+                 сравнения — они не участвуют ни в одной паре
         threshold
     """
     norm_texts: dict    = {}
     shingles_map: dict  = {}
     is_historical: dict = {}
     student_key: dict   = {}
+    no_text: set        = set()
 
     for r in reports:
         path = r['path']
@@ -109,6 +120,8 @@ def check_text_plagiarism(reports: list, threshold: float = 0.6,
         norm_texts[path]    = norm
         shingles_map[path]  = _shingles(norm)
         is_historical[path] = r.get('is_historical', False)
+        if len(norm.split()) < MIN_COMPARE_WORDS:
+            no_text.add(path)
         s = r.get('student', {})
         sk = f"{s.get('name','').strip().lower()}|{s.get('group','').strip().lower()}"
         student_key[path] = sk if sk != '|' else ''
@@ -132,6 +145,10 @@ def check_text_plagiarism(reports: list, threshold: float = 0.6,
             # отчётов, и на базе в тысячу работ миллион нулей — это сотня
             # мегабайт впустую. Читатели матрицы берут отсутствующую ячейку
             # за ноль.
+
+            # Skip: текста нет ни у одной из сторон — сравнивать нечего
+            if p1 in no_text or p2 in no_text:
+                continue
 
             # Skip: both historical (compared in prior sessions)
             if is_historical[p1] and is_historical[p2]:
@@ -160,4 +177,5 @@ def check_text_plagiarism(reports: list, threshold: float = 0.6,
         on_progress(total_pairs, total_pairs)
 
     flagged.sort(key=lambda x: -x['similarity'])
-    return {'pairs': flagged, 'matrix': matrix, 'threshold': threshold}
+    return {'pairs': flagged, 'matrix': matrix, 'threshold': threshold,
+            'no_text': sorted(no_text)}

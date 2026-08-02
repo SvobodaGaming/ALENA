@@ -37,8 +37,11 @@ STATES = {
 }
 
 # Permission flags, in the order the admin UI shows them.
+# Названия описывают ровно то, что проверяется в коде. «run_checks» закрывает
+# запуск новых проверок; уже готовые отчёты владелец открывает и без него —
+# иначе снятие права отрезало бы преподавателя от собственной истории.
 PERMISSIONS = [
-    ('run_checks',  'Запускать проверки и открывать отчёты'),
+    ('run_checks',  'Запускать новые проверки'),
     ('delete_own',  'Удалять свои проверки'),
     ('manage_base', 'Удалять записи из базы отпечатков'),
     ('see_all',     'Видеть проверки других преподавателей'),
@@ -132,6 +135,7 @@ def create_user(login: str, fio: str, password: str, role: str = 'teacher',
         'api_key':       None,
         'must_change':   must_change,
         'created_at':    datetime.now().strftime(_STAMP),
+        'pw_changed_at': datetime.now().strftime(_STAMP),
         'last_login':    '',
         'fail_count':    0,
         'locked_until':  '',
@@ -146,6 +150,7 @@ def set_password(login: str, password: str, must_change: bool = False) -> bool:
         return False
     user['password_hash'] = generate_password_hash(password)
     user['must_change'] = must_change
+    user['pw_changed_at'] = datetime.now().strftime(_STAMP)
     user['fail_count'] = 0
     user['locked_until'] = ''
     if user['state'] == 'pending' and not must_change:
@@ -183,6 +188,29 @@ def can(user, flag: str) -> bool:
     if not user:
         return False
     return bool((user.get('perms') or {}).get(flag, False))
+
+
+def password_expired(user: dict, conf: dict = None) -> bool:
+    """Истёк ли срок действия пароля по настройке `pw_expire_days`.
+
+    Отсчёт от последней смены пароля; у записей, заведённых до появления
+    отметки, — от даты создания. 0 в настройке означает «не требовать смены».
+    """
+    conf = conf if conf is not None else get_settings()
+    try:
+        days = int(conf.get('pw_expire_days', 0))
+    except (TypeError, ValueError):
+        return False
+    if days <= 0:
+        return False
+    stamp = user.get('pw_changed_at') or user.get('created_at') or ''
+    if not stamp:
+        return False
+    try:
+        changed = datetime.strptime(stamp, _STAMP)
+    except ValueError:
+        return False
+    return datetime.now() - changed > timedelta(days=days)
 
 
 def password_problem(password: str) -> str:
@@ -233,6 +261,16 @@ def add_events(events: list) -> int:
         log = list(reversed(events)) + log
         _write_json(LOG_PATH, log[:LOG_KEEP])
     return len(events)
+
+
+def clear_events() -> None:
+    """Стереть журнал входов целиком. Нужно восстановлению из дампа: иначе
+    перенесённые записи ложились поверх имеющихся и журнал удваивался."""
+    if db.DB_ENABLED:
+        db.log_clear()
+        return
+    with _lock:
+        _write_json(LOG_PATH, [])
 
 
 def recent_logins(limit: int = 200, login=None) -> list:
@@ -295,8 +333,14 @@ def authenticate(login: str, password: str, ip: str, ua: str):
     user['fail_count'] = 0
     user['locked_until'] = ''
     user['last_login'] = datetime.now().strftime(_STAMP)
+    # Срок действия пароля вышел — вход разрешён, но следующим экраном будет
+    # смена пароля (login_required не пускает дальше с must_change).
+    expired = password_expired(user, conf)
+    if expired:
+        user['must_change'] = True
     save_user(user)
-    record_event(login, True, ip, ua)
+    record_event(login, True, ip, ua,
+                 'срок действия пароля истёк, требуется смена' if expired else '')
     return user, ''
 
 
@@ -332,12 +376,16 @@ def bootstrap() -> None:
 
     login = os.environ.get('AU_USERNAME', 'admin').strip() or 'admin'
     password = os.environ.get('AU_PASSWORD', 'admin')
+    try:
+        policy_first = bool(get_settings().get('pw_require_change_first'))
+    except Exception:
+        policy_first = bool(DEFAULT_SETTINGS['pw_require_change_first'])
     user = create_user(
         login=login,
         fio=os.environ.get('AU_FIO', 'Администратор системы'),
         password=password,
         role='admin',
-        must_change=(password in ('admin', 'changeme', '')),
+        must_change=(password in ('admin', 'changeme', '') or policy_first),
     )
     legacy_key = os.environ.get('AU_API_KEY', '').strip()
     if legacy_key:

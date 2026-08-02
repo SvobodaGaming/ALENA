@@ -114,8 +114,10 @@
                 </div>
               </div>
               <label class="check">
-                <input type="checkbox" name="must_change">
-                <span>Попросить сменить пароль при первом входе</span>
+                <input type="checkbox" name="must_change"
+                       {% if force_change %}checked disabled{% endif %}>
+                <span>Попросить сменить пароль при первом входе{% if force_change %}
+                  — включено политикой паролей{% endif %}</span>
               </label>
               <div><button class="btn sm" type="submit">Задать пароль</button></div>
             </form>
@@ -183,8 +185,10 @@
         </div>
       </div>
       <label class="check">
-        <input type="checkbox" name="must_change">
-        <span>Попросить сменить пароль при первом входе</span>
+        <input type="checkbox" name="must_change"
+               {% if force_change %}checked disabled{% endif %}>
+        <span>Попросить сменить пароль при первом входе{% if force_change %}
+          — включено политикой паролей{% endif %}</span>
       </label>
       <p class="hint" style="margin:0;">Пароль задаёте вы и передаёте преподавателю лично.
         Система его не показывает и не хранит в открытом виде.</p>

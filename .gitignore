@@ -20,10 +20,11 @@ memory/jobs.json
 memory/login_log.json
 memory/settings.json
 
-# Uploaded/temporary files
+# Uploaded/temporary files. Только рабочие каталоги: правило «*.zip» ловило
+# любой архив в любой папке проекта, включая нужные.
 uploads/
 tmp/
-*.zip
+uploads/*.zip
 
 # Environment (contains passwords — never commit)
 .env

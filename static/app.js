@@ -176,6 +176,13 @@
       || (st.fails || []).map(c => ({ code: c, text: FLAW_TEXT[c] || c, details: '' }));
     const lines = flaws.map(f =>
       details && f.details ? `${f.text} (${f.details})` : f.text);
+    // Та же строка, что и в checker/grading.py: отзыв должен совпадать с тем,
+    // что напечатано в HTML-отчёте.
+    if (st.no_text) {
+      lines.push('Текст из файла не извлекается — скорее всего это скан или '
+        + 'нестандартные шрифты. Заимствование автоматически не проверено, '
+        + 'нужна ручная проверка');
+    }
     if (st.plag != null && thr != null && st.plag >= thr) {
       lines.push(`Совпадение с другой работой — ${st.plag}% (допустимый порог ${thr}%)`);
     }
@@ -399,16 +406,23 @@
             <td class="num">—</td>
             <td><span class="code">не обработан: ${esc(st.error)}</span></td>${fb}</tr>`;
         }
-        const a = gostTone(st.gost), b = plagTone(st.plag, thr);
+        const a = gostTone(st.gost);
         const g = st.grade || {};
         const mt2 = g.pct == null ? 'idle' : gostTone(g.pct);
+        /* Работа без извлекаемого текста не сравнивалась ни с чем: «0 %»
+           читалось бы как «проверено, чисто». */
+        const plagCell = st.plag == null
+          ? `<td class="num" title="текст не извлечён — сравнение не проводилось">—</td>`
+          : `<td class="num" style="color:${toneVar(plagTone(st.plag, thr))}">${st.plag}%</td>`;
         return `<tr>
           <td>${esc(st.fio)}${st.group ? `<br><span class="sub mono">${esc(st.group)}</span>` : ''}</td>
           <td class="num" style="color:${toneVar(a)}">${st.gost}%</td>
           <td class="num" style="color:${toneVar(mt2)}"><b>${g.pct == null ? '—' : g.pct + '%'}</b>
             ${g.score != null ? `<br><span class="sub mono">${g.score} из ${g.scale}</span>` : ''}</td>
-          <td class="num" style="color:${toneVar(b)}">${st.plag}%</td>
-          <td>${st.fails.length
+          ${plagCell}
+          <td>${st.no_text
+            ? '<span class="code">текст не извлечён — проверить вручную</span> '
+            : ''}${st.fails.length
             ? '<span class="sub">не пройдено:</span> ' + st.fails.map(c => `<span class="code">${esc(c)}</span>`).join(' ')
             : '<span class="code pass">все критерии пройдены</span>'}</td>
           ${fb}
@@ -536,9 +550,13 @@
     if (search) search.oninput = e => { query = e.target.value.trim(); render(); };
 
     const clearBtn = $('#clear-all');
+    /* У записи, которая видит чужие проверки, «очистить» стирает данные всех
+       преподавателей, а не только свои, — предупреждение должно это говорить. */
     if (clearBtn) clearBtn.onclick = () => confirmAction({
       title: 'Очистить историю и базу отпечатков?',
-      sub: 'Будут удалены все ваши проверки, их отчёты и все сохранённые отпечатки. Отменить нельзя.',
+      sub: seesAll
+        ? 'Будут удалены проверки, отчёты и отпечатки ВСЕХ преподавателей — не только ваши. Отменить нельзя.'
+        : 'Будут удалены все ваши проверки, их отчёты и все сохранённые отпечатки. Отменить нельзя.',
       okText: 'Очистить всё', danger: true,
       onOk: async () => {
         const res = await post('/jobs/clear');
@@ -696,11 +714,14 @@
 
       /* Кусок помечен смещением, поэтому повтор после обрыва связи не
          задваивает байты — сервер узнаёт уже записанное и пропускает его. */
-      const sendChunk = async (f, off) => {
+      const sendChunk = async (f, idx, off) => {
         for (let attempt = 1; ; attempt++) {
           const part = new FormData();
           part.append('upload_id', start.upload_id);
           part.append('name', f.name);
+          /* Номер файла в партии: по одному имени сервер не отличит второй
+             «отчет.pdf» от повтора куска первого — и молча терял работу. */
+          part.append('idx', String(idx));
           part.append('offset', String(off));
           part.append('chunk', f.slice(off, off + chunkSize), 'part');
           try {
@@ -718,9 +739,9 @@
       };
 
       try {
-        for (const f of files) {
+        for (const [idx, f] of files.entries()) {
           for (let off = 0; off < f.size || off === 0; off += chunkSize) {
-            await sendChunk(f, off);
+            await sendChunk(f, idx, off);
             doneBytes += Math.min(chunkSize, f.size - off);
             show(0);
           }

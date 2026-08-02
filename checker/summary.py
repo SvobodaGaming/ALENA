@@ -57,20 +57,22 @@ def build(reports: list, historical: list, text_plag: dict, img_plag: dict,
     """
     by_path = {r.get('path'): r for r in (reports + historical)}
     matrix = text_plag.get('matrix', {}) or {}
+    no_text = set(text_plag.get('no_text') or ())
     weights = weights or {}
 
     students = []
     for r in reports:
         if r.get('error'):
             students.append({
-                'fio':   _display_name(r),
-                'group': _group_of(r),
-                'gost':  None,
-                'plag':  None,
-                'fails': [],
-                'flaws': [],
-                'grade': None,
-                'error': str(r.get('error')),
+                'fio':     _display_name(r),
+                'group':   _group_of(r),
+                'gost':    None,
+                'plag':    None,
+                'no_text': False,
+                'fails':   [],
+                'flaws':   [],
+                'grade':   None,
+                'error':   str(r.get('error')),
             })
             continue
         # The matrix keeps a 1.0 diagonal (a report matches itself), so the
@@ -79,15 +81,19 @@ def build(reports: list, historical: list, text_plag: dict, img_plag: dict,
         row = {p: v for p, v in (matrix.get(path, {}) or {}).items() if p != path}
         worst = max(row.values()) if row else 0.0
         results = r.get('gost_results', []) or []
+        # Работу без извлекаемого текста не с чем сравнивать: доля заимствования
+        # у неё не «0 %», а «неизвестна», иначе скан выглядел бы чистым.
+        unreadable = path in no_text
         students.append({
-            'fio':   _display_name(r),
-            'group': _group_of(r),
-            'gost':  _gost_pct(r),
-            'plag':  round(worst * 100),
-            'fails': _failed_codes(r),
-            'flaws': grading.flaws(results),
-            'grade': grading.grade(results, weights, scale),
-            'error': None,
+            'fio':     _display_name(r),
+            'group':   _group_of(r),
+            'gost':    _gost_pct(r),
+            'plag':    None if unreadable else round(worst * 100),
+            'no_text': unreadable,
+            'fails':   _failed_codes(r),
+            'flaws':   grading.flaws(results),
+            'grade':   grading.grade(results, weights, scale),
+            'error':   None,
         })
 
     matches = []
@@ -137,6 +143,9 @@ def build(reports: list, historical: list, text_plag: dict, img_plag: dict,
     scored = [s for s in students if s['gost'] is not None]
     groups = sorted({s['group'] for s in students if s['group']})
     fails = Counter(code for s in students for code in s['fails'])
+    # Максимум берётся только по работам, которые вообще удалось сравнить:
+    # у остальных заимствование не ноль, а неизвестно.
+    plags = [s['plag'] for s in scored if s['plag'] is not None]
 
     grades = [s['grade']['pct'] for s in scored
               if s['grade'] and s['grade']['pct'] is not None]
@@ -146,7 +155,8 @@ def build(reports: list, historical: list, text_plag: dict, img_plag: dict,
         'group':       groups[0] if groups else '—',
         'groups':      groups,
         'gost':        round(sum(s['gost'] for s in scored) / len(scored)) if scored else 0,
-        'plag':        max((s['plag'] for s in scored), default=0),
+        'plag':        max(plags, default=0),
+        'no_text':     sum(1 for s in students if s.get('no_text')),
         'threshold':   round(threshold * 100),
         'students':    students,
         'matches':     matches,

@@ -94,7 +94,8 @@
             <div class="field">
               <label for="pw_expire_days">Срок действия, дней</label>
               <input type="number" id="pw_expire_days" name="pw_expire_days" min="0" max="1095" value="{{ conf.pw_expire_days }}">
-              <span class="hint">0 — не требовать периодической смены.</span>
+              <span class="hint">0 — не требовать периодической смены. Иначе при
+                входе после этого срока система попросит задать новый пароль.</span>
             </div>
             <div class="field">
               <label for="lock_after_fails">Неудачных попыток до блокировки</label>
@@ -110,6 +111,10 @@
             <input type="checkbox" name="pw_require_change_first" {% if conf.pw_require_change_first %}checked{% endif %}>
             <span>Требовать смену пароля при первом входе</span>
           </label>
+          <p class="hint" style="margin:0;">Новая учётная запись и заданный
+            администратором пароль действуют до первого входа: дальше система
+            попросит задать свой. Снять эту галочку для отдельной записи в
+            разделе «Пользователи» нельзя, пока настройка включена.</p>
         </div>
       </div>
 

@@ -85,6 +85,7 @@ def _max_sim(path: str, matrix: dict) -> tuple:
 def _render_matrix(new_reports: list, historical_relevant: list,
                    text_plagiarism: dict, threshold: float) -> str:
     matrix = text_plagiarism.get('matrix', {})
+    no_text = set(text_plagiarism.get('no_text') or ())
     all_reports = new_reports + historical_relevant
     if not matrix or len(all_reports) < 2:
         return '<p style="color:#8ba394">Недостаточно отчётов для матрицы.</p>'
@@ -137,6 +138,11 @@ def _render_matrix(new_reports: list, historical_relevant: list,
                 cells.append('<td class="mc cell-self">·</td>')
             elif p1 in hist_paths and p2 in hist_paths:
                 cells.append('<td class="mc cell-self" style="color:#c2d2c6;">·</td>')
+            elif p1 in no_text or p2 in no_text:
+                # Пара не сравнивалась: из одной из работ текст не извлёкся.
+                # Ноль здесь означал бы «проверено, чисто» — это неправда.
+                cells.append('<td class="mc" style="background:#eef2f7;'
+                             'color:#245a9c;" title="текст не извлечён">—</td>')
             else:
                 sim = matrix.get(p1, {}).get(p2, 0.0)
                 pct = int(sim * 100)
@@ -162,9 +168,9 @@ def _render_matrix(new_reports: list, historical_relevant: list,
     hist_note = ''
     if historical_relevant:
         hist_note = (
-            f'<span style="display:inline-block;width:14px;height:14px;'
-            f'background:#fbf0d8;border:1px solid #e3c169;border-radius:2px;vertical-align:middle;"></span>'
-            f' Строки/столбцы на жёлтом — отчёты из базы предыдущих сессий &nbsp;'
+            '<span style="display:inline-block;width:14px;height:14px;'
+            'background:#fbf0d8;border:1px solid #e3c169;border-radius:2px;vertical-align:middle;"></span>'
+            ' Строки/столбцы на жёлтом — отчёты из базы предыдущих сессий &nbsp;'
         )
 
     return f'''{dims}
@@ -177,6 +183,7 @@ def _render_matrix(new_reports: list, historical_relevant: list,
 <p style="font-size:0.78rem;color:#8ba394;margin-top:8px;">
   <span style="display:inline-block;width:14px;height:14px;background:#eab3ae;border-radius:2px;vertical-align:middle;"></span> ≥{threshold_pct}% — заимствование &nbsp;
   <span style="display:inline-block;width:14px;height:14px;background:#f0dba6;border-radius:2px;vertical-align:middle;"></span> {int(threshold_pct*0.55)}–{threshold_pct}% — близко &nbsp;
+  {'<span style="display:inline-block;width:14px;height:14px;background:#eef2f7;border:1px solid #c3d2e6;border-radius:2px;vertical-align:middle;"></span> «—» — текст не извлечён, сравнение невозможно &nbsp;' if no_text else ''}
   {hist_note}
 </p>'''
 
@@ -245,7 +252,7 @@ def _render_image_summary(image_plagiarism: dict, report_by_path: dict) -> str:
                 d = rep.get('historical_date', '')
                 return (f'{name} <span style="background:#fbf0d8;color:#7a4a12;'
                         f'padding:1px 6px;border-radius:3px;font-size:0.73rem;">'
-                        f'база v{v}</span>')
+                        f'база v{_esc(v)}{f", {_esc(d)}" if d else ""}</span>')
             return name
 
         n1_html = _name_with_badge(r1, n1)
@@ -258,9 +265,12 @@ def _render_image_summary(image_plagiarism: dict, report_by_path: dict) -> str:
         else:
             match_badge = '<span style="background:#fae4e2;color:#b3261e;padding:2px 8px;border-radius:4px;font-size:0.76rem;font-weight:600;">точная копия</span>'
 
-        img1_html = (f'<img src="{p["img1"]}" alt="img1">' if p.get('img1')
+        # src экранируется: превью приходит и из базы отпечатков, а та могла
+        # быть залита чужим SQL-дампом — своей строке base64 экранирование не
+        # мешает, а подставленной кавычке закрывает дорогу.
+        img1_html = (f'<img src="{_esc(p["img1"])}" alt="img1">' if p.get('img1')
                      else '<div style="width:120px;height:80px;background:#f6f9f4;border:1px solid #dbe4dc;border-radius:4px;display:flex;align-items:center;justify-content:center;color:#8ba394;font-size:0.75rem;">нет превью</div>')
-        img2_html = (f'<img src="{p["img2"]}" alt="img2">' if p.get('img2')
+        img2_html = (f'<img src="{_esc(p["img2"])}" alt="img2">' if p.get('img2')
                      else '<div style="width:120px;height:80px;background:#f6f9f4;border:1px solid #dbe4dc;border-radius:4px;display:flex;align-items:center;justify-content:center;color:#8ba394;font-size:0.75rem;">нет превью</div>')
 
         items.append(f'''
@@ -322,8 +332,19 @@ def _render_gost_table(gost_results: list) -> str:
     )
 
 
+NO_TEXT_NOTE = (
+    '<div class="plagiarism-alert" style="background:#eef2f7;border-color:#c3d2e6;">'
+    '<span class="badge badge-blue">ТЕКСТ НЕ ИЗВЛЕЧЁН</span> '
+    'Из файла удалось прочитать слишком мало текста — обычно это скан или '
+    'нестандартные шрифты. Сравнение с другими работами не проводилось: '
+    'проверьте заимствование вручную.</div>')
+
+
 def _render_text_plag_for_report(path: str, text_plagiarism: dict, threshold: float,
                                   report_by_path: dict) -> str:
+    if path in set(text_plagiarism.get('no_text') or ()):
+        return NO_TEXT_NOTE
+
     matrix = text_plagiarism.get('matrix', {})
     pairs  = text_plagiarism.get('pairs', [])
 
@@ -428,14 +449,15 @@ def _render_img_plag_for_report(path: str, image_plagiarism: dict,
             other_label = (
                 f'{other_name} '
                 f'<span style="background:#fbf0d8;color:#7a4a12;'
-                f'padding:1px 5px;border-radius:3px;font-size:0.72rem;">база v{v}</span>'
+                f'padding:1px 5px;border-radius:3px;font-size:0.72rem;">'
+                f'база v{_esc(v)}{f", {_esc(d)}" if d else ""}</span>'
                 f'<br>стр.{other_page}'
             )
         else:
             other_label = f'{other_name}, стр.{other_page}'
 
         other_img_html = (
-            f'<img src="{other_img}" alt="other" style="max-height:100px;">'
+            f'<img src="{_esc(other_img)}" alt="other" style="max-height:100px;">'
             if other_img else
             '<div style="width:100px;height:70px;background:#f6f9f4;border:1px solid #dbe4dc;'
             'display:flex;align-items:center;justify-content:center;color:#8ba394;font-size:0.72rem;">нет превью</div>'
@@ -451,7 +473,7 @@ def _render_img_plag_for_report(path: str, image_plagiarism: dict,
 
         items.append(
             f'<div class="img-pair" style="margin:6px 0;">'
-            f'<div><img src="{my_img}" alt="my" style="max-height:100px;">'
+            f'<div><img src="{_esc(my_img)}" alt="my" style="max-height:100px;">'
             f'<div class="img-info">Эта работа, стр.{my_page}</div></div>'
             f'<div style="align-self:center;color:#b3261e;font-size:1.3rem;">≈</div>'
             f'<div>{other_img_html}'
@@ -470,22 +492,28 @@ def _render_img_plag_for_report(path: str, image_plagiarism: dict,
 
 
 def _render_feedback(report: dict, gost_results: list, max_sim: float,
-                     threshold: float, weights: dict, scale: int) -> str:
+                     threshold: float, weights: dict, scale: int,
+                     no_text: bool = False) -> str:
     """Рекомендуемая оценка и готовый к копированию отзыв для одной работы."""
     mark = grading.grade(gost_results, weights, scale)
     student = {
-        'fio':   _display_name(report),
-        'group': (report.get('student') or {}).get('group', ''),
-        'flaws': grading.flaws(gost_results),
-        'plag':  round(max_sim * 100),
-        'grade': mark,
+        'fio':     _display_name(report),
+        'group':   (report.get('student') or {}).get('group', ''),
+        'flaws':   grading.flaws(gost_results),
+        'plag':    None if no_text else round(max_sim * 100),
+        'no_text': no_text,
+        'grade':   mark,
     }
     thr_pct = int(threshold * 100)
     lines = grading.feedback_lines(student, thr_pct)
     plain = grading.feedback_text(student, thr_pct)
 
-    pct = mark['pct'] or 0
-    color = '#17805a' if pct >= 85 else '#d08700' if pct >= 60 else '#b3261e'
+    if mark['pct'] is None:
+        pct_text, color = '—', '#245a9c'
+    else:
+        pct = mark['pct']
+        pct_text = f'{pct}%'
+        color = '#17805a' if pct >= 85 else '#d08700' if pct >= 60 else '#b3261e'
     in_points = (f' &nbsp;<span style="font-size:0.8rem;color:#64786a;">'
                  f'{mark["score"]:g} из {mark["scale"]}</span>'
                  if mark['score'] is not None else '')
@@ -507,7 +535,7 @@ def _render_feedback(report: dict, gost_results: list, max_sim: float,
     <div class="verdict">
       <div class="verdict-head">
         <h3 style="margin:0;">Рекомендуемая оценка за оформление</h3>
-        <span class="verdict-grade" style="color:{color};">{pct}%</span>{in_points}
+        <span class="verdict-grade" style="color:{color};">{pct_text}</span>{in_points}
         <button type="button" class="copy-btn" data-text="{_esc(plain)}">Копировать отзыв</button>
       </div>
       {body}
@@ -525,8 +553,9 @@ def _render_card(report: dict, text_plagiarism: dict, image_plagiarism: dict,
 
     matrix = text_plagiarism.get('matrix', {})
     max_sim, _ = _max_sim(path, matrix)
+    no_text = path in set(text_plagiarism.get('no_text') or ())
 
-    has_text_plag = max_sim >= threshold
+    has_text_plag = max_sim >= threshold and not no_text
     has_img_plag  = any(
         (p['report1'] == path or p['report2'] == path) and not p.get('ui_review')
         for p in image_plagiarism.get('pairs', [])
@@ -535,9 +564,16 @@ def _render_card(report: dict, text_plagiarism: dict, image_plagiarism: dict,
     if has_text_plag or has_img_plag:
         badge = '<span class="badge badge-red">Заимствование</span>'
         header_border = 'border-left:4px solid #b3261e;'
-    elif passed < total * 0.7:
+    elif no_text:
+        badge = '<span class="badge badge-blue">Текст не извлечён</span>'
+        header_border = 'border-left:4px solid #245a9c;'
+    elif total and passed < total * 0.7:
         badge = '<span class="badge badge-amber">Нарушения ГОСТ</span>'
         header_border = 'border-left:4px solid #d08700;'
+    elif not total:
+        # Критерии сняты все до единого — сказать «OK» не о чем.
+        badge = '<span class="badge badge-blue">ГОСТ не проверялся</span>'
+        header_border = 'border-left:4px solid #245a9c;'
     else:
         badge = '<span class="badge badge-green">OK</span>'
         header_border = 'border-left:4px solid #17805a;'
@@ -583,7 +619,7 @@ def _render_card(report: dict, text_plagiarism: dict, image_plagiarism: dict,
     <span style="font-size:1rem;font-weight:600;flex:1;">{_esc(_display_name(report))}</span>
     {badge}
     <span style="font-size:0.82rem;color:#64786a;white-space:nowrap;">
-      ГОСТ: {passed}/{total} &nbsp;|&nbsp; Схожесть: {max_sim:.0%}
+      ГОСТ: {passed}/{total} &nbsp;|&nbsp; Схожесть: {'—' if no_text else f'{max_sim:.0%}'}
     </span>
     <span class="toggle-arrow">▼</span>
   </div>
@@ -592,7 +628,7 @@ def _render_card(report: dict, text_plagiarism: dict, image_plagiarism: dict,
     {f'<p style="color:#64786a;font-size:0.84rem;margin-bottom:10px;">{meta}</p>' if meta else ''}
     <p style="font-size:0.76rem;color:#8ba394;margin-bottom:16px;">📄 {fname_disp}</p>
 
-    {_render_feedback(report, gost_results, max_sim, threshold, weights, scale)}
+    {_render_feedback(report, gost_results, max_sim, threshold, weights, scale, no_text)}
 
     <div class="grid-2">
       <!-- GOST -->
@@ -677,8 +713,12 @@ def generate_html_report(reports: list, historical: list,
         for p in (pair['report1'], pair['report2'])
         if p in new_paths
     })
+    # Работа без единого критерия «полностью соответствует ГОСТ» не считается:
+    # all([]) истинно, и при снятых до последнего критериях отчёт объявлял
+    # соответствующими все работы, хотя не проверил ни одной.
     gost_full = sum(
-        1 for r in reports if all(c['passed'] for c in r.get('gost_results', []))
+        1 for r in reports
+        if r.get('gost_results') and all(c['passed'] for c in r['gost_results'])
     )
 
     # Count new reports that matched something in the historical base
@@ -709,21 +749,24 @@ def generate_html_report(reports: list, historical: list,
     )
 
 
+    no_text_paths = set(text_plagiarism.get('no_text') or ())
+
     def _row_class(r):
         path = r['path']
         sim, _ = _max_sim(path, matrix)
-        has_plag = sim >= threshold or any(
+        has_plag = (sim >= threshold and path not in no_text_paths) or any(
             p['report1'] == path or p['report2'] == path for p in img_confirmed
         )
         p, t = _gost_score(r.get('gost_results', []))
-        if has_plag:       return 'tr-red'
-        if p < t * 0.7:   return 'tr-amber'
+        if has_plag:              return 'tr-red'
+        if t and p < t * 0.7:     return 'tr-amber'
         return 'tr-green'
 
     summary_rows = []
     for r in reports:
         path = r['path']
         sim, sim_other = _max_sim(path, matrix)
+        row_no_text = path in no_text_paths
 
         other_rep = report_by_path.get(sim_other) if sim_other else None
         if other_rep and other_rep.get('is_historical'):
@@ -749,13 +792,20 @@ def generate_html_report(reports: list, historical: list,
             if pair.get('ui_review')
             and (pair['report1'] == path or pair['report2'] == path)
         )
-        plag_badge = (f'<span class="badge badge-red">{sim:.0%}</span>'
-                      if sim >= threshold else
-                      f'<span style="color:#64786a;">{sim:.0%}</span>')
-        gost_badge = (
-            f'<span class="badge badge-green">{p}/{t}</span>' if p == t else
-            f'<span class="badge {"badge-amber" if p >= t * 0.7 else "badge-red"}">{p}/{t}</span>'
-        )
+        if row_no_text:
+            plag_badge = '<span class="badge badge-blue">текст не извлечён</span>'
+            other_name_html = 'сравнение не проводилось'
+        elif sim >= threshold:
+            plag_badge = f'<span class="badge badge-red">{sim:.0%}</span>'
+        else:
+            plag_badge = f'<span style="color:#64786a;">{sim:.0%}</span>'
+        if not t:
+            gost_badge = '<span class="badge badge-blue">не проверялся</span>'
+        elif p == t:
+            gost_badge = f'<span class="badge badge-green">{p}/{t}</span>'
+        else:
+            gost_badge = (f'<span class="badge '
+                          f'{"badge-amber" if p >= t * 0.7 else "badge-red"}">{p}/{t}</span>')
         if img_count:
             img_badge = f'<span class="badge badge-red">{img_count} дублей</span>'
         elif review_count:
@@ -763,14 +813,18 @@ def generate_html_report(reports: list, historical: list,
         else:
             img_badge = '<span style="color:#17805a;">—</span>'
         mark = grading.grade(r.get('gost_results', []), weights, scale)
-        mark_pct = mark['pct'] or 0
-        mark_text = (f'{mark["score"]:g} из {mark["scale"]}'
-                     if mark['score'] is not None else f'{mark_pct}%')
-        mark_badge = (
-            f'<span class="badge badge-green">{mark_text}</span>' if mark_pct >= 85 else
-            f'<span class="badge {"badge-amber" if mark_pct >= 60 else "badge-red"}">'
-            f'{mark_text}</span>'
-        )
+        if mark['pct'] is None:
+            # Ни одного критерия — оценивать нечего; «0 %» читалось бы как двойка.
+            mark_badge = '<span class="badge badge-blue">—</span>'
+        else:
+            mark_pct = mark['pct']
+            mark_text = (f'{mark["score"]:g} из {mark["scale"]}'
+                         if mark['score'] is not None else f'{mark_pct}%')
+            mark_badge = (
+                f'<span class="badge badge-green">{mark_text}</span>' if mark_pct >= 85 else
+                f'<span class="badge {"badge-amber" if mark_pct >= 60 else "badge-red"}">'
+                f'{mark_text}</span>'
+            )
         anchor = _anchor(r)
         summary_rows.append(
             f'<tr class="{_row_class(r)}">'

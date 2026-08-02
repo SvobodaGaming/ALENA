@@ -136,20 +136,9 @@ def _shrink_thumb(data_uri: str) -> str:
         return data_uri
 
 
-def upsert_report(store: dict, report: dict, job_id: str, owner: str = '') -> None:
-    """
-    Add report to store as a new version (v1, v2, …).
-    Mutates `store` in-place; caller must call save_store() afterwards.
-    """
+def _entry_for(report: dict, job_id: str, owner: str) -> tuple:
+    """(key_base, запись без номера версии) для одной проверенной работы."""
     from checker.text_plagiarism import normalize_text
-
-    key_base = _student_key(report, owner)
-
-    existing_versions = [
-        v['version'] for v in store.values()
-        if v.get('key_base') == key_base
-    ]
-    next_version = max(existing_versions, default=0) + 1
 
     image_data = []
     for img_info in report.get('images', []):
@@ -163,9 +152,9 @@ def upsert_report(store: dict, report: dict, job_id: str, owner: str = '') -> No
             'is_ui':  img_info.get('is_ui', False),
         })
 
-    store[f'{key_base}|v{next_version}'] = {
+    key_base = _student_key(report, owner)
+    return key_base, {
         'key_base':        key_base,
-        'version':         next_version,
         'filename':        report.get('filename', ''),
         'student':         report.get('student', {}),
         'normalized_text': normalize_text(report.get('full_text', '')),
@@ -175,6 +164,29 @@ def upsert_report(store: dict, report: dict, job_id: str, owner: str = '') -> No
         'job_id':          job_id,
         'owner':           owner,
     }
+
+
+def add_report(report: dict, job_id: str, owner: str = '') -> int:
+    """Записать работу в базу отпечатков новой версией (v1, v2, …).
+
+    Номер версии выбирается и запись сохраняется одним неделимым действием.
+    Раньше вызывающий читал базу, считал `max(версий)+1` по своему снимку и
+    сохранял: две проверки одного преподавателя, идущие рядом, выбирали один и
+    тот же номер, и отпечаток первой затирался отпечатком второй. Возвращает
+    присвоенный номер версии.
+    """
+    key_base, entry = _entry_for(report, job_id, owner)
+
+    if db.DB_ENABLED:
+        return db.fp_insert_versioned(key_base, entry)
+
+    with _lock:
+        store = _read_all()
+        version = max((v.get('version', 0) for v in store.values()
+                       if v.get('key_base') == key_base), default=0) + 1
+        store[f'{key_base}|v{version}'] = dict(entry, version=version)
+        jsonstore.write_json(STORE_PATH, store)
+    return version
 
 
 def to_virtual_report(entry_key: str, entry: dict) -> dict:

@@ -129,6 +129,11 @@ def feedback_lines(student: dict, threshold_pct: int = None,
             line += f' ({flaw["details"]})'
         lines.append(line)
 
+    if student.get('no_text'):
+        lines.append('Текст из файла не извлекается — скорее всего это скан или '
+                     'нестандартные шрифты. Заимствование автоматически не '
+                     'проверено, нужна ручная проверка')
+
     plag = student.get('plag')
     if plag is not None and threshold_pct is not None and plag >= threshold_pct:
         lines.append(f'Совпадение с другой работой — {plag}% '

@@ -3,7 +3,9 @@ services:
     image: postgres:16-alpine
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-au}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-au}
+      # Пароля по умолчанию нет намеренно: `au` уезжал в рабочие установки как
+      # есть. Без POSTGRES_PASSWORD в .env compose откажется стартовать.
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?задайте POSTGRES_PASSWORD в .env}
       POSTGRES_DB: ${POSTGRES_DB:-au_reports}
     volumes:
       - pgdata:/var/lib/postgresql/data
@@ -24,7 +26,12 @@ services:
     env_file:
       - .env
     environment:
-      DATABASE_URL: ${DATABASE_URL:-postgresql://au:au@db:5432/au_reports}
+      # Строка подключения берётся из .env как есть. Запасного значения здесь
+      # больше нет: прежнее «:-postgresql://au:au@db…» и подставляло пароль по
+      # умолчанию, и ломало обещанный откат на JSON — пустой DATABASE_URL в
+      # .env заменялся на эту строку, и приложение всё равно уходило в
+      # PostgreSQL. Одинарный дефис оставляет пустое значение пустым.
+      DATABASE_URL: ${DATABASE_URL-}
     depends_on:
       db:
         condition: service_healthy

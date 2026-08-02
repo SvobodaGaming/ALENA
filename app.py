@@ -14,7 +14,12 @@ Run with Docker:
     docker compose up --build
 
 Run on server (production):
-    gunicorn -w 2 -b 0.0.0.0:5000 app:app
+    gunicorn --workers=1 --threads=8 --timeout=300 -b 0.0.0.0:5000 app:app
+
+Один рабочий процесс — не экономия, а требование: частичные загрузки и состояние
+идущих проверок лежат в памяти процесса. Со вторым воркером куски одной партии
+попадают в разные процессы и загрузка обрывается «Загрузка не найдена».
+Параллелизм даёт --threads. То же значение стоит в Dockerfile.
 """
 
 import csv
@@ -123,6 +128,12 @@ if TMP_ROOT:
 
 ZIP_MAX_TOTAL = UPLOAD_MAX_TOTAL * 2  # предел распаковки: архив-бомба не съест диск
 ZIP_MAX_FILES = 5000
+
+# Приставки временных каталогов. Собственные, а не общие up_/rc_: уборка чужого
+# мусора из системного /tmp — не наше дело, а прежние приставки могли совпасть
+# с чужими.
+TMP_PREFIX_UPLOAD = 'alena_up_'
+TMP_PREFIX_JOB    = 'alena_rc_'
 
 jobs: dict = {}
 jobs_lock = threading.Lock()
@@ -259,11 +270,12 @@ def _purge_temp_dirs(older_than: float = 24 * 3600):
     """Убрать временные каталоги загрузок и проверок, брошенные перезапуском.
 
     Порог в сутки: идущую проверку соседнего процесса задеть нельзя, а гигабайты
-    от оборванных загрузок за неделю забьют диск.
+    от оборванных загрузок за неделю забьют диск. Приставки свои — в общем /tmp
+    под `up_`/`rc_` мог лежать и чужой каталог.
     """
     now = time.time()
     root = Path(TMP_ROOT or tempfile.gettempdir())
-    for prefix in ('up_', 'rc_'):
+    for prefix in (TMP_PREFIX_UPLOAD, TMP_PREFIX_JOB):
         for item in root.glob(f'{prefix}*'):
             try:
                 if item.is_dir() and now - item.stat().st_mtime > older_than:
@@ -318,8 +330,7 @@ def _csrf_protect():
         return None
     if _csrf_ok():
         return None
-    if request.path.startswith('/api/') or \
-            request.headers.get('Accept', '').startswith('application/json'):
+    if _wants_json():
         return jsonify({'error': 'Сессия устарела — обновите страницу '
                                  'и повторите действие.'}), 403
     return render_template('error.html', code=403,
@@ -363,7 +374,25 @@ def _int_field(form, name: str, default: int, low: int, high: int) -> int:
     не роняют сохранение настроек с ошибкой 500."""
     try:
         value = int(float(form.get(name, default)))
+    except (TypeError, ValueError, OverflowError):
+        return default
+    return max(low, min(high, value))
+
+
+def _float_field(form, name: str, default: float, low: float, high: float) -> float:
+    """Дробное из формы, зажатое в границы.
+
+    Порог заимствования приходит из формы и из API, и его никто не проверял:
+    «abc» и пустая строка роняли запуск проверки пятисоткой, «inf» — переполнением
+    при округлении, а «-5» и «99» тихо запускали проверку с бессмысленным
+    порогом в −500 % и 9900 %.
+    """
+    raw = form.get(name, default)
+    try:
+        value = float(raw)
     except (TypeError, ValueError):
+        return default
+    if value != value or value in (float('inf'), float('-inf')):   # NaN, ±inf
         return default
     return max(low, min(high, value))
 
@@ -419,8 +448,23 @@ def admin_required(f):
     return decorated
 
 
+def _wants_json() -> bool:
+    """Ждёт ли вызывающий JSON, а не страницу.
+
+    Страницы шлют формы, скрипт страницы — fetch/XHR с заголовком токена.
+    Раньше признаком был только Accept: application/json, а fetch по умолчанию
+    шлёт «*/*» — и на отказ скрипт получал HTML-страницу ошибки, спотыкался на
+    res.json() и показывал общее «не удалось» вместо настоящей причины.
+    """
+    return (request.path.startswith('/api/')
+            or request.is_json
+            or 'X-CSRF-Token' in request.headers
+            or request.headers.get('X-Requested-With') == 'XMLHttpRequest'
+            or 'application/json' in request.headers.get('Accept', ''))
+
+
 def _deny(message: str):
-    if request.path.startswith('/api/') or request.headers.get('Accept', '').startswith('application/json'):
+    if _wants_json():
         return jsonify({'error': message}), 403
     abort(403, description=message)
 
@@ -706,8 +750,12 @@ def admin_users():
         counts[owner] = counts.get(owner, 0) + 1
     for u in users:
         u['checks_count'] = counts.get(u['login'], 0)
-    return render_template('users.html', page='users', users=users,
-                           permissions=accounts.PERMISSIONS)
+    return render_template(
+        'users.html', page='users', users=users,
+        permissions=accounts.PERMISSIONS,
+        # Политика паролей — нижняя граница: при включённой настройке галочку
+        # «сменить при первом входе» снять нельзя.
+        force_change=bool(accounts.get_settings().get('pw_require_change_first')))
 
 
 @app.route('/admin/log')
@@ -949,17 +997,41 @@ def _fit_name(name: str, limit: int = NAME_MAX_BYTES) -> str:
 
 
 def _safe_upload_name(raw: str):
-    """Имя загружаемого файла, пригодное для записи на диск.
+    r"""Имя загружаемого файла, пригодное для записи на диск.
 
     Кириллицу оставляем — из имени файла берутся фамилия и группа. Убираем
     путь, служебные символы и всё, что не PDF или ZIP.
+
+    Обратный слэш режется наравне с прямым: на Linux это допустимый символ
+    имени, и `a\..\..\x.pdf` проходило бы целиком — безвредно здесь, но на
+    файловой системе Windows это выход из каталога.
     """
-    name = Path(raw or '').name.replace('\x00', '').strip()
+    name = (raw or '').replace('\\', '/')
+    name = Path(name).name.replace('\x00', '').strip()
     if not name or name.startswith('.') or name in ('..', '.'):
         return None
     if not name.lower().endswith(UPLOAD_EXTS):
         return None
     return _fit_name(name)
+
+
+def _unique_name(dest_dir: str, name: str, taken=()) -> str:
+    """Имя, которое ещё не занято в каталоге задания.
+
+    Две работы с одинаковым именем файла — обычное дело: выгрузка из Moodle
+    раскладывает их по папкам студентов, а на сервер приходят одни basename.
+    Без разведения имён вторая работа молча записывалась поверх первой и
+    выпадала из проверки.
+    """
+    stem, dot, tail = name.rpartition('.')
+    ext = dot + tail if dot else ''
+    stem = stem or name
+    candidate = name
+    n = 1
+    while candidate in taken or os.path.exists(os.path.join(dest_dir, candidate)):
+        n += 1
+        candidate = _fit_name(f'{stem}_{n}{ext}')
+    return candidate
 
 
 def _zip_name(info: zipfile.ZipInfo) -> str:
@@ -1018,10 +1090,7 @@ def _extract_zip(archive: str, dest_dir: str, on_file=None) -> None:
             if written > ZIP_MAX_FILES or total > ZIP_MAX_TOTAL:
                 raise ValueError('архив слишком большой для распаковки')
             name = _safe_upload_name(_zip_name(info))
-            target = Path(dest_dir) / name
-            if target.exists():
-                target = Path(dest_dir) / _fit_name(
-                    f'{target.stem}_{written}{target.suffix}')
+            target = Path(dest_dir) / _unique_name(dest_dir, name)
             with zf.open(info) as src, open(target, 'wb') as out:
                 shutil.copyfileobj(src, out, 1024 * 256)
             if on_file is not None:
@@ -1077,13 +1146,15 @@ def _start_job(uploaded, threshold: float, owner, enabled_checks=None,
     if not uploaded or all(f.filename == '' for f in uploaded):
         return None, 'Файлы не выбраны', 400
 
-    tmp_dir = tempfile.mkdtemp(prefix='rc_', dir=TMP_ROOT)
+    tmp_dir = tempfile.mkdtemp(prefix=TMP_PREFIX_JOB, dir=TMP_ROOT)
     try:
         for f in uploaded:
             name = _safe_upload_name(f.filename)
             if name is None:
                 continue
-            f.save(os.path.join(tmp_dir, name))
+            # Имя разводится, а не перезаписывается: два файла с одинаковым
+            # basename — это две разные работы, а не одна.
+            f.save(os.path.join(tmp_dir, _unique_name(tmp_dir, name)))
     except Exception as e:
         shutil.rmtree(tmp_dir, ignore_errors=True)
         return None, f'Ошибка при загрузке: {e}', 500
@@ -1276,7 +1347,7 @@ def _memory_delete(key: str):
 @app.route('/upload', methods=['POST'])
 @permission_required('run_checks')
 def upload():
-    threshold = float(request.form.get('threshold', 0.6))
+    threshold = _float_field(request.form, 'threshold', 0.6, 0.0, 1.0)
     enabled = _parse_enabled_checks(request.form.get('gost'))
     use_memory = _parse_use_memory(request.form.get('use_memory'))
     weights, scale = _grade_params(request.form)
@@ -1301,10 +1372,12 @@ def upload_start():
     upload_id = uuid.uuid4().hex[:16]
     with uploads_lock:
         uploads[upload_id] = {
-            'dir':   tempfile.mkdtemp(prefix='up_', dir=TMP_ROOT),
+            'dir':   tempfile.mkdtemp(prefix=TMP_PREFIX_UPLOAD, dir=TMP_ROOT),
             'owner': g.user['login'],
             'bytes': 0,
             'at':    time.monotonic(),
+            # ключ файла в партии → имя, под которым он лёг на диск
+            'files': {},
         }
     return jsonify({
         'upload_id':  upload_id,
@@ -1328,8 +1401,20 @@ def upload_part():
     if chunk is None:
         return jsonify({'error': 'Кусок файла не передан'}), 400
 
+    # Номер файла в партии присылает браузер: по одному имени два файла не
+    # различить, и раньше второй «отчет.pdf» попадал в ветку «повтор после
+    # обрыва» — сервер отвечал успехом, а работа терялась. Старые клиенты и
+    # прямые вызовы номера не шлют: для них ключ — по-прежнему имя.
+    key = (request.form.get('idx') or '').strip() or name
+    with uploads_lock:
+        stored = slot['files'].get(key)
+        if stored is None:
+            stored = _unique_name(slot['dir'], name,
+                                  taken=set(slot['files'].values()))
+            slot['files'][key] = stored
+
     # Имя уже очищено от пути, поэтому запись остаётся внутри каталога загрузки.
-    dest = os.path.join(slot['dir'], name)
+    dest = os.path.join(slot['dir'], stored)
     have = os.path.getsize(dest) if os.path.exists(dest) else 0
     offset = _int_field(request.form, 'offset', have, 0, UPLOAD_MAX_TOTAL)
     if offset > have:
@@ -1366,7 +1451,7 @@ def upload_finish():
     with uploads_lock:
         uploads.pop(upload_id, None)
 
-    threshold = float(request.form.get('threshold', 0.6))
+    threshold = _float_field(request.form, 'threshold', 0.6, 0.0, 1.0)
     enabled = _parse_enabled_checks(request.form.get('gost'))
     use_memory = _parse_use_memory(request.form.get('use_memory'))
     weights, scale = _grade_params(request.form)
@@ -1442,6 +1527,17 @@ def list_jobs():
 
 # ─────────────────────────  Account management  ─────────────────────────
 
+def _must_change(form) -> bool:
+    """Требовать ли смену пароля при первом входе.
+
+    Настройка «Требовать смену пароля при первом входе» — нижняя граница:
+    администратор может её ужесточить для отдельной записи, но не ослабить.
+    Раньше настройка сохранялась и не читалась никем, то есть не делала ничего.
+    """
+    return (form.get('must_change') == 'on'
+            or bool(accounts.get_settings().get('pw_require_change_first')))
+
+
 @app.route('/admin/users/create', methods=['POST'])
 @admin_required
 def user_create():
@@ -1468,7 +1564,7 @@ def user_create():
         accounts.create_user(
             login=login_name, fio=fio, password=password,
             role=form.get('role', 'teacher'), email=form.get('email', '').strip(),
-            must_change=form.get('must_change') == 'on')
+            must_change=_must_change(form))
         flash(f'Учётная запись {login_name} создана — сообщите пароль лично.')
     return redirect(url_for('admin_users'))
 
@@ -1507,7 +1603,7 @@ def user_reset_password(login_name):
         flash(f'{user["fio"]}: {problem}')
     else:
         accounts.set_password(login_name, password,
-                              must_change=request.form.get('must_change') == 'on')
+                              must_change=_must_change(request.form))
         flash(f'Пароль для {user["fio"]} изменён — сообщите его лично.')
     return redirect(url_for('admin_users'))
 
@@ -1667,8 +1763,7 @@ def _process_job(job_id: str, tmp_dir: str, threshold: float,
     stop_beat = threading.Event()
     threading.Thread(target=_beat, args=(job_id, stop_beat), daemon=True).start()
     try:
-        from checker.memory_store import (load_store, to_virtual_report,
-                                          upsert_report, save_store)
+        from checker.memory_store import load_store, to_virtual_report, add_report
 
         # 0. Unpack what was uploaded.
         pdf_paths = _collect_pdfs(job_id, tmp_dir)
@@ -1753,18 +1848,17 @@ def _process_job(job_id: str, tmp_dir: str, threshold: float,
         )
         (REPORTS_DIR / f'{job_id}.html').write_text(html, encoding='utf-8')
 
-        # 8. Persist fingerprints to this teacher's base
+        # 8. Persist fingerprints to this teacher's base. Каждая запись
+        #    сохраняется сразу, номер версии выбирается неделимо: две проверки,
+        #    идущие рядом, больше не затирают отпечатки друг друга.
         _update(job_id, progress=95, step='Сохранение отпечатков в базу…')
         saved = 0
         for i, r in enumerate(reports):
             _tick(job_id, 95, 99, i, n,
                   f'Сохранение отпечатков: {i+1} из {n}…')
             if not r.get('error'):
-                upsert_report(store, r, job_id, owner)
+                add_report(r, job_id, owner)
                 saved += 1
-        if saved:
-            _update(job_id, progress=99, step='Запись базы отпечатков…')
-            save_store(store)
 
         _update(job_id,
                 status='done',
@@ -1812,7 +1906,7 @@ def api_create_job():
     grade), scale=<2..100> (optional; grade scale, 100 = percent)."""
     if not accounts.can(g.user, 'run_checks'):
         return jsonify({'error': 'Нет права запускать проверки'}), 403
-    threshold = float(request.form.get('threshold', 0.6))
+    threshold = _float_field(request.form, 'threshold', 0.6, 0.0, 1.0)
     enabled = _parse_enabled_checks(request.form.get('gost'))
     use_memory = _parse_use_memory(request.form.get('use_memory'))
     weights, scale = _grade_params(request.form)

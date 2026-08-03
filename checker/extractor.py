@@ -312,6 +312,187 @@ def extract_report(pdf_path: str) -> dict:
     return result
 
 
+# ─────────────────────────────── ФИО ────────────────────────────────────────
+#
+# Имя файла идёт первым, титульный лист — вторым. Выгрузка Moodle называет
+# работы строго: «ФАМИЛИЯ ИМЯ ОТЧЕСТВО_<номер>_assignsubmission_file_<как файл
+# назвал студент>». Титульный лист свёрстан у каждого по-своему — ФИО стоит то
+# в таблице, то через пустую строку от «Выполнил», то в две колонки, — и
+# разбор шапки вуза регулярно выдавал за студента «Минобрнауки России».
+
+# Служебная связка Moodle: ФИО — всё, что стоит до неё. Номер отправки иногда
+# отсутствует, тип бывает assignsubmission/assignfeedback/onlinetext.
+MOODLE_NAME_RE = re.compile(
+    r'^(.{3,120}?)_(?:\d+_)?(?:assign(?:submission|feedback)|onlinetext)_',
+    re.IGNORECASE)
+# Имя без связки: фамилия и одно-два слова или инициала, дальше разделитель.
+_NAME_TOKEN = r'(?:[А-ЯЁ][А-ЯЁа-яё\-]+|(?:[А-ЯЁ]\.){1,2})'
+PLAIN_NAME_RE = re.compile(
+    rf'^([А-ЯЁ][А-ЯЁа-яё\-]+(?:\s+{_NAME_TOKEN}){{1,2}})\s*(?:[_.]|$)')
+
+# Слово имени: «Иванов», «Иванова-Петрова», «Ivanov». Инициалы — «И.», «И.О.».
+_NAME_WORD_RE = re.compile(
+    r'^(?:[А-ЯЁ][а-яё]+|[A-Z][a-z]+)(?:-(?:[А-ЯЁ][а-яё]+|[A-Z][a-z]+))*$')
+_INITIALS_RE = re.compile(r'^(?:[А-ЯЁA-Z]\.){1,2}$')
+# Приставки составных имён: «Гасан оглы», «Айгуль кызы».
+_NAME_PARTICLES = {'оглы', 'улы', 'уулу', 'кызы', 'гызы', 'ибн'}
+# Отчество. Признак нужен там, где имя опознаётся без служебной связки Moodle.
+_PATRONYMIC_RE = re.compile(r'(?:ович|евич|ьич|овна|евна|ична)$', re.IGNORECASE)
+
+# Слова, которых в ФИО студента не бывает. Шапка титульного листа и подписи
+# разделов — вот откуда брались ложные «фамилии».
+_NOT_A_PERSON = {
+    # ведомство и вуз
+    'минобрнауки', 'минобразования', 'миннауки', 'минпросвещения',
+    'министерство', 'министерства', 'россии', 'российской', 'российская',
+    'федерации', 'федерация', 'рф', 'федеральное', 'федерального',
+    'государственное', 'государственного', 'бюджетное', 'бюджетного',
+    'автономное', 'образовательное', 'образовательного', 'учреждение',
+    'учреждения', 'высшего', 'профессионального', 'образования',
+    'университет', 'университета', 'институт', 'института', 'академия',
+    'академии', 'филиал', 'филиала', 'колледж', 'техникум',
+    # разделы титульного листа
+    'работа', 'работы', 'работу', 'отчет', 'отчёт', 'отчета', 'отчёта',
+    'группа', 'группы', 'курс', 'курса', 'факультет', 'факультета',
+    'кафедра', 'кафедры', 'дисциплина', 'дисциплине', 'дисциплины',
+    'вариант', 'варианта', 'тема', 'теме', 'темы', 'задание', 'задания',
+    'проверил', 'проверила', 'выполнил', 'выполнила', 'принял', 'приняла',
+    'преподаватель', 'руководитель', 'доцент', 'профессор', 'ассистент',
+    'студент', 'студентка', 'студента', 'обучающийся', 'автор',
+    'лабораторная', 'практическая', 'курсовая', 'практика', 'практике',
+    'направление', 'специальность', 'москва', 'год', 'года', 'титульный',
+}
+
+
+def _clean_name(raw: str) -> str:
+    """Приводит кусок имени файла или строки к виду «Слово Слово Слово».
+
+    Точку справа не трогаем: ею кончаются инициалы, и «Иванов И.И.» после
+    обрезки переставало быть похожим на имя вообще.
+    """
+    return re.sub(r'[\s_]+', ' ', raw).lstrip(' -.,').rstrip(' -,')
+
+
+def _titlecase(name: str) -> str:
+    """«АРТАМОНОВА ОЛЬГА» → «Артамонова Ольга». Инициалы остаются заглавными."""
+    out = []
+    for w in name.split():
+        if _INITIALS_RE.match(w.upper()):
+            out.append(w.upper())
+        elif w.lower() in _NAME_PARTICLES:
+            out.append(w.lower())
+        else:
+            out.append('-'.join(p.capitalize() for p in w.split('-')))
+    return ' '.join(out)
+
+
+def _looks_like_person(name: str, max_words: int = 3) -> bool:
+    """Похоже ли на ФИО живого человека, а не на строку титульного листа.
+
+    Считаем именем два-три слова, каждое из которых — слово с заглавной буквы
+    или инициал, и ни одно не входит в словарь служебных слов. Хотя бы одно
+    слово должно быть полным: «И. И.» без фамилии именем не считается.
+    """
+    parts = name.split()
+    if not 2 <= len(parts) <= max_words:
+        return False
+    full_words = 0
+    for p in parts:
+        if p.lower().strip('.') in _NOT_A_PERSON:
+            return False
+        if _NAME_WORD_RE.match(p):
+            full_words += 1
+        elif p.lower() in _NAME_PARTICLES:
+            continue
+        elif not _INITIALS_RE.match(p):
+            return False
+    return full_words >= 1
+
+
+def _name_from_filename(pdf_path: str) -> str:
+    """ФИО из имени файла — основной путь.
+
+    Связка «_assignsubmission_» в собственных именах студенческих файлов не
+    встречается, поэтому всё, что стоит до неё, — имя из ведомости Moodle.
+    Четвёртое слово допускаем только здесь: «Абдуллаев Али Гасан оглы» из
+    ведомости приходит целиком, а на титульном листе так не пишут.
+    """
+    stem = Path(pdf_path).stem
+    m = MOODLE_NAME_RE.match(stem)
+    if m:
+        cand = _titlecase(_clean_name(m.group(1)))
+        if _looks_like_person(cand, max_words=4):
+            return cand
+    # Без связки имя ничем не отличается от названия работы, и «Основы СКС_ЛР1»
+    # уходило в ведомость фамилией. Здесь требуем отчество или инициалы —
+    # «Смирнова Елена_ЛР1» разберём уже по титульному листу.
+    m = PLAIN_NAME_RE.match(stem)
+    if m:
+        cand = _titlecase(_clean_name(m.group(1)))
+        parts = cand.split()
+        if _looks_like_person(cand) and any(
+                _PATRONYMIC_RE.search(p) or _INITIALS_RE.match(p)
+                or p.lower() in _NAME_PARTICLES for p in parts):
+            return cand
+    return ''
+
+
+def _name_from_text(title_text: str) -> str:
+    """ФИО с титульного листа — запасной путь, когда имя файла молчит."""
+    # Case-sensitive name classes (keywords are (?i:...)-insensitive locally):
+    # a global IGNORECASE would make [А-ЯЁ][а-яё]+ match any word.
+    NAME3   = r'[А-ЯЁ][а-яё]+(?:\s+[А-ЯЁ][а-яё]+){1,2}'    # Фамилия Имя [Отчество]
+    NAME_UP = r'[А-ЯЁ]{2,}(?:\s+[А-ЯЁ]{2,}){1,2}'          # ФАМИЛИЯ ИМЯ [ОТЧЕСТВО]
+    FAM_IO  = r'[А-ЯЁ][а-яё]+\s+[А-ЯЁ]\.\s*(?:[А-ЯЁ]\.)?'  # Фамилия И.[О.]
+    IO_FAM  = r'[А-ЯЁ]\.\s*(?:[А-ЯЁ]\.)?\s*[А-ЯЁ][а-яё]+'  # И.[О.] Фамилия
+    DOER    = r'(?i:выполнил[аи]?|подготовил[аи]?|разработал[аи]?|студент(?:ка)?|автор)'
+
+    for pat in [
+        # «Выполнил: Иванов И.И.», «Студент группы АБ-21-04 Иванов Иван Иванович»
+        rf'{DOER}[^\n]{{0,40}}?[:\s]\s*({FAM_IO}|{IO_FAM}|{NAME3}|{NAME_UP})\s*$',
+        # ФИО на одной-двух строках ниже ключевого слова
+        rf'{DOER}[^\n]{{0,40}}\n(?:[^\n]{{0,40}}\n)?\s*({FAM_IO}|{IO_FAM}|{NAME3}|{NAME_UP})\s*$',
+        # ФИО строкой выше упоминания группы/курса
+        rf'({NAME3})\s*,?\s*\n[^\n]{{0,30}}(?i:групп[аы]?|курс)',
+        # ФИО сразу после номера группы
+        rf'(?i:групп[аы]?)\s+[А-ЯЁA-Za-z]{{1,5}}[-–]\d{{2}}[-–]\d{{2,3}}[,\s]*\n?\s*({NAME3}|{FAM_IO})',
+    ]:
+        for m in re.finditer(pat, title_text, re.MULTILINE):
+            cand = _titlecase(_clean_name(m.group(1)))
+            if _looks_like_person(cand):
+                return cand
+    return ''
+
+
+# ────────────────────────────── Группа ──────────────────────────────────────
+#
+# Номер группы пишут и через дефисы — «КА-22-06», — и слитно — «КА2206».
+# Границу кода задаём вручную: подчёркивание входит в \w, и \b внутри
+# «Козлов_КА2206_ЛР1» не срабатывает, а именно так выглядят имена из Moodle.
+_GRP_START = r'(?<![0-9A-Za-zА-Яа-яЁё])'
+_GRP_END = r'(?![0-9A-Za-zА-Яа-яЁё])'
+GROUP_SEP_RE = re.compile(
+    rf'{_GRP_START}([А-ЯЁA-Za-z]{{1,5}})[-–_](\d{{2}})[-–_](\d{{2,3}}){_GRP_END}')
+# Слитную запись опознаём только по заглавным буквам, иначе группой становится
+# «Отчет2024». Заглавные — норма для кода группы и редкость для слова.
+GROUP_RUN_RE = re.compile(
+    rf'{_GRP_START}([А-ЯЁA-Z]{{2,5}})(\d{{2}})(\d{{2,3}}){_GRP_END}')
+
+
+def _group_run(text: str) -> str:
+    """Первая слитно записанная группа: «Козлов_КА2206_ЛР1» → «КА-22-06».
+
+    Четыре цифры, складывающиеся в календарный год, — это год работы, а не
+    номер группы: «СКС2024» и «Отчет_2025» группой не считаем.
+    """
+    for m in GROUP_RUN_RE.finditer(text):
+        digits = m.group(2) + m.group(3)
+        if len(digits) == 4 and 1990 <= int(digits) <= 2035:
+            continue
+        return f'{m.group(1)}-{m.group(2)}-{m.group(3)}'
+    return ''
+
+
 def _identify_student(text_by_page: list, pdf_path: str) -> dict:
     student = {'name': '', 'group': '',
                'work_title': '', 'year': '', 'org': ''}
@@ -330,57 +511,8 @@ def _identify_student(text_by_page: list, pdf_path: str) -> dict:
             student['org'] = m.group(1).strip()[:120]
             break
 
-    # Full name from title page.
-    # Case-sensitive name classes (keywords are (?i:...)-insensitive locally):
-    # a global IGNORECASE would make [А-ЯЁ][а-яё]+ match any word.
-    NAME3   = r'[А-ЯЁ][а-яё]+(?:\s+[А-ЯЁ][а-яё]+){1,2}'    # Фамилия Имя [Отчество]
-    NAME_UP = r'[А-ЯЁ]{2,}(?:\s+[А-ЯЁ]{2,}){1,2}'          # ФАМИЛИЯ ИМЯ [ОТЧЕСТВО]
-    FAM_IO  = r'[А-ЯЁ][а-яё]+\s+[А-ЯЁ]\.\s*(?:[А-ЯЁ]\.)?'  # Фамилия И.[О.]
-    IO_FAM  = r'[А-ЯЁ]\.\s*(?:[А-ЯЁ]\.)?\s*[А-ЯЁ][а-яё]+'  # И.[О.] Фамилия
-    DOER    = r'(?i:выполнил[аи]?|подготовил[аи]?|разработал[аи]?|студент(?:ка)?|автор)'
-
-    _STOP = {
-        'работа', 'работы', 'работу', 'отчет', 'отчёт', 'группа', 'группы',
-        'курс', 'курса', 'факультет', 'кафедра', 'дисциплина', 'дисциплине',
-        'вариант', 'проверил', 'проверила', 'преподаватель', 'руководитель',
-        'доцент', 'профессор', 'лабораторная', 'практическая', 'курсовая',
-        'института', 'университета', 'направление', 'специальность',
-    }
-
-    def _plausible(cand: str) -> bool:
-        return not any(w.lower().strip('.') in _STOP for w in cand.split())
-
-    name_found = False
-    for pat in [
-        # «Выполнил: Иванов И.И.», «Студент группы АБ-21-04 Иванов Иван Иванович»
-        rf'{DOER}[^\n]{{0,40}}?[:\s]\s*({FAM_IO}|{IO_FAM}|{NAME3}|{NAME_UP})\s*$',
-        # ФИО на одной-двух строках ниже ключевого слова
-        rf'{DOER}[^\n]{{0,40}}\n(?:[^\n]{{0,40}}\n)?\s*({FAM_IO}|{IO_FAM}|{NAME3}|{NAME_UP})\s*$',
-        # ФИО строкой выше упоминания группы/курса
-        rf'({NAME3})\s*,?\s*\n[^\n]{{0,30}}(?i:групп[аы]?|курс)',
-        # ФИО сразу после номера группы
-        rf'(?i:групп[аы]?)\s+[А-ЯЁA-Za-z]{{1,5}}[-–]\d{{2}}[-–]\d{{2,3}}[,\s]*\n?\s*({NAME3}|{FAM_IO})',
-    ]:
-        for m in re.finditer(pat, title_text, re.MULTILINE):
-            cand = re.sub(r'\s+', ' ', m.group(1).strip())
-            if not _plausible(cand):
-                continue
-            if cand.isupper():
-                cand = ' '.join(w.capitalize() for w in cand.split())
-            student['name'] = cand
-            name_found = True
-            break
-        if name_found:
-            break
-
-    # Fallback: extract name from filename
-    # Pattern: "ФАМИЛИЯ ИМЯ ОТЧЕСТВО_ID_assignsubmission_file_..."
-    if not name_found:
-        stem = Path(pdf_path).stem
-        m = re.match(r'^([А-ЯЁ]+(?:\s+[А-ЯЁ]+){1,2})\s*_', stem)
-        if m:
-            parts = m.group(1).strip().split()
-            student['name'] = ' '.join(p.capitalize() for p in parts)
+    # ФИО: сначала имя файла, титульный лист — только если оттуда не вышло.
+    student['name'] = _name_from_filename(pdf_path) or _name_from_text(title_text)
 
     # Group
     for pat in [
@@ -391,13 +523,19 @@ def _identify_student(text_by_page: list, pdf_path: str) -> dict:
         if m:
             student['group'] = m.group(1).strip()
             break
+    # Слитная запись на титульном листе — только рядом со словом «группа»:
+    # без него в «КА2206» превращается любое четырёхзначное число с буквами.
+    if not student['group']:
+        m = re.search(r'(?i:групп[аы])\s+([А-ЯЁA-Z]{2,5}\d{4,5})', title_text)
+        if m:
+            student['group'] = _group_run(m.group(1))
 
     # Fallback group from filename
     if not student['group']:
         stem = Path(pdf_path).stem
-        m = re.search(r'([А-ЯЁA-Za-z]{1,5}[-_]\d{2}[-_]\d{2,3})', stem)
-        if m:
-            student['group'] = m.group(1).replace('_', '-')
+        m = GROUP_SEP_RE.search(stem)
+        student['group'] = (f'{m.group(1)}-{m.group(2)}-{m.group(3)}' if m
+                            else _group_run(stem))
 
     # Year
     m = re.search(r'\b(20\d{2})\b', title_text)

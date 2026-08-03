@@ -263,6 +263,7 @@
         const thr = j.threshold || 60;
         let tone, right;
         if (j.status === 'processing') { tone = 'idle'; right = chip('idle', (j.progress || 0) + '%'); }
+        else if (j.status === 'cancelled') { tone = 'idle'; right = chip('idle', 'Прервана'); }
         else if (j.status === 'error') { tone = 'crit'; right = chip('crit', 'Ошибка'); }
         else { tone = plagTone(s.plag || 0, thr); right = chip(tone, 'Заимств. ' + (s.plag || 0) + '%'); }
 
@@ -321,7 +322,8 @@
             <h2>${esc(s.group || 'Проверка')}</h2>
             <span class="mono">#${esc(j.id)}</span>
             ${j.status === 'done' ? chip('ok', 'Готово')
-              : j.status === 'processing' ? chip('idle', 'Выполняется') : chip('crit', 'Ошибка')}
+              : j.status === 'processing' ? chip('idle', 'Выполняется')
+              : j.status === 'cancelled' ? chip('idle', 'Прервана') : chip('crit', 'Ошибка')}
           </div>
           <div class="detail-facts">
             <span><b class="mono">${j.total || 0}</b> отчётов</span>
@@ -334,6 +336,8 @@
               <a class="btn primary" href="/report/${esc(j.id)}" target="_blank" rel="noopener">Открыть отчёт</a>
               <a class="btn" href="/export/${esc(j.id)}">Скачать PDF</a>
               <button class="btn" id="fb-all">Отзывы студентам</button>` : ''}
+            ${j.status === 'processing'
+              ? `<button class="btn danger" data-stop="${esc(j.id)}">Прервать проверку</button>` : ''}
             ${canDelete ? `<button class="btn danger" data-del="${esc(j.id)}"
               ${j.status === 'processing' ? 'disabled title="Дождитесь завершения"' : ''}>Удалить</button>` : ''}
           </div>
@@ -351,6 +355,18 @@
             </div>
             <p class="hint" style="margin:14px 0 0;">Можно закрыть страницу — проверка продолжится на сервере,
               результат появится в списке.</p>
+          </div>`;
+        wireDelete(); wireStop(); return;
+      }
+
+      if (j.status === 'cancelled') {
+        pane.innerHTML = head + `
+          <div class="section-body">
+            <div class="note" style="margin:0;">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="9"/><path d="M12 7.6v.1M12 11v5" stroke-linecap="round"/></svg>
+              <span><b>Проверка прервана.</b><br>${esc(j.step || '')}</span>
+            </div>
+            <div style="margin-top:14px;"><a class="btn primary" href="/new">Загрузить заново</a></div>
           </div>`;
         wireDelete(); return;
       }
@@ -529,6 +545,26 @@
       };
     }
 
+    /* Прервать идущую проверку: партию загрузили не ту, порог задали не тот —
+       ждать полчаса до конца, чтобы начать заново, незачем. */
+    function wireStop() {
+      const b = $('#detail-pane [data-stop]');
+      if (!b) return;
+      b.onclick = () => confirmAction({
+        title: 'Прервать проверку?',
+        sub: 'Проверка остановится на ближайшем шаге. Отчёт сформирован не будет, '
+           + 'отпечатки в базу не попадут.',
+        body: `<p style="margin:0;font-size:13px;">Проверка <b class="mono">#${esc(b.dataset.stop)}</b></p>`,
+        okText: 'Прервать', danger: true,
+        onOk: async () => {
+          const res = await post(`/jobs/${b.dataset.stop}/cancel`);
+          const data = await res.json().catch(() => ({}));
+          if (res.ok) { toast('Останавливаем проверку…'); load(); }
+          else toast(data.error || 'Не удалось прервать проверку');
+        },
+      });
+    }
+
     function wireDelete() {
       const b = $('#detail-pane [data-del]');
       if (!b || b.disabled) return;
@@ -677,13 +713,27 @@
       if (step != null) $('#run-step').textContent = step;
     };
 
+    /* Идущий запрос: по нему «Прервать» обрывает передачу файлов, пока сама
+       проверка ещё не запущена и останавливать на сервере нечего. Отдельная
+       отметка нужна потому, что между кусками запроса нет — оборвать в этот
+       миг нечего, а решение уже принято. */
+    let sending = null;
+    let aborting = false;
+
     /* Запрос с телом: XHR, а не fetch, — нужен ход отправки. */
     const send = (url, data, onSent) => new Promise((resolve, reject) => {
       const xhr = new XMLHttpRequest();
+      sending = xhr;
       xhr.open('POST', url);
       xhr.setRequestHeader('X-CSRF-Token', CSRF);
       if (onSent) xhr.upload.onprogress = e => {
         if (e.lengthComputable) onSent(e.loaded);
+      };
+      xhr.onloadend = () => { sending = null; };
+      xhr.onabort = () => {
+        const err = new Error('Загрузка прервана');
+        err.aborted = true;      // повторять нечего: оборвали сами
+        reject(err);
       };
       xhr.onload = () => {
         let out = {};
@@ -714,8 +764,11 @@
 
       /* Кусок помечен смещением, поэтому повтор после обрыва связи не
          задваивает байты — сервер узнаёт уже записанное и пропускает его. */
+      const stopped = () => Object.assign(new Error('Загрузка прервана'), { aborted: true });
+
       const sendChunk = async (f, idx, off) => {
         for (let attempt = 1; ; attempt++) {
+          if (aborting) throw stopped();
           const part = new FormData();
           part.append('upload_id', start.upload_id);
           part.append('name', f.name);
@@ -729,7 +782,7 @@
           } catch (err) {
             // Отказ по сути — не тот файл, нет прав, превышен объём — повторять
             // бессмысленно. Повтор только для обрыва связи и сбоя сервера.
-            const worth = !err.status || err.status >= 500;
+            const worth = !err.aborted && (!err.status || err.status >= 500);
             if (!worth || attempt >= 3) throw err;
             setBar(totalBytes ? doneBytes / totalBytes * UPLOAD_SHARE : 0,
               `Связь прервалась, повтор ${attempt} из 3…`);
@@ -746,6 +799,9 @@
             show(0);
           }
         }
+        // Прервать могли и на последнем куске: файлы у сервера целиком, но
+        // запускать по ним проверку уже не надо — здесь их ещё уберут.
+        if (aborting) throw stopped();
       } catch (err) {
         const cancel = new FormData();
         cancel.append('upload_id', start.upload_id);
@@ -753,11 +809,111 @@
         throw err;
       }
 
+      /* Прерывать больше нечего: куски у сервера, остаётся получить номер
+         проверки. Кнопка вернётся, когда прерывать станет что — саму проверку. */
+      cancelBtn.hidden = true;
       setBar(UPLOAD_SHARE, 'Файлы приняты, готовим проверку…');
       extra.append('upload_id', start.upload_id);
       const out = await send('/upload/finish', extra);
       if (!out.job_id) throw new Error('Не удалось начать проверку');
       return out.job_id;
+    };
+
+    /* ── Лист ожидания ── */
+
+    const panel = $('#run-panel');
+    const runTitle = $('#run-title');
+    const cancelBtn = $('#run-cancel');
+    const openLink = $('#run-open');
+    const reportLink = $('#run-report');
+    let watched = null;
+
+    const showRun = j => {
+      setBar(UPLOAD_SHARE + (j.progress || 0) * (100 - UPLOAD_SHARE) / 100, j.step || '');
+      $('#run-files').textContent = `${j.done_files || 0} / ${j.total || 0}`;
+      $('#run-pairs').textContent = j.text_pairs || 0;
+      $('#run-imgs').textContent = j.img_pairs || 0;
+    };
+
+    /* redirect — проверку только что запустили с этой страницы: дождались конца
+       и ушли к результату. Восстановленную после перезагрузки никуда не уводим,
+       иначе набранная рядом следующая партия пропала бы. */
+    const watch = (jobId, redirect) => {
+      watched = jobId;
+      panel.hidden = false;
+      cancelBtn.hidden = false;
+      openLink.hidden = false;
+      reportLink.hidden = true;
+
+      const finish = j => {
+        watched = null;
+        if (redirect) { window.location.href = '/'; return; }
+        cancelBtn.hidden = true;
+        runTitle.textContent = j.status === 'done' ? 'Проверка завершена'
+          : j.status === 'cancelled' ? 'Проверка прервана' : 'Проверка не выполнена';
+        if (j.status === 'done') {
+          reportLink.href = `/report/${jobId}`;
+          reportLink.hidden = false;
+        }
+        toast(runTitle.textContent);
+      };
+
+      const poll = async () => {
+        if (watched !== jobId) return;      // за это время запустили следующую
+        let res;
+        try { res = await fetch(`/status/${jobId}`); }
+        catch (e) { setTimeout(poll, 2000); return; }
+        // Проверку удалили из истории — показывать больше нечего.
+        if (res.status === 404) { watched = null; panel.hidden = true; return; }
+        if (!res.ok) { setTimeout(poll, 2000); return; }
+        const j = await res.json();
+        showRun(j);
+        if (j.status === 'processing') { setTimeout(poll, 1500); return; }
+        finish(j);
+      };
+      poll();
+    };
+
+    /* Проверка идёт на сервере и переживает перезагрузку страницы. Без этого
+       после обновления оставалась пустая форма, и по ней нельзя было понять,
+       идёт ли проверка вообще. */
+    const restore = async () => {
+      let list;
+      try {
+        const res = await fetch('/jobs/active', { headers: { Accept: 'application/json' } });
+        if (!res.ok) return;
+        list = await res.json();
+      } catch (e) { return; }
+      if (!list.length || watched) return;
+      showRun(list[0]);
+      watch(list[0].job_id, false);
+    };
+    restore();
+
+    cancelBtn.onclick = () => {
+      // Номер берём на нажатии: пока висит вопрос, проверка могла и закончиться.
+      const jobId = watched;
+      if (jobId) {
+        confirmAction({
+          title: 'Прервать проверку?',
+          sub: 'Проверка остановится на ближайшем шаге. Отчёт сформирован не будет, '
+             + 'отпечатки в базу не попадут.',
+          okText: 'Прервать проверку', danger: true,
+          onOk: async () => {
+            const res = await post(`/jobs/${jobId}/cancel`);
+            const data = await res.json().catch(() => ({}));
+            toast(res.ok ? 'Останавливаем проверку…'
+                         : (data.error || 'Не удалось прервать проверку'));
+          },
+        });
+        return;
+      }
+      confirmAction({
+        title: 'Прервать загрузку файлов?',
+        sub: 'Переданные куски будут удалены с сервера, проверка не начнётся.',
+        okText: 'Прервать загрузку', danger: true,
+        onOk: () => { aborting = true; if (sending) sending.abort(); },
+      });
     };
 
     uploadForm.addEventListener('submit', async e => {
@@ -779,31 +935,27 @@
       if (scale) data.append('scale', scale.value);
 
       startBtn.disabled = true;
-      $('#run-progress').hidden = false;
+      watched = null;
+      aborting = false;
+      panel.hidden = false;
+      runTitle.textContent = 'Загрузка файлов';
+      cancelBtn.hidden = false;
+      openLink.hidden = true;         // уход со страницы оборвал бы передачу
+      reportLink.hidden = true;
       setBar(0, 'Загрузка файлов на сервер…');
 
       let jobId;
       try {
         jobId = await sendFiles(files, data);
       } catch (err) {
-        $('#run-progress').hidden = true;
+        panel.hidden = true;
         startBtn.disabled = false;
-        toast(err.message);
+        toast(err.aborted ? 'Загрузка прервана' : err.message);
         return;
       }
 
-      const poll = async () => {
-        const res = await fetch(`/status/${jobId}`);
-        if (!res.ok) { setTimeout(poll, 2000); return; }
-        const j = await res.json();
-        setBar(UPLOAD_SHARE + (j.progress || 0) * (100 - UPLOAD_SHARE) / 100, j.step || '');
-        $('#run-files').textContent = `${j.done_files || 0} / ${j.total || 0}`;
-        $('#run-pairs').textContent = j.text_pairs || 0;
-        $('#run-imgs').textContent = j.img_pairs || 0;
-        if (j.status === 'processing') { setTimeout(poll, 1500); return; }
-        window.location.href = '/';
-      };
-      poll();
+      runTitle.textContent = 'Идёт проверка';
+      watch(jobId, true);
     });
   }
 

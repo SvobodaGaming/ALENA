@@ -354,7 +354,9 @@ def _security_headers(response):
         "script-src 'self' 'unsafe-inline'; font-src 'self' data:; "
         "connect-src 'self'; form-action 'self'; base-uri 'none'; "
         "object-src 'none'; frame-ancestors 'none'")
-    if request.path.startswith('/api/') or request.path.startswith('/status/'):
+    # Состояние проверок кэшировать нельзя: по вернувшемуся из кэша ответу
+    # страница показала бы давно законченную проверку как идущую.
+    if request.path.startswith(('/api/', '/status/', '/jobs')):
         response.headers.setdefault('Cache-Control', 'no-store')
     return response
 
@@ -1300,6 +1302,36 @@ def _clear_all():
     return jsonify({'ok': True, 'cleared': len(ids), 'cleared_store': cleared_store})
 
 
+def _cancel_job(job_id: str):
+    """Остановить идущую проверку по просьбе владельца.
+
+    Отметка ставится в память процесса: поток проверки видит её в ближайшей
+    точке остановки (см. _tick) и сворачивается сам. Убить поток снаружи нечем,
+    да и не нужно — отпущенный по-хорошему, он успевает стереть временный
+    каталог с принятыми файлами.
+    """
+    job = _find_job(job_id)
+    if job is None:
+        abort(404)
+    if not _may_touch(job, g.user):
+        return _deny('Эта проверка принадлежит другому преподавателю.')
+    if job.get('status') != 'processing':
+        return jsonify({'error': 'Проверка уже завершена — прерывать нечего.'}), 409
+
+    with jobs_lock:
+        live = jobs.get(job_id)
+        if live is not None:
+            live['_cancel'] = True
+    if live is None:
+        # Отметка свежая, а потока в этом процессе нет: проверку ведёт соседний
+        # процесс, и его память отсюда не достать.
+        return jsonify({'error': 'Проверку ведёт другой процесс сервера — '
+                                 'остановить её отсюда нельзя.'}), 409
+
+    _update(job_id, _force=True, step='Останавливаем проверку…')
+    return jsonify({'ok': True})
+
+
 def _delete_job(job_id: str):
     """Delete a single check from history: in-memory state, stored record and
     the saved HTML report. Fingerprints in the student base are kept — they are
@@ -1506,6 +1538,12 @@ def delete_job(job_id):
     return _delete_job(job_id)
 
 
+@app.route('/jobs/<job_id>/cancel', methods=['POST'])
+@login_required
+def cancel_job(job_id):
+    return _cancel_job(job_id)
+
+
 @app.route('/memory')
 @login_required
 def memory_list():
@@ -1523,6 +1561,30 @@ def memory_delete():
 @login_required
 def list_jobs():
     return jsonify(_all_jobs(g.user))
+
+
+@app.route('/jobs/active')
+@login_required
+def list_active_jobs():
+    """Незаконченные проверки этой учётной записи, новые сверху.
+
+    Нужны странице «Новая проверка»: её открывают заново — перезагрузили,
+    вернулись с другой вкладки — и она должна снова показать идущую проверку,
+    а не пустую форму. Чужие сюда не попадают даже у записи с правом видеть
+    всё: это «мои идущие», а не «все идущие».
+    """
+    def when(data: dict):
+        try:
+            return datetime.strptime(data.get('created_at', ''), '%d.%m.%Y %H:%M')
+        except ValueError:
+            return datetime.min
+
+    mine = [dict(job_id=jid, **data)
+            for jid, data in _all_jobs(g.user).items()
+            if data.get('status') == 'processing'
+            and data.get('owner', '') == g.user['login']]
+    mine.sort(key=when, reverse=True)
+    return jsonify(mine)
 
 
 # ─────────────────────────  Account management  ─────────────────────────
@@ -1655,6 +1717,10 @@ SAVE_EVERY = 1.0    # как часто состояние уходит в хр�
 TICK_EVERY = 0.4    # как часто пересчитывается процент внутри этапа, секунд
 
 
+class JobCancelled(Exception):
+    """Проверку прервал преподаватель — это не сбой, а решение."""
+
+
 def _update(job_id: str, _force: bool = False, **kwargs):
     """Обновить состояние проверки.
 
@@ -1681,17 +1747,34 @@ def _update(job_id: str, _force: bool = False, **kwargs):
         job_store.save(job_id, snapshot)
 
 
+def _stop_point(job_id: str):
+    """Прерваться, если преподаватель попросил остановить проверку.
+
+    Ставится между этапами — там, где _tick не вызывается и до следующего
+    сообщения о ходе могут пройти минуты.
+    """
+    with jobs_lock:
+        if (jobs.get(job_id) or {}).get('_cancel'):
+            raise JobCancelled
+
+
 def _tick(job_id: str, lo: int, hi: int, done: int, total: int, step: str):
     """Процент внутри длинного этапа: lo…hi пропорционально done/total.
 
     Без этого полоса замирает на одном значении на всё время сравнения пар —
     на большой партии это минуты, и проверка выглядит зависшей.
+
+    Здесь же точка остановки внутри длинных циклов: отметку об отмене смотрим
+    на каждом шаге, не считаясь с троттлингом, иначе «Прервать» отзывалось бы
+    через полсекунды после нажатия только по случайности.
     """
     now = time.monotonic()
     with jobs_lock:
         job = jobs.get(job_id)
         if job is None:
             return
+        if job.get('_cancel'):
+            raise JobCancelled
         if done < total and now - job.get('_ticked_at', 0.0) < TICK_EVERY:
             return
         job['_ticked_at'] = now
@@ -1783,6 +1866,7 @@ def _process_job(job_id: str, tmp_dir: str, threshold: float,
             _update(job_id, progress=5, step='Сравнение с базой отключено')
 
         # 2. Extract
+        _stop_point(job_id)
         reports = []
         for i, path in enumerate(pdf_paths):
             _tick(job_id, 5, 44, i, n,
@@ -1815,6 +1899,7 @@ def _process_job(job_id: str, tmp_dir: str, threshold: float,
             historical = []
 
         # 5. Text plagiarism (new + relevant historical)
+        _stop_point(job_id)
         pairs_count = n * (n - 1) // 2 + n * len(historical)
         _update(job_id, progress=52,
                 step=f'Анализ текста ({pairs_count} пар, вкл. базу)…')
@@ -1828,6 +1913,7 @@ def _process_job(job_id: str, tmp_dir: str, threshold: float,
                 step=f'Текст: {flagged} подозрительных пар')
 
         # 6. Image plagiarism (new + historical)
+        _stop_point(job_id)
         total_imgs = sum(len(r.get('images', [])) for r in reports)
         _update(job_id, progress=76,
                 step=f'Анализ изображений ({total_imgs} шт.)…')
@@ -1840,7 +1926,9 @@ def _process_job(job_id: str, tmp_dir: str, threshold: float,
                            if not p.get('ui_review')])
         _update(job_id, img_pairs=img_flagged)
 
-        # 7. Generate HTML report
+        # 7. Generate HTML report. Последняя точка остановки: дальше отчёт уже
+        #    собран, и бросать работу за секунду до конца незачем.
+        _stop_point(job_id)
         _update(job_id, progress=88, step='Генерация HTML-отчёта…')
         html = generate_html_report(
             reports, historical, text_plag, img_plag, threshold, job_id=job_id,
@@ -1854,8 +1942,10 @@ def _process_job(job_id: str, tmp_dir: str, threshold: float,
         _update(job_id, progress=95, step='Сохранение отпечатков в базу…')
         saved = 0
         for i, r in enumerate(reports):
-            _tick(job_id, 95, 99, i, n,
-                  f'Сохранение отпечатков: {i+1} из {n}…')
+            # Не _tick: он прервал бы проверку на полпути по отметке об отмене,
+            # и часть отпечатков осела бы в базе от работы, которую отменили.
+            _update(job_id, progress=95 + round(4 * (i + 1) / n),
+                    step=f'Сохранение отпечатков: {i+1} из {n}…')
             if not r.get('error'):
                 add_report(r, job_id, owner)
                 saved += 1
@@ -1866,6 +1956,13 @@ def _process_job(job_id: str, tmp_dir: str, threshold: float,
                 summary=summary_mod.build(reports, historical, text_plag,
                                           img_plag, threshold, weights, scale),
                 step=f'Готово! Проверено {n} отчётов, сохранено в базу: {saved}.')
+
+    except JobCancelled:
+        # Ни отчёта, ни отпечатков: последняя точка остановки стоит перед седьмым
+        # шагом, а сборка отчёта и запись в базу идут уже без них.
+        _update(job_id, status='cancelled',
+                step='Проверка прервана преподавателем. Отчёт не сформирован, '
+                     'отпечатки в базу не сохранены.')
 
     except Exception as exc:
         import traceback
@@ -1950,6 +2047,12 @@ def api_job_status(job_id):
 @api_auth_required
 def api_delete_job(job_id):
     return _delete_job(job_id)
+
+
+@api.route('/jobs/<job_id>/cancel', methods=['POST'])
+@api_auth_required
+def api_cancel_job(job_id):
+    return _cancel_job(job_id)
 
 
 @api.route('/jobs/<job_id>/report', methods=['GET'])

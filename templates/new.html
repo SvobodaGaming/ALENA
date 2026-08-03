@@ -5,6 +5,33 @@
 
 {% block content %}
 <form id="upload-form" data-max-mb="{{ upload_max_mb }}">
+  {# Лист ожидания. Проверка идёт на сервере и переживает перезагрузку страницы,
+     поэтому панель показывается и при запуске, и когда страницу открыли заново
+     при уже идущей проверке. #}
+  <div class="section" id="run-panel" hidden style="margin-bottom:12px;">
+    <div class="section-head">
+      <h2 id="run-title">Идёт проверка</h2>
+      <span class="spacer"></span>
+      <span class="mono" id="run-pct">0%</span>
+    </div>
+    <div class="section-body">
+      <div class="progress-step"><span id="run-step">Подготовка…</span></div>
+      <div class="track big"><div class="fill" id="run-bar" style="width:0;--tone:var(--brand)"></div></div>
+      <div class="stat-row">
+        <span class="stat-chip">Файлов: <b id="run-files">0 / 0</b></span>
+        <span class="stat-chip">Пар текста: <b id="run-pairs">0</b></span>
+        <span class="stat-chip">Дублей изображений: <b id="run-imgs">0</b></span>
+      </div>
+      <div class="stat-row">
+        <button class="btn sm danger" type="button" id="run-cancel">Прервать проверку</button>
+        <a class="btn sm" id="run-open" href="{{ url_for('index') }}" hidden>Ко всем проверкам</a>
+        <a class="btn sm primary" id="run-report" href="#" target="_blank" rel="noopener" hidden>Открыть отчёт</a>
+      </div>
+      <p class="hint" style="margin:12px 0 0;">Страницу можно закрыть — проверка продолжится
+        на сервере, результат появится в списке проверок.</p>
+    </div>
+  </div>
+
   <div class="grid-2">
     <div>
       <div class="section">
@@ -113,16 +140,6 @@
     <div class="section-body">
       <button class="btn primary" type="submit" id="start-btn" disabled>Запустить проверку</button>
       <span class="hint" style="margin-left:10px;">Проверка идёт на сервере — страницу можно закрыть.</span>
-
-      <div id="run-progress" hidden style="margin-top:16px;">
-        <div class="progress-step"><span id="run-step">Подготовка…</span><span class="mono" id="run-pct">0%</span></div>
-        <div class="track big"><div class="fill" id="run-bar" style="width:0;--tone:var(--brand)"></div></div>
-        <div class="stat-row">
-          <span class="stat-chip">Файлов: <b id="run-files">0 / 0</b></span>
-          <span class="stat-chip">Пар текста: <b id="run-pairs">0</b></span>
-          <span class="stat-chip">Дублей изображений: <b id="run-imgs">0</b></span>
-        </div>
-      </div>
     </div>
   </div>
 </form>

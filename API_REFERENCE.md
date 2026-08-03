@@ -56,6 +56,8 @@ Actions also honour per-account permissions: `run_checks` for `POST /jobs`,
 Reading a check the account already owns (`GET /jobs`, `/jobs/<id>`, its report
 and export) needs no extra permission beyond authentication — revoking
 `run_checks` stops new checks, it does not hide the account's own history.
+Stopping a check (`POST /jobs/<id>/cancel`) likewise needs only ownership: the
+account that started it may call it off without the right to delete it.
 
 ## Base URL
 
@@ -156,8 +158,11 @@ List the jobs visible to the caller, keyed by `job_id`:
 }
 ```
 
-`summary` is `null` until the check finishes; `matches[].pct` is `null` for
-duplicate images, which are a yes/no match rather than a share of the text.
+`status` is one of `processing`, `done`, `error` and `cancelled` — the last one
+means the check was stopped on request (see `POST /jobs/<id>/cancel`) and has no
+report and no summary. `summary` is `null` until the check finishes;
+`matches[].pct` is `null` for duplicate images, which are a yes/no match rather
+than a share of the text.
 
 `students[].no_text` is `true` when too little text could be extracted from the
 file to compare it with anything — a scan, or a PDF whose fonts carry no usable
@@ -187,6 +192,16 @@ Checks that ran before this feature existed have no `grade` or `flaws`.
 Poll one job. Same shape as a list entry. The record is read from the running
 check when there is one, otherwise from stored history — so a restart does not
 lose it. `404` when the id is unknown or malformed.
+
+### POST `/jobs/<job_id>/cancel`
+Stop a running check. The worker notices at its next progress step, deletes the
+uploaded files and settles on `status: "cancelled"`: no report is written and no
+fingerprints reach the base. A check that has already started writing its report
+finishes — that tail takes seconds. `409` when the check is no longer running.
+
+```json
+{ "ok": true }
+```
 
 ### GET `/jobs/<job_id>/report`
 The self-contained HTML report (`Content-Type: text/html`). `404` if missing.
@@ -264,9 +279,12 @@ while :; do
   st=$(curl -s -H "X-API-Key: $KEY" "$BASE/jobs/$job")
   echo "$st"
   echo "$st" | grep -q '"status": *"done"' && break
-  echo "$st" | grep -q '"status": *"error"' && break
+  echo "$st" | grep -qE '"status": *"(error|cancelled)"' && break
   sleep 2
 done
+
+# 2a. Or stop it early
+# curl -s -X POST -H "X-API-Key: $KEY" "$BASE/jobs/$job/cancel"
 
 # 3. Fetch outputs
 curl -s -H "X-API-Key: $KEY" "$BASE/jobs/$job/report" -o report.html

@@ -51,8 +51,8 @@ try:
 except Exception:
     WEASYPRINT_OK = False
 
-from checker import (accounts, branding, db, grading, job_store, sqlmigrate,
-                     summary as summary_mod)
+from checker import (accounts, branding, convert, db, grading, job_store,
+                     sqlmigrate, summary as summary_mod)
 from checker.extractor        import extract_report
 from checker.gost             import check_gost, GOST_CHECKS, ALL_CODES, FLAW_TEXT
 from checker.text_plagiarism  import check_text_plagiarism
@@ -94,7 +94,11 @@ REPORTS_DIR = Path(__file__).parent / 'reports'
 REPORTS_DIR.mkdir(exist_ok=True)
 
 JOB_ID_RE = re.compile(r'^[0-9a-f]{6,40}$')     # id проверки — только hex
-UPLOAD_EXTS = ('.pdf', '.zip')
+# Форматы работ. DOCX, ODT и DOC перед разбором приводятся к PDF, поэтому
+# дальше первого шага проверки разница между ними не доходит.
+DOC_EXTS = ('.pdf',) + convert.SOURCE_EXTS
+UPLOAD_EXTS = DOC_EXTS + ('.zip',)
+UPLOAD_EXTS_TEXT = 'PDF, DOCX, ODT, DOC и ZIP'
 
 
 def _mb_text(mb: int) -> str:
@@ -981,8 +985,9 @@ NAME_MAX_BYTES = 200
 def _fit_name(name: str, limit: int = NAME_MAX_BYTES) -> str:
     """Укоротить имя до limit байт, сохранив расширение.
 
-    Расширение обязано уцелеть: по нему отбираются PDF, и обрезанное «в лоб»
-    имя выпадало из проверки вместе с работой студента.
+    Расширение обязано уцелеть: по нему отбираются работы и по нему же решается,
+    нужна ли файлу конвертация. Обрезанное «в лоб» имя выпадало из проверки
+    вместе с работой студента.
     """
     if len(name.encode('utf-8')) <= limit:
         return name
@@ -1002,7 +1007,7 @@ def _safe_upload_name(raw: str):
     r"""Имя загружаемого файла, пригодное для записи на диск.
 
     Кириллицу оставляем — из имени файла берутся фамилия и группа. Убираем
-    путь, служебные символы и всё, что не PDF или ZIP.
+    путь, служебные символы и всё, что не работа и не архив.
 
     Обратный слэш режется наравне с прямым: на Linux это допустимый символ
     имени, и `a\..\..\x.pdf` проходило бы целиком — безвредно здесь, но на
@@ -1051,28 +1056,28 @@ def _zip_name(info: zipfile.ZipInfo) -> str:
         return info.filename
 
 
-def _pdf_entries(zf: zipfile.ZipFile) -> list:
-    """PDF-записи архива по его оглавлению, без распаковки."""
+def _doc_entries(zf: zipfile.ZipFile) -> list:
+    """Записи архива с работами по его оглавлению, без распаковки."""
     entries = []
     for info in zf.infolist():
         if info.is_dir():
             continue
         name = _safe_upload_name(_zip_name(info))
-        if name is None or not name.lower().endswith('.pdf'):
+        if name is None or not name.lower().endswith(DOC_EXTS):
             continue
         entries.append(info)
     return entries
 
 
-def _zip_pdf_count(archive: str) -> int:
-    """Сколько PDF в архиве. Читается только оглавление — ответ мгновенный,
-    поэтому «в архиве нет PDF» видно сразу, а не после долгой распаковки."""
+def _zip_doc_count(archive: str) -> int:
+    """Сколько работ в архиве. Читается только оглавление — ответ мгновенный,
+    поэтому «в архиве нет работ» видно сразу, а не после долгой распаковки."""
     with zipfile.ZipFile(archive, 'r') as zf:
-        return len(_pdf_entries(zf))
+        return len(_doc_entries(zf))
 
 
 def _extract_zip(archive: str, dest_dir: str, on_file=None) -> None:
-    """Распаковать только PDF и только внутрь папки задания.
+    """Распаковать только работы и только внутрь папки задания.
 
     Имена берём по последнему сегменту пути: архив с записью вида
     `../../etc/passwd` не должен ничего написать за пределами tmp_dir. Заодно
@@ -1085,7 +1090,7 @@ def _extract_zip(archive: str, dest_dir: str, on_file=None) -> None:
     total = 0
     written = 0
     with zipfile.ZipFile(archive, 'r') as zf:
-        planned = _pdf_entries(zf)
+        planned = _doc_entries(zf)
         for info in planned:
             total += info.file_size
             written += 1
@@ -1190,7 +1195,7 @@ def _launch(tmp_dir: str, threshold: float, owner, enabled_checks=None,
                 continue
             # Оглавление архива читается мгновенно: число работ известно сразу,
             # а сама распаковка — уже в потоке проверки.
-            expected += (_zip_pdf_count(str(item))
+            expected += (_zip_doc_count(str(item))
                          if item.name.lower().endswith('.zip') else 1)
     except zipfile.BadZipFile:
         shutil.rmtree(tmp_dir, ignore_errors=True)
@@ -1201,7 +1206,8 @@ def _launch(tmp_dir: str, threshold: float, owner, enabled_checks=None,
 
     if not expected:
         shutil.rmtree(tmp_dir, ignore_errors=True)
-        return None, 'PDF-файлы не найдены в загруженных данных', 400
+        return None, 'Работы не найдены в загруженных данных ' \
+                     '(принимаются PDF, DOCX, ODT, DOC)', 400
 
     with jobs_lock:
         jobs[job_id] = {
@@ -1428,7 +1434,7 @@ def upload_part():
 
     name = _safe_upload_name(request.form.get('name'))
     if name is None:
-        return jsonify({'error': 'Принимаются только PDF и ZIP'}), 400
+        return jsonify({'error': f'Принимаются {UPLOAD_EXTS_TEXT}'}), 400
     chunk = request.files.get('chunk')
     if chunk is None:
         return jsonify({'error': 'Кусок файла не передан'}), 400
@@ -1793,28 +1799,74 @@ def _beat(job_id: str, stop: threading.Event):
         _update(job_id, _force=True)
 
 
-def _collect_pdfs(job_id: str, tmp_dir: str) -> list:
-    """Распаковать принятые архивы и собрать список PDF.
+def _collect_docs(job_id: str, tmp_dir: str) -> tuple:
+    """Распаковать архивы, привести DOCX/ODT/DOC к PDF и собрать список работ.
+
+    Возвращает (пути к PDF, {путь: имя загруженного файла}, [(путь, причина)]).
+
+    Имена нужны отдельно: после конвертации работа лежит под своим именем с
+    расширением .pdf, а в отчёте и в ведомости должно стоять «Иванов.docx».
+    Третьим списком идут работы, которые прочитать не удалось, — они попадают
+    в отчёт карточкой с ошибкой и не пропадают из ведомости молча.
 
     Живёт в потоке проверки, а не в обработчике запроса: на архиве в сотни
-    работ распаковка занимает минуты, и всё это время браузер не получал бы
-    даже номера проверки.
+    работ распаковка и конвертация занимают минуты, и всё это время браузер не
+    получал бы даже номера проверки.
     """
     archives = sorted(Path(tmp_dir).glob('*.[zZ][iI][pP]'))
     for k, arc in enumerate(archives):
         _extract_zip(
             str(arc), tmp_dir,
             on_file=lambda done, total, k=k, name=arc.name: _tick(
-                job_id, 0, 4,
+                job_id, 0, 2,
                 round((k + done / max(total, 1)) * 100), len(archives) * 100,
                 f'Распаковка {name[:50]}: {done} из {total}…'),
         )
         arc.unlink(missing_ok=True)
 
-    pdf_paths = [str(p) for p in sorted(Path(tmp_dir).rglob('*.pdf'))]
-    pdf_paths += [str(p) for p in sorted(Path(tmp_dir).rglob('*.PDF'))]
-    seen: set = set()
-    return [p for p in pdf_paths if not (p in seen or seen.add(p))]
+    # Список составляется до конвертации: её результаты ложатся сюда же, и
+    # обход после неё вернул бы каждый переведённый документ вторым разом.
+    found = sorted((p for p in Path(tmp_dir).rglob('*')
+                    if p.is_file() and p.suffix.lower() in DOC_EXTS),
+                   key=lambda p: p.name.lower())
+    origins = {str(p): p.name for p in found}
+    ready   = [p for p in found if p.suffix.lower() == '.pdf']
+    sources = [p for p in found if p.suffix.lower() != '.pdf']
+    paths   = [str(p) for p in ready]
+
+    if not sources:
+        return paths, origins, []
+
+    if not convert.available():
+        # Одной строкой на всю партию: иначе о том, что конвертера нет,
+        # сообщала бы каждая работа по очереди.
+        _update(job_id, step=f'{convert.NO_CONVERTER}. '
+                             f'Не принято работ: {len(sources)}')
+        return paths, origins, [(str(p), convert.NO_CONVERTER) for p in sources]
+
+    failures = []
+    # Имя результата разводим заранее: «Иванов.docx» и «Иванов.pdf» из одной
+    # партии дали бы две работы с одинаковым именем, а по нему в отчёте
+    # строятся ссылки на карточки.
+    used = {p.stem for p in ready}
+    for i, src in enumerate(sources):
+        _tick(job_id, 2, 4, i, len(sources),
+              f'Конвертация {i+1} из {len(sources)}: {src.name[:60]}…')
+        stem, k = src.stem, 1
+        while stem in used:
+            k += 1
+            stem = f'{src.stem}_{k}'
+        used.add(stem)
+        try:
+            out = convert.to_pdf(str(src), tmp_dir, stem)
+        except convert.ConversionError as e:
+            failures.append((str(src), str(e)))
+            continue
+        origins[out] = src.name
+        paths.append(out)
+
+    paths.sort(key=lambda p: origins[p].lower())
+    return paths, origins, failures
 
 
 # Сбои, о которых стоит сказать по-человечески: преподаватель видит эту строку
@@ -1848,12 +1900,13 @@ def _process_job(job_id: str, tmp_dir: str, threshold: float,
     try:
         from checker.memory_store import load_store, to_virtual_report, add_report
 
-        # 0. Unpack what was uploaded.
-        pdf_paths = _collect_pdfs(job_id, tmp_dir)
-        n = len(pdf_paths)
+        # 0. Unpack what was uploaded and bring every format to PDF.
+        pdf_paths, origins, failures = _collect_docs(job_id, tmp_dir)
+        n = len(pdf_paths) + len(failures)
         if not n:
             _update(job_id, status='error', progress=0,
-                    step='Ошибка: PDF-файлы не найдены в загруженных данных')
+                    step='Ошибка: работы не найдены в загруженных данных '
+                         '(принимаются PDF, DOCX, ODT, DOC)')
             return
         _update(job_id, progress=4, total=n, step=f'К проверке принято работ: {n}')
 
@@ -1870,9 +1923,14 @@ def _process_job(job_id: str, tmp_dir: str, threshold: float,
         reports = []
         for i, path in enumerate(pdf_paths):
             _tick(job_id, 5, 44, i, n,
-                  f'Извлечение PDF {i+1} из {n}: {Path(path).name[:60]}…')
-            reports.append(extract_report(path))
+                  f'Извлечение {i+1} из {n}: {origins.get(path, "")[:60]}…')
+            reports.append(extract_report(path, origins.get(path, '')))
             _update(job_id, done_files=i + 1)
+        # Непрочитанные работы идут дальше наравне с прочитанными: карточка с
+        # ошибкой в отчёте нужна ровно затем, чтобы работа не исчезла из
+        # ведомости незаметно для преподавателя.
+        for path, reason in failures:
+            reports.append(extract_report(path, origins.get(path, ''), reason))
         _update(job_id, progress=44, step='Извлечение завершено', done_files=n)
 
         # 3. GOST
@@ -1950,12 +2008,14 @@ def _process_job(job_id: str, tmp_dir: str, threshold: float,
                 add_report(r, job_id, owner)
                 saved += 1
 
+        not_read = (f' Не удалось прочитать: {len(failures)}.' if failures else '')
         _update(job_id,
                 status='done',
                 progress=100,
                 summary=summary_mod.build(reports, historical, text_plag,
                                           img_plag, threshold, weights, scale),
-                step=f'Готово! Проверено {n} отчётов, сохранено в базу: {saved}.')
+                step=f'Готово! Проверено {n} отчётов, '
+                     f'сохранено в базу: {saved}.{not_read}')
 
     except JobCancelled:
         # Ни отчёта, ни отпечатков: последняя точка остановки стоит перед седьмым
@@ -1996,7 +2056,8 @@ def api_health():
 @api.route('/jobs', methods=['POST'])
 @api_auth_required
 def api_create_job():
-    """Start a check. Multipart form: files=<pdf|zip>… , threshold=0.0-1.0,
+    """Start a check. Multipart form: files=<pdf|docx|odt|doc|zip>… ,
+    threshold=0.0-1.0,
     gost=<comma-separated check codes> (optional; omit for all checks),
     use_memory=0|1 (optional; 0 skips comparison against the stored base),
     weights=<S1:100,F2:40> (optional; per-criterion weight for the recommended

@@ -80,7 +80,7 @@ Start a check. `multipart/form-data`:
 
 | Field | Type | Notes |
 |-------|------|-------|
-| `files` | file(s) | One or more `.pdf` files, or a `.zip` of PDFs. Repeat the field for several files. The request body must stay under 600 MB — split a larger batch into several checks. (The web interface has no such limit: it uploads in chunks, up to `AU_MAX_UPLOAD_MB`.) |
+| `files` | file(s) | One or more `.pdf`, `.docx`, `.odt` or `.doc` files, or a `.zip` of them. Repeat the field for several files. DOCX, ODT and DOC are converted to PDF on the server before checking, so the criteria apply to every format identically; a file that cannot be converted is reported as a card with an error and the rest of the batch is checked as usual. The request body must stay under 600 MB — split a larger batch into several checks. (The web interface has no such limit: it uploads in chunks, up to `AU_MAX_UPLOAD_MB`.) |
 | `threshold` | float | Text-similarity threshold, `0.0`-`1.0` (default `0.6`). Values outside the range are clamped to it; anything unparsable (`abc`, `NaN`, `inf`, empty) falls back to the default instead of failing the request. |
 | `gost` | string | Optional comma-separated GOST check codes to evaluate, e.g. `S1,S3,F7,F9`. Omit the field to run all 20 checks; an empty value runs none. Codes: `S1`-`S9` (structural elements), `F1`-`F11` (formatting). |
 | `use_memory` | string | Optional. `0`/`false` skips plagiarism comparison against the stored fingerprint base (only files within the batch are compared). New reports are still added to the base. Default `1`. |
@@ -101,7 +101,7 @@ Start a check. `multipart/form-data`:
 }
 ```
 
-`400` when no files are supplied or no PDF is found inside the upload.
+`400` when no files are supplied or no report is found inside the upload.
 
 ### GET `/jobs`
 List the jobs visible to the caller, keyed by `job_id`:

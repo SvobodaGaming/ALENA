@@ -1,4 +1,10 @@
-"""PDF content extraction: text, images, fonts, margins, student identity."""
+"""PDF content extraction: text, images, fonts, margins, student identity.
+
+Единственная точка разбора работы. DOCX, ODT и DOC доходят сюда уже
+приведёнными к PDF (`checker/convert.py`), поэтому формат исходника ни на один
+критерий не влияет — известно только его имя, и приходит оно параметром
+`filename`.
+"""
 import re
 import io
 from pathlib import Path
@@ -169,10 +175,23 @@ def _content_bounds(page):
             max(ln['bottom'] for ln in content))
 
 
-def extract_report(pdf_path: str) -> dict:
+def extract_report(pdf_path: str, filename: str = '', error: str = '') -> dict:
+    """Разобрать PDF и собрать по нему report — словарь, с которым дальше
+    работают все проверки.
+
+    filename — имя, под которым работу загрузил преподаватель. Для DOCX и ODT
+    оно отличается от имени файла на диске: разбирается результат конвертации,
+    а в отчёте и в ведомости должно стоять «Иванов.docx». Отсюда же берутся
+    ФИО и группа, поэтому имя исходника важно и после конвертации.
+
+    error — работу прочитать не удалось (не открылась, не конвертировалась).
+    Разбор пропускается, но карточка в отчёте остаётся: ФИО из имени файла
+    известно, и преподаватель видит, чья именно работа не прошла, вместо того
+    чтобы недосчитаться её в ведомости молча.
+    """
     result = {
         'path': pdf_path,
-        'filename': Path(pdf_path).name,
+        'filename': filename or Path(pdf_path).name,
         'pages_count': 0,
         'text_by_page': [],
         'full_text': '',
@@ -185,6 +204,11 @@ def extract_report(pdf_path: str) -> dict:
         'is_scanned': False,
         'error': None,
     }
+
+    if error:
+        result['error'] = error
+        result['student'] = _identify_student([], result['filename'])
+        return result
 
     try:
         with pdfplumber.open(pdf_path) as pdf:
@@ -275,7 +299,11 @@ def extract_report(pdf_path: str) -> dict:
                 }
 
     except Exception as e:
+        # ФИО определяем и по нечитаемой работе: в ведомости она стоит строкой
+        # «Иванов Иван — ошибка чтения», а не безымянным файлом.
         result['error'] = str(e)
+        result['student'] = _identify_student(result['text_by_page'],
+                                              result['filename'])
         return result
 
     # Extract images via PyMuPDF
@@ -308,7 +336,8 @@ def extract_report(pdf_path: str) -> dict:
     except Exception:
         pass
 
-    result['student'] = _identify_student(result['text_by_page'], pdf_path)
+    result['student'] = _identify_student(result['text_by_page'],
+                                          result['filename'])
     return result
 
 
@@ -409,7 +438,7 @@ def _looks_like_person(name: str, max_words: int = 3) -> bool:
     return full_words >= 1
 
 
-def _name_from_filename(pdf_path: str) -> str:
+def _name_from_filename(filename: str) -> str:
     """ФИО из имени файла — основной путь.
 
     Связка «_assignsubmission_» в собственных именах студенческих файлов не
@@ -417,7 +446,7 @@ def _name_from_filename(pdf_path: str) -> str:
     Четвёртое слово допускаем только здесь: «Абдуллаев Али Гасан оглы» из
     ведомости приходит целиком, а на титульном листе так не пишут.
     """
-    stem = Path(pdf_path).stem
+    stem = Path(filename).stem
     m = MOODLE_NAME_RE.match(stem)
     if m:
         cand = _titlecase(_clean_name(m.group(1)))
@@ -493,7 +522,7 @@ def _group_run(text: str) -> str:
     return ''
 
 
-def _identify_student(text_by_page: list, pdf_path: str) -> dict:
+def _identify_student(text_by_page: list, filename: str) -> dict:
     student = {'name': '', 'group': '',
                'work_title': '', 'year': '', 'org': ''}
     title_text = '\n'.join(text_by_page[:2]) if text_by_page else ''
@@ -512,7 +541,7 @@ def _identify_student(text_by_page: list, pdf_path: str) -> dict:
             break
 
     # ФИО: сначала имя файла, титульный лист — только если оттуда не вышло.
-    student['name'] = _name_from_filename(pdf_path) or _name_from_text(title_text)
+    student['name'] = _name_from_filename(filename) or _name_from_text(title_text)
 
     # Group
     for pat in [
@@ -532,7 +561,7 @@ def _identify_student(text_by_page: list, pdf_path: str) -> dict:
 
     # Fallback group from filename
     if not student['group']:
-        stem = Path(pdf_path).stem
+        stem = Path(filename).stem
         m = GROUP_SEP_RE.search(stem)
         student['group'] = (f'{m.group(1)}-{m.group(2)}-{m.group(3)}' if m
                             else _group_run(stem))

@@ -622,7 +622,7 @@
     /* Свой список выбранного, а не input.files: FileList доступен только для
        чтения, а файлы нужно проверять при добавлении, докладывать в несколько
        заходов и убирать по одному. Отправляется тоже он. */
-    const OK_NAME = /\.(pdf|zip)$/i;
+    const OK_NAME = /\.(pdf|docx|odt|doc|zip)$/i;
     let picked = [];
     let overLimit = false;
     let locked = false;
@@ -644,7 +644,7 @@
         else if (picked.some(p => same(p, f))) dup.push(f.name);
         else picked.push(f);
       }
-      if (wrong.length) toast(`Принимаются только PDF и ZIP. Не взято: ${listNames(wrong)}`);
+      if (wrong.length) toast(`Принимаются PDF, DOCX, ODT, DOC и ZIP. Не взято: ${listNames(wrong)}`);
       else if (empty.length) toast(`Пустой файл, брать нечего: ${listNames(empty)}`);
       else if (dup.length) toast(`Уже в списке: ${listNames(dup)}`);
       showFiles();

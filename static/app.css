@@ -292,6 +292,7 @@ input[type="range"] { width: 100%; accent-color: var(--brand); }
 .dropzone { position: relative; border: 1.5px dashed var(--line); border-radius: var(--r-lg); background: var(--raised); padding: 30px 20px; text-align: center; cursor: pointer; transition: border-color .15s, background .15s; }
 .dropzone:hover, .dropzone.over { border-color: var(--brand); background: var(--brand-soft); }
 .dropzone input[type="file"] { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
+.dropzone.off, .dropzone.off:hover { border-color: var(--line); background: var(--raised); opacity: .5; cursor: not-allowed; }
 .dz-title { font-weight: 650; font-size: 15px; }
 .dz-sub { font-size: 12.5px; color: var(--muted); margin-top: 3px; }
 
@@ -302,6 +303,17 @@ input[type="range"] { width: 100%; accent-color: var(--brand); }
 .stat-chip b { font-family: var(--mono); }
 /* Крестик «убрать файл» внутри плашки выбранного файла */
 .chip-x { border: 0; background: none; color: var(--muted); cursor: pointer; font-size: 15px; line-height: 1; padding: 0 0 0 7px; margin: 0 -2px 0 0; }
+.chip-x:disabled { opacity: .35; cursor: not-allowed; }
+
+/* Форма новой проверки на время самой проверки заперта. Поля выключены
+   атрибутом disabled, здесь — только видимая часть: подписи гаснут вместе с
+   полями, к которым относятся, и подсказка под кнопкой меняется на другую. */
+#upload-form.locked .crit, #upload-form.locked .field,
+#upload-form.locked .check, #upload-form.locked .eyebrow { opacity: .6; }
+#upload-form.locked .check { cursor: not-allowed; }
+.when-busy { display: none; }
+#upload-form.locked .when-idle { display: none; }
+#upload-form.locked .when-busy { display: inline; }
 .chip-x:hover { color: var(--crit); }
 .chip-x:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; border-radius: 3px; }
 

@@ -625,6 +625,7 @@
     const OK_NAME = /\.(pdf|zip)$/i;
     let picked = [];
     let overLimit = false;
+    let locked = false;
 
     const same = (a, b) => a.name === b.name && a.size === b.size
       && a.lastModified === b.lastModified;
@@ -635,6 +636,7 @@
     /* Формат проверяем до отправки: перетащить можно что угодно, а узнавать об
        отказе после получаса загрузки — обидно. */
     const addFiles = list => {
+      if (locked) return;
       const wrong = [], empty = [], dup = [];
       for (const f of list) {
         if (!OK_NAME.test(f.name)) wrong.push(f.name);
@@ -660,9 +662,10 @@
         (overLimit ? ` — больше допустимых ${limitMb} МБ, уберите лишние` : '') + '</p>';
 
       $$('#file-list [data-drop]').forEach(b => {
+        b.disabled = locked;
         b.onclick = () => { picked.splice(+b.dataset.drop, 1); showFiles(); };
       });
-      startBtn.disabled = !picked.length || overLimit;
+      startBtn.disabled = locked || !picked.length || overLimit;
     };
 
     input.addEventListener('change', () => {
@@ -672,7 +675,7 @@
       input.value = '';
     });
     ['dragenter', 'dragover'].forEach(ev =>
-      zone.addEventListener(ev, e => { e.preventDefault(); zone.classList.add('over'); }));
+      zone.addEventListener(ev, e => { e.preventDefault(); if (!locked) zone.classList.add('over'); }));
     ['dragleave', 'drop'].forEach(ev =>
       zone.addEventListener(ev, e => { e.preventDefault(); zone.classList.remove('over'); }));
     zone.addEventListener('drop', e => addFiles(e.dataTransfer.files));
@@ -699,6 +702,21 @@
       $$('.crit-list').forEach(l => l.classList.toggle('weighing', on));
       $('#weights-panel').hidden = !on;
       recalcWeights();
+    };
+
+    /* Пока партия загружается и проверяется, поля формы заперты: параметры уже
+       ушли на сервер вместе с файлами, и сдвинутый ползунок или снятая галочка
+       на идущую проверку не влияют — а выглядит так, будто влияют. Кнопку
+       «Прервать» и показ весов не трогаем: смотреть и останавливать можно. */
+    const LOCKABLE = '#file-input,#threshold,#use-memory,.gost-cb,.w-in,'
+      + '#grade-scale,#gost-all,#gost-none,#w-equal';
+
+    const setLocked = on => {
+      locked = on;
+      $$(LOCKABLE).forEach(el => { el.disabled = on; });
+      zone.classList.toggle('off', on);
+      uploadForm.classList.toggle('locked', on);
+      showFiles();          // крестики «убрать файл» и кнопка запуска — там же
     };
 
     /* Полоса идёт сквозная: первые UPLOAD_SHARE процентов — передача файлов на
@@ -844,10 +862,12 @@
       cancelBtn.hidden = false;
       openLink.hidden = false;
       reportLink.hidden = true;
+      setLocked(true);        // и при запуске отсюда, и при восстановлении
 
       const finish = j => {
         watched = null;
         if (redirect) { window.location.href = '/'; return; }
+        setLocked(false);
         cancelBtn.hidden = true;
         runTitle.textContent = j.status === 'done' ? 'Проверка завершена'
           : j.status === 'cancelled' ? 'Проверка прервана' : 'Проверка не выполнена';
@@ -864,7 +884,7 @@
         try { res = await fetch(`/status/${jobId}`); }
         catch (e) { setTimeout(poll, 2000); return; }
         // Проверку удалили из истории — показывать больше нечего.
-        if (res.status === 404) { watched = null; panel.hidden = true; return; }
+        if (res.status === 404) { watched = null; panel.hidden = true; setLocked(false); return; }
         if (!res.ok) { setTimeout(poll, 2000); return; }
         const j = await res.json();
         showRun(j);
@@ -934,7 +954,7 @@
       const scale = $('#grade-scale');
       if (scale) data.append('scale', scale.value);
 
-      startBtn.disabled = true;
+      setLocked(true);
       watched = null;
       aborting = false;
       panel.hidden = false;
@@ -949,7 +969,7 @@
         jobId = await sendFiles(files, data);
       } catch (err) {
         panel.hidden = true;
-        startBtn.disabled = false;
+        setLocked(false);
         toast(err.aborted ? 'Загрузка прервана' : err.message);
         return;
       }

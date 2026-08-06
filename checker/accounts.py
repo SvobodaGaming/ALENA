@@ -1,10 +1,11 @@
 """Accounts, permissions, login journal and system settings.
 
 Two roles:
-  admin   — sees every check and the whole fingerprint base, manages accounts
-            and system settings.
-  teacher — fully isolated: own checks, own fingerprint base. Plagiarism is
-            searched only inside that base.
+  admin   — sees every check and the whole fingerprint base, manages accounts,
+            teacher groups and system settings.
+  teacher — isolated by default: own checks, own fingerprint base. Plagiarism
+            is searched only inside that base; группа преподавателей
+            (checker/teams.py) расширяет её на коллег по группе.
 
 Backed by PostgreSQL when DATABASE_URL is set, otherwise by JSON files next to
 the fingerprint store (same fallback strategy as checker/memory_store.py).

@@ -3,9 +3,14 @@
 
 Flask web application for autonomous student report checking.
 
-Accounts come in two roles. A teacher is fully isolated: own checks, own
+Accounts come in two roles. A teacher is isolated by default: own checks, own
 fingerprint base, borrowing searched only inside that base. An administrator
 manages accounts and system settings and may be allowed to see everything.
+
+Групп преподавателей (checker/teams.py) раздвигает ровно одну эту стену: у
+участников группы база отпечатков общая, а проверки и история остаются
+личными. Отсюда две области видимости — `_scope()` для личного и
+`_base_scope()` для базы.
 
 Run locally:
     python app.py
@@ -52,7 +57,7 @@ except Exception:
     WEASYPRINT_OK = False
 
 from checker import (accounts, branding, convert, db, grading, job_store,
-                     sqlmigrate, summary as summary_mod)
+                     sqlmigrate, summary as summary_mod, teams)
 from checker.extractor        import extract_report
 from checker.gost             import check_gost, GOST_CHECKS, ALL_CODES, FLAW_TEXT
 from checker.text_plagiarism  import check_text_plagiarism
@@ -597,6 +602,16 @@ def _scope(user):
     return None if _sees_all(user) else user['login']
 
 
+def _base_scope(user):
+    """Owner filter for the fingerprint base — шире, чем `_scope`.
+
+    Проверки и отчёты остаются личными, а база отпечатков общая на группу:
+    ради этого группы и заводятся. Вне групп список равен `[login]`, то есть
+    ровно прежней личной базе.
+    """
+    return None if _sees_all(user) else teams.visible_owners(user['login'])
+
+
 def _may_touch(job: dict, user) -> bool:
     return _sees_all(user) or job.get('owner', '') == user['login']
 
@@ -672,12 +687,17 @@ def new_check():
 @login_required
 def base_page():
     from checker.memory_store import load_store, get_summary
-    entries = get_summary(load_store(_scope(g.user)))
+    entries = get_summary(load_store(_base_scope(g.user)))
     fio_by_login = {lg: u.get('fio', lg) for lg, u in accounts.load_users().items()}
     for e in entries:
         e['owner_fio'] = fio_by_login.get(e.get('owner', ''), e.get('owner', ''))
+    my_teams = teams.teams_of(g.user['login'])
     return render_template('reports_base.html', page='base', entries=entries,
-                           sees_all=_sees_all(g.user))
+                           sees_all=_sees_all(g.user),
+                           my_teams=my_teams,
+                           # Столбец с преподавателем нужен там, где записи
+                           # могут быть не только свои.
+                           show_owner=_sees_all(g.user) or bool(my_teams))
 
 
 @app.route('/base/export')
@@ -687,7 +707,7 @@ def base_export():
     full JSON dump that can be carried to another instance."""
     from checker.memory_store import load_store, get_summary
 
-    scope = _scope(g.user)
+    scope = _base_scope(g.user)
     store = load_store(scope)
     stamp = datetime.now().strftime('%d.%m.%Y')
 
@@ -695,7 +715,7 @@ def base_export():
         payload = json.dumps({
             'exported_at': datetime.now().strftime('%d.%m.%Y %H:%M'),
             'exported_by': g.user['login'],
-            'scope':       'all' if scope is None else scope,
+            'scope':       'all' if scope is None else ', '.join(scope),
             'count':       len(store),
             'entries':     store,
         }, ensure_ascii=False, indent=2)
@@ -878,7 +898,8 @@ def migration_import():
                           request.headers.get('User-Agent', ''),
                           'загрузка базы из SQL')
     flash('Дамп загружен. Учётных записей: {users}, проверок: {jobs}, '
-          'отпечатков: {fingerprints}, записей журнала: {login_events}.'
+          'отпечатков: {fingerprints}, записей журнала: {login_events}, '
+          'групп преподавателей: {teams}.'
           .format(**stats))
     if rows.get('skipped'):
         flash(f'Пропущено непонятных инструкций: {rows["skipped"]} — '
@@ -1361,7 +1382,7 @@ def _delete_job(job_id: str):
 
 def _memory_summary():
     from checker.memory_store import load_store, get_summary
-    return jsonify(get_summary(load_store(_scope(g.user))))
+    return jsonify(get_summary(load_store(_base_scope(g.user))))
 
 
 def _memory_delete(key: str):
@@ -1373,6 +1394,9 @@ def _memory_delete(key: str):
     entry = load_store().get(key)
     if entry is None:
         abort(404)
+    # Видеть чужую запись по общей базе группы можно, удалять — нет: коллега
+    # лишился бы отпечатка, по которому ищет заимствования, и не узнал бы об
+    # этом. Свою базу чистит каждый сам.
     if not _sees_all(g.user) and entry.get('owner', '') != g.user['login']:
         return _deny('Эта запись принадлежит другому преподавателю.')
     if not delete_entry(key):
@@ -1713,8 +1737,97 @@ def user_delete(login_name):
         flash('Нельзя удалить собственную учётную запись')
         return redirect(url_for('admin_users'))
     if accounts.delete_user(login_name):
+        # Из групп логин убираем сразу: иначе он остался бы в составе строкой
+        # без учётной записи, а заведённый позже тёзка с тем же логином молча
+        # получил бы доступ к общей базе группы.
+        teams.drop_member(login_name)
         flash('Учётная запись удалена. Её проверки и отпечатки сохранены.')
     return redirect(url_for('admin_users'))
+
+
+# ─────────────────────────  Teacher groups  ─────────────────────────
+
+def _team_members_form(form) -> list:
+    """Логины из формы состава — только существующие учётные записи.
+
+    Состав приходит галочками, а список для них строится из тех же учётных
+    записей, поэтому чужой логин здесь появиться может только подделкой формы.
+    Отсеиваем его тут, а не при чтении: несуществующий владелец в составе
+    ничего не откроет, но будет висеть в таблице необъяснимой строкой.
+    """
+    known = set(accounts.load_users())
+    return [lg for lg in form.getlist('members') if lg in known]
+
+
+@app.route('/admin/teams')
+@admin_required
+def admin_teams():
+    """Группы преподавателей: общая база отпечатков на несколько записей."""
+    users = sorted(accounts.load_users().values(),
+                   key=lambda u: (u['role'] != 'admin', u.get('fio', '')))
+    fio_by_login = {u['login']: u.get('fio', u['login']) for u in users}
+
+    from checker.memory_store import load_store
+    prints_by_owner = {}
+    for entry in load_store().values():
+        login = entry.get('owner', '')
+        prints_by_owner[login] = prints_by_owner.get(login, 0) + 1
+
+    rows = sorted(teams.load_teams().values(), key=lambda t: t.get('name', ''))
+    for team in rows:
+        members = team.get('members') or []
+        team['member_list'] = [
+            {'login': lg, 'fio': fio_by_login.get(lg, lg),
+             'prints': prints_by_owner.get(lg, 0)} for lg in members]
+        team['prints'] = sum(prints_by_owner.get(lg, 0) for lg in members)
+
+    return render_template('teams.html', page='teams', teams=rows, users=users,
+                           prints_by_owner=prints_by_owner)
+
+
+@app.route('/admin/teams/create', methods=['POST'])
+@admin_required
+def team_create():
+    name = request.form.get('name', '').strip()
+    if not name:
+        flash('Укажите название группы')
+    else:
+        team = teams.create_team(name, _team_members_form(request.form))
+        flash(f'Группа «{team["name"]}» создана. '
+              f'Участников: {len(team["members"])}.')
+    return redirect(url_for('admin_teams'))
+
+
+@app.route('/admin/teams/<team_id>/save', methods=['POST'])
+@admin_required
+def team_save(team_id):
+    team = teams.get_team(team_id)
+    if team is None:
+        abort(404)
+    name = request.form.get('name', '').strip()
+    if not name:
+        flash('Название группы не может быть пустым')
+        return redirect(url_for('admin_teams'))
+    team['name'] = name[:teams.NAME_MAX]
+    team['members'] = _team_members_form(request.form)
+    teams.save_team(team)
+    flash(f'Группа «{team["name"]}» сохранена. '
+          f'Участников: {len(team["members"])}.')
+    return redirect(url_for('admin_teams'))
+
+
+@app.route('/admin/teams/<team_id>/delete', methods=['POST'])
+@admin_required
+def team_delete(team_id):
+    team = teams.get_team(team_id)
+    if team is None:
+        abort(404)
+    teams.delete_team(team_id)
+    # Отпечатки принадлежат преподавателям, а не группе: роспуск группы просто
+    # возвращает каждому его личную базу.
+    flash(f'Группа «{team.get("name", "")}» распущена. '
+          f'Отпечатки участников остались у их владельцев.')
+    return redirect(url_for('admin_teams'))
 
 
 # ─────────────────────────  Processing  ─────────────────────────
@@ -1898,7 +2011,8 @@ def _process_job(job_id: str, tmp_dir: str, threshold: float,
     stop_beat = threading.Event()
     threading.Thread(target=_beat, args=(job_id, stop_beat), daemon=True).start()
     try:
-        from checker.memory_store import load_store, to_virtual_report, add_report
+        from checker.memory_store import (load_store, to_virtual_report,
+                                          add_report, student_id, NO_STUDENT)
 
         # 0. Unpack what was uploaded and bring every format to PDF.
         pdf_paths, origins, failures = _collect_docs(job_id, tmp_dir)
@@ -1910,9 +2024,10 @@ def _process_job(job_id: str, tmp_dir: str, threshold: float,
             return
         _update(job_id, progress=4, total=n, step=f'К проверке принято работ: {n}')
 
-        # 1. Load this teacher's slice of the base (they never see another's).
-        #    Loaded even with use_memory=False — step 7 appends to it.
-        store = load_store(owner)
+        # 1. Load the base visible to this teacher: their own entries plus
+        #    those of colleagues in their groups. Loaded even with
+        #    use_memory=False — step 8 appends to it.
+        store = load_store(teams.visible_owners(owner))
         if use_memory:
             _update(job_id, progress=5, step=f'База загружена: {len(store)} записей')
         else:
@@ -1942,15 +2057,17 @@ def _process_job(job_id: str, tmp_dir: str, threshold: float,
         # 4. Build historical list, excluding students present in this batch.
         #    Without this, a student's new report would match their own stored
         #    fingerprint from a previous session (false "self-plagiarism").
-        def _key_base(r: dict) -> str:
-            s = r.get('student', {})
-            return f"{owner}|{s.get('name', '').strip().lower()}|{s.get('group', '').strip().lower()}"
-
-        new_keys = {kb for r in reports if (kb := _key_base(r)) != f'{owner}||'}
+        #    Отбор идёт по «фио|группа», а не по ключу записи: в общей базе
+        #    группы преподавателей ту же работу мог сохранить коллега, под
+        #    своим владельцем, и по ключу она бы не отсеялась — пересдача у
+        #    другого преподавателя показывалась бы как стопроцентное
+        #    заимствование у самого себя.
+        new_students = {sid for r in reports
+                        if (sid := student_id(r.get('student', {}))) != NO_STUDENT}
         if use_memory:
             historical = [
                 to_virtual_report(k, v) for k, v in store.items()
-                if v.get('key_base', '') not in new_keys
+                if student_id(v.get('student', {})) not in new_students
             ]
             _update(job_id, step=f'Сравниваем с базой: {len(historical)} чужих отчётов')
         else:

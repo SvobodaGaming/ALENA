@@ -25,18 +25,27 @@ def _read_all() -> dict:
     return jsonstore.read_json(STORE_PATH, {})
 
 
+def _owners(owner):
+    """None → вся база; логин или список логинов → множество владельцев."""
+    if owner is None:
+        return None
+    return {owner} if isinstance(owner, str) else set(owner)
+
+
 def load_store(owner=None) -> dict:
     """Fingerprints visible to `owner`, or the whole base when owner is None.
 
-    Each teacher has an isolated base: their reports are compared only against
-    their own previous ones.
+    `owner` — логин или список логинов. Преподаватель вне групп видит только
+    себя; состоящий в группе видит ещё и коллег по ней, потому что база группы
+    общая (см. checker/teams.py).
     """
+    owners = _owners(owner)
     if db.DB_ENABLED:
-        return db.fp_load_all(owner)
+        return db.fp_load_all(None if owners is None else sorted(owners))
     store = _read_all()
-    if owner is None:
+    if owners is None:
         return store
-    return {k: v for k, v in store.items() if v.get('owner', '') == owner}
+    return {k: v for k, v in store.items() if v.get('owner', '') in owners}
 
 
 def save_store(store: dict) -> None:
@@ -106,13 +115,26 @@ def get_summary(store: dict) -> list:
     return result
 
 
+def student_id(student: dict) -> str:
+    """Личность студента без владельца: «фио|группа» в нижнем регистре.
+
+    По ней шаг 4 конвейера отсеивает из истории самого проверяемого студента.
+    Ключ записи для этого не годится: в общей базе группы преподавателей ту же
+    работу мог сохранить коллега, под своим владельцем и своим ключом, — и
+    студента обвинило бы в списывании у самого себя.
+    """
+    s = student or {}
+    return (f"{s.get('name', '').strip().lower()}"
+            f"|{s.get('group', '').strip().lower()}")
+
+
+NO_STUDENT = '|'      # student_id() у работы, где не распознаны ни ФИО, ни группа
+
+
 def _student_key(report: dict, owner: str = '') -> str:
     """Owner-scoped identity of a student's work. The owner prefix keeps two
     teachers' bases apart even when they have a namesake in the same group."""
-    s = report.get('student', {})
-    name  = s.get('name',  '').strip().lower()
-    group = s.get('group', '').strip().lower()
-    return f'{owner}|{name}|{group}'
+    return f'{owner}|{student_id(report.get("student", {}))}'
 
 
 def _make_thumb(pil_img) -> str:

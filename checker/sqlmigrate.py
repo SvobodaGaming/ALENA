@@ -16,9 +16,9 @@ import json
 import re
 from datetime import datetime
 
-from checker import accounts, db, job_store, memory_store
+from checker import accounts, db, job_store, memory_store, teams
 
-TABLES = ('users', 'jobs', 'fingerprints', 'login_events', 'settings')
+TABLES = ('users', 'jobs', 'fingerprints', 'login_events', 'settings', 'teams')
 
 _JOB_COLS = ('job_id', 'data')
 _FP_COLS = ('entry_key', 'key_base', 'version', 'filename', 'student',
@@ -61,6 +61,7 @@ def counts() -> dict:
         'jobs':         len(job_store.load_all()),
         'fingerprints': len(memory_store.load_store()),
         'login_events': len(accounts.recent_logins(LOG_LIMIT)),
+        'teams':        len(teams.load_teams()),
     }
 
 
@@ -71,6 +72,7 @@ def dump() -> str:
     prints = memory_store.load_store()
     events = accounts.recent_logins(LOG_LIMIT)
     conf   = accounts.get_settings()
+    groups = teams.load_teams()
 
     out = [
         '-- АЛЁНА — Автоматический Ловец Ёрничества, Небрежности и Аутентичности',
@@ -78,7 +80,8 @@ def dump() -> str:
         f'-- Сформирован: {datetime.now().strftime("%d.%m.%Y %H:%M")}',
         f'-- Источник: {"PostgreSQL" if db.DB_ENABLED else "JSON-файлы в папке memory/"}',
         f'-- Учётных записей: {len(users)}, проверок: {len(jobs)}, '
-        f'отпечатков: {len(prints)}, записей журнала: {len(events)}',
+        f'отпечатков: {len(prints)}, записей журнала: {len(events)}, '
+        f'групп преподавателей: {len(groups)}',
         '--',
         '-- Готовые HTML-отчёты (папка reports/) в дамп не входят — переносите её',
         '-- отдельно, иначе кнопка «Открыть отчёт» у старых проверок вернёт 404.',
@@ -92,10 +95,11 @@ def dump() -> str:
     out += [
         '',
         '-- Полная замена содержимого. Если дамп нужно дописать к уже имеющимся',
-        '-- данным, удалите эти пять строк.',
+        '-- данным, удалите эти шесть строк.',
         'DELETE FROM login_events;',
         'DELETE FROM jobs;',
         'DELETE FROM fingerprints;',
+        'DELETE FROM teams;',
         'DELETE FROM users;',
         'DELETE FROM settings;',
         '',
@@ -104,6 +108,11 @@ def dump() -> str:
     for user in users.values():
         out.append(_insert('users', db.USER_COLS,
                            [user.get(c) for c in db.USER_COLS]))
+
+    out += ['', f'-- Группы преподавателей ({len(groups)})']
+    for team in groups.values():
+        out.append(_insert('teams', db.TEAM_COLS,
+                           [team.get(c) for c in db.TEAM_COLS]))
 
     out += ['', f'-- История проверок ({len(jobs)})']
     for job_id, data in jobs.items():
@@ -284,6 +293,8 @@ def restore(rows: dict, replace: bool = False, keep_login: str = '') -> dict:
 
     if replace:
         memory_store.clear_store(None)
+        for team_id in list(teams.load_teams()):
+            teams.delete_team(team_id)
         for _ in job_store.clear(None):
             stats['cleared_jobs'] += 1
         # Журнал тоже: он не «дописывается» к дампу, а заменяется им — иначе
@@ -305,6 +316,19 @@ def restore(rows: dict, replace: bool = False, keep_login: str = '') -> dict:
         user['fail_count'] = int(user.get('fail_count') or 0)
         accounts.save_user(user)
         stats['users'] += 1
+
+    for rec in rows.get('teams', []):
+        team_id = rec.get('team_id')
+        if not team_id:
+            continue
+        members = rec.get('members')
+        teams.save_team({
+            'team_id':    team_id,
+            'name':       rec.get('name') or team_id,
+            'members':    members if isinstance(members, list) else [],
+            'created_at': rec.get('created_at') or '',
+        })
+        stats['teams'] += 1
 
     for rec in rows.get('jobs', []):
         job_id, data = rec.get('job_id'), rec.get('data')

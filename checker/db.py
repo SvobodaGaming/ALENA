@@ -82,6 +82,17 @@ SCHEMA = [
         value JSONB NOT NULL
     )
     """,
+    # Группы преподавателей: состав лежит в самой группе, а не в учётной
+    # записи, поэтому преподаватель состоит в скольких угодно группах и
+    # таблица users не меняется (см. checker/teams.py).
+    """
+    CREATE TABLE IF NOT EXISTS teams (
+        team_id    TEXT PRIMARY KEY,
+        name       TEXT NOT NULL,
+        members    JSONB NOT NULL DEFAULT '[]'::jsonb,
+        created_at TEXT
+    )
+    """,
 ]
 
 
@@ -108,16 +119,22 @@ def _conn():
 
 # Fingerprints
 
-def fp_load_all(owner=None) -> dict:
-    """All fingerprints, or only those belonging to `owner` when given."""
+def fp_load_all(owners=None) -> dict:
+    """All fingerprints, or only those belonging to the given owners.
+
+    `owners` — список логинов: у преподавателя в группе видимая база это его
+    собственные отпечатки плюс отпечатки коллег по группам, а не один владелец.
+    """
     store = {}
     sql = ("SELECT entry_key, key_base, version, filename, student, "
            "normalized_text, image_data, pages_count, job_id, added_at, owner "
            "FROM fingerprints")
-    params = ()
-    if owner is not None:
-        sql += " WHERE owner = %s"
-        params = (owner,)
+    params: tuple = ()
+    if owners is not None:
+        if not owners:
+            return store
+        sql += " WHERE owner = ANY(%s)"
+        params = (list(owners),)
     with _conn() as conn, conn.cursor() as cur:
         cur.execute(sql, params)
         for (entry_key, key_base, version, filename, student, normalized_text,
@@ -316,6 +333,43 @@ def users_save(user: dict) -> None:
 def users_delete(login: str) -> bool:
     with _conn() as conn, conn.cursor() as cur:
         cur.execute("DELETE FROM users WHERE login = %s", (login,))
+        return cur.rowcount > 0
+
+
+TEAM_COLS = ('team_id', 'name', 'members', 'created_at')
+
+
+def teams_load_all() -> dict:
+    out = {}
+    with _conn() as conn, conn.cursor() as cur:
+        cur.execute(f"SELECT {', '.join(TEAM_COLS)} FROM teams")
+        for row in cur.fetchall():
+            rec = dict(zip(TEAM_COLS, row))
+            rec['members'] = rec['members'] or []
+            out[rec['team_id']] = rec
+    return out
+
+
+def teams_save(team: dict) -> None:
+    from psycopg.types.json import Json
+    with _conn() as conn, conn.cursor() as cur:
+        cur.execute(
+            """
+            INSERT INTO teams (team_id, name, members, created_at)
+            VALUES (%s, %s, %s, %s)
+            ON CONFLICT (team_id) DO UPDATE SET
+              name       = EXCLUDED.name,
+              members    = EXCLUDED.members,
+              created_at = EXCLUDED.created_at
+            """,
+            (team.get('team_id'), team.get('name', ''),
+             Json(team.get('members') or []), team.get('created_at', '')),
+        )
+
+
+def teams_delete(team_id: str) -> bool:
+    with _conn() as conn, conn.cursor() as cur:
+        cur.execute("DELETE FROM teams WHERE team_id = %s", (team_id,))
         return cur.rowcount > 0
 
 

@@ -42,8 +42,12 @@ data is scoped to it:
 
 | Role | Sees |
 |------|------|
-| `teacher` | Only own checks and own fingerprint base. Borrowing is searched inside that base only. |
+| `teacher` | Only own checks. Fingerprint base: own entries, plus those of colleagues in the same teacher group. Borrowing is searched inside that base only. |
 | `admin` | Everything, when the account keeps the `see_all` permission. |
+
+Teacher groups (managed by an admin in the web UI, `/admin/teams`) widen the
+fingerprint base only — never the job history. An account in no group behaves
+exactly as before: its base is its own.
 
 Reading or deleting another teacher's check answers `403`:
 
@@ -220,7 +224,8 @@ Stored student fingerprints are kept — remove them via `DELETE /memory/<key>`.
 ```
 
 ### DELETE `/jobs`
-Delete the caller's jobs, their report files, and the caller's fingerprint base.
+Delete the caller's jobs, their report files, and the caller's own fingerprint
+base. Colleagues' entries visible through a teacher group are **not** touched.
 An account with `see_all` wipes everyone's.
 
 ```json
@@ -229,7 +234,8 @@ An account with `see_all` wipes everyone's.
 
 ### GET `/memory`
 List stored student fingerprints (no text or hashes, just metadata). A teacher
-sees only their own base:
+sees their own base plus the bases of colleagues in the same teacher group;
+check the `owner` field to tell them apart:
 
 ```json
 [
@@ -254,6 +260,9 @@ teachers' bases apart when they have a namesake in the same group.
 Delete one fingerprint entry. Requires the `manage_base` permission. The `key`
 is the value from `GET /memory` and must be URL-encoded (it contains `|` and
 spaces). `403` for another teacher's entry, `404` if the key does not exist.
+
+Being in the same group grants no delete rights: a colleague's entry is visible
+in `GET /memory` but `DELETE` on it still answers `403`.
 
 ```
 DELETE /api/v1/memory/sokolova%7C%D0%B8%D0%B2%D0%B0%D0%BD%D0%BE%D0%B2%20%D0%B8%D0%B2%D0%B0%D0%BD%7C%D0%BF%D1%80-21-1%7Cv1

@@ -179,7 +179,7 @@ python check_reports.py ./архив.zip
 
 ### Роли и права
 
-Преподаватель полностью изолирован: свои проверки, своя база отпечатков,
+По умолчанию преподаватель изолирован: свои проверки, своя база отпечатков,
 заимствования ищутся только внутри неё. Ключи отпечатков включают владельца,
 поэтому два преподавателя с однофамильцами-студентами не пересекаются.
 
@@ -195,6 +195,25 @@ python check_reports.py ./архив.zip
 
 Снятие `run_checks` останавливает новые проверки, но не прячет собственную
 историю учётной записи.
+
+### Группы преподавателей
+
+Кафедра ведёт один курс вдвоём, и работа, сданная одному преподавателю, для
+второго невидима. Раздел **Группы преподавателей** (только у администратора,
+`/admin/teams`) объединяет базы отпечатков нескольких учётных записей:
+участники ищут заимствования по работам друг друга.
+
+Объединяется **только база**. Проверки, отчёты и история остаются личными —
+группа их не открывает. Чужой отпечаток участник видит в разделе «База», но
+удалить не может: он нужен коллеге для его собственных проверок.
+
+Преподаватель может состоять в нескольких группах — тогда его база это
+объединение всех. Роспуск группы ничего не удаляет: отпечатки принадлежат
+своим владельцам, и база просто снова становится личной.
+
+Тот же студент, сдавший работу другому преподавателю группы, за плагиат не
+считается: в истории он отсеивается по ФИО и группе, а не по владельцу
+записи, — иначе пересдача выглядела бы как стопроцентное списывание у себя.
 
 ---
 
@@ -517,9 +536,9 @@ in the UI under **Администрирование → Настройки** (A
 
 ### Roles and permissions
 
-A teacher is fully isolated: own checks, own fingerprint base, borrowing searched
-only inside that base. Fingerprint keys are owner-scoped, so two teachers with
-namesake students never collide.
+By default a teacher is isolated: own checks, own fingerprint base, borrowing
+searched only inside that base. Fingerprint keys are owner-scoped, so two
+teachers with namesake students never collide.
 
 Permissions are read **per account**, not per role:
 
@@ -533,6 +552,25 @@ Permissions are read **per account**, not per role:
 
 Revoking `run_checks` stops new checks; it does not hide the account's own
 history.
+
+### Teacher groups
+
+Two teachers running one course cannot see each other's submissions: the
+fingerprint base is per account. **Группы преподавателей** (admin only,
+`/admin/teams`) merges the base across several accounts — members search
+borrowing across each other's stored works.
+
+Only the base is shared. Checks, reports and history stay personal. A member
+sees a colleague's entry on the «База» page but cannot delete it — the colleague
+needs it for their own checks.
+
+A teacher may belong to several groups; the base is then the union of all of
+them. Disbanding a group deletes nothing: fingerprints belong to their owners
+and the base simply becomes personal again.
+
+A student who resubmits to another teacher in the group is not accused of
+plagiarism: the batch's own students are excluded from the historical list by
+name and student group rather than by record owner.
 
 ---
 

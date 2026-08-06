@@ -1,0 +1,141 @@
+{% extends "layout.html" %}
+{% block title %}Группы преподавателей{% endblock %}
+{% block heading %}Группы преподавателей{% endblock %}
+{% block subheading %}Общая база отпечатков на несколько учётных записей{% endblock %}
+
+{% block content %}
+<div class="note">
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 7.6v.1"/></svg>
+  <span>
+    Участники группы ищут заимствования по <b>объединённой базе отпечатков</b>:
+    работа, сданная одному преподавателю, находится и у другого.
+    Проверки, отчёты и история остаются личными — их группа не открывает.
+    Удалить чужой отпечаток нельзя даже внутри группы: свою базу чистит каждый сам.
+    Преподаватель может состоять в нескольких группах — тогда его база это объединение всех.
+  </span>
+</div>
+
+<div class="section">
+  <div class="section-head">
+    <h2>Группы</h2>
+    <span class="spacer"></span>
+    <button class="btn primary sm" type="button" id="add-team-btn">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+      Создать группу
+    </button>
+  </div>
+
+  <div class="tbl-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Название</th><th>Участники</th>
+          <th class="num">Отпечатков</th><th>Создана</th><th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for t in teams %}
+        <tr>
+          <td>{{ t.name }}</td>
+          <td>
+            {% if t.member_list %}
+            {% for m in t.member_list %}<span class="chip">{{ m.fio }}</span>{% endfor %}
+            {% else %}
+            <span class="sub">Никого — база не объединяется</span>
+            {% endif %}
+          </td>
+          <td class="num">{{ t.prints }}</td>
+          <td class="mono sub">{{ t.created_at or '—' }}</td>
+          <td class="act">
+            <button class="btn sm" type="button" data-toggle="team-{{ t.team_id }}">Изменить</button>
+            <form method="post" action="{{ url_for('team_delete', team_id=t.team_id) }}"
+                  style="display:inline;"
+                  data-confirm="Распустить группу?"
+                  data-confirm-sub="База снова станет личной у каждого участника. Отпечатки остаются у их владельцев, ничего не удаляется."
+                  data-confirm-ok="Распустить" data-confirm-danger="yes">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+              <button class="btn sm danger" type="submit">Распустить</button>
+            </form>
+          </td>
+        </tr>
+
+        <tr hidden id="team-{{ t.team_id }}">
+          <td colspan="5" style="background:var(--raised);">
+            <form method="post" action="{{ url_for('team_save', team_id=t.team_id) }}" class="stack" style="padding:6px 0 12px;">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+              <div class="field">
+                <label for="name-{{ t.team_id }}">Название</label>
+                <input type="text" id="name-{{ t.team_id }}" name="name" value="{{ t.name }}" required>
+              </div>
+              <div>
+                <div class="eyebrow" style="margin-bottom:6px;">Кто входит в группу</div>
+                {% for u in users %}
+                <label class="check">
+                  <input type="checkbox" name="members" value="{{ u.login }}"
+                         {% if u.login in t.members %}checked{% endif %}>
+                  <span>{{ u.fio }}
+                    <span class="sub mono">{{ u.login }}</span>
+                    <span class="sub">· отпечатков: {{ prints_by_owner.get(u.login, 0) }}</span>
+                  </span>
+                </label>
+                {% endfor %}
+              </div>
+              <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                <button class="btn primary sm" type="submit">Сохранить</button>
+                <button class="btn sm" type="button" data-toggle="team-{{ t.team_id }}">Свернуть</button>
+              </div>
+            </form>
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="5" class="empty">Групп пока нет. Без группы база отпечатков у каждого преподавателя своя.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<div class="section" id="add-team" hidden style="margin-top:12px;">
+  <div class="section-head"><h2>Новая группа</h2></div>
+  <div class="section-body">
+    <form method="post" action="{{ url_for('team_create') }}" class="stack">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <div class="field">
+        <label for="n-team">Название</label>
+        <input type="text" id="n-team" name="name" placeholder="Кафедра информатики" required>
+        <span class="hint">Видно только администратору — назовите так, как вам удобно их различать.</span>
+      </div>
+      <div>
+        <div class="eyebrow" style="margin-bottom:6px;">Кто входит в группу</div>
+        {% for u in users %}
+        <label class="check">
+          <input type="checkbox" name="members" value="{{ u.login }}">
+          <span>{{ u.fio }}
+            <span class="sub mono">{{ u.login }}</span>
+            <span class="sub">· отпечатков: {{ prints_by_owner.get(u.login, 0) }}</span>
+          </span>
+        </label>
+        {% endfor %}
+      </div>
+      <div style="display:flex;gap:8px;">
+        <button class="btn primary" type="submit">Создать</button>
+        <button class="btn" type="button" data-toggle="add-team">Отмена</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script>
+  document.querySelectorAll('[data-toggle]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const el = document.getElementById(btn.dataset.toggle);
+      if (el) el.hidden = !el.hidden;
+    });
+  });
+  document.getElementById('add-team-btn').addEventListener('click', () => {
+    const el = document.getElementById('add-team');
+    el.hidden = !el.hidden;
+    if (!el.hidden) el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  });
+</script>
+{% endblock %}

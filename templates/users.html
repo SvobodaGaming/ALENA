@@ -47,7 +47,7 @@
             <span class="chip warn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M12 3.5L1.8 20.5h20.4z"/><path d="M12 10v4.4M12 17.6v.1"/></svg>Ждёт смены пароля</span>
             {% endif %}
           </td>
-          <td class="mono sub">{{ u.last_login or '—' }}</td>
+          <td class="mono sub">{{ u.last_login or '–' }}</td>
           <td class="num">{{ u.checks_count }}</td>
           <td class="act">
             <button class="btn sm" type="button" data-toggle="perms-{{ u.login }}">Права и пароль</button>
@@ -117,7 +117,7 @@
                 <input type="checkbox" name="must_change"
                        {% if force_change %}checked disabled{% endif %}>
                 <span>Попросить сменить пароль при первом входе{% if force_change %}
-                  — включено политикой паролей{% endif %}</span>
+                  – включено политикой паролей{% endif %}</span>
               </label>
               <div><button class="btn sm" type="submit">Задать пароль</button></div>
             </form>
@@ -188,7 +188,7 @@
         <input type="checkbox" name="must_change"
                {% if force_change %}checked disabled{% endif %}>
         <span>Попросить сменить пароль при первом входе{% if force_change %}
-          — включено политикой паролей{% endif %}</span>
+          – включено политикой паролей{% endif %}</span>
       </label>
       <p class="hint" style="margin:0;">Пароль задаёте вы и передаёте преподавателю лично.
         Система его не показывает и не хранит в открытом виде.</p>

@@ -2,7 +2,7 @@
 
 Выгрузка идёт через общий слой хранения, поэтому одинаково работает на
 PostgreSQL и на JSON-файлах: дамп с локальной машины разворачивается на сервере
-с Postgres и наоборот. Файл — обычный SQL, его же можно скормить psql.
+с Postgres и наоборот. Файл – обычный SQL, его же можно скормить psql.
 
 Загрузка присланный SQL **не выполняет**. Файл разбирается собственным
 разборщиком, который понимает ровно тот диалект, что пишет dump(): комментарии,
@@ -55,7 +55,7 @@ def _insert(table: str, columns: tuple, values: list) -> str:
 
 
 def counts() -> dict:
-    """Сколько чего лежит в хранилище — для страницы миграции."""
+    """Сколько чего лежит в хранилище – для страницы миграции."""
     return {
         'users':        len(accounts.load_users()),
         'jobs':         len(job_store.load_all()),
@@ -75,7 +75,7 @@ def dump() -> str:
     groups = teams.load_teams()
 
     out = [
-        '-- АЛЁНА — Автоматический Ловец Ёрничества, Небрежности и Аутентичности',
+        '-- АЛЁНА – Автоматический Ловец Ёрничества, Небрежности и Аутентичности',
         '-- Дамп базы данных. #au_team',
         f'-- Сформирован: {datetime.now().strftime("%d.%m.%Y %H:%M")}',
         f'-- Источник: {"PostgreSQL" if db.DB_ENABLED else "JSON-файлы в папке memory/"}',
@@ -83,7 +83,7 @@ def dump() -> str:
         f'отпечатков: {len(prints)}, записей журнала: {len(events)}, '
         f'групп преподавателей: {len(groups)}',
         '--',
-        '-- Готовые HTML-отчёты (папка reports/) в дамп не входят — переносите её',
+        '-- Готовые HTML-отчёты (папка reports/) в дамп не входят – переносите её',
         '-- отдельно, иначе кнопка «Открыть отчёт» у старых проверок вернёт 404.',
         '',
         'BEGIN;',
@@ -124,7 +124,7 @@ def dump() -> str:
         out.append(_insert('fingerprints', _FP_COLS, values))
 
     out += ['', f'-- Журнал входов ({len(events)})']
-    for event in reversed(events):        # в БД — от старых к новым
+    for event in reversed(events):        # в БД – от старых к новым
         out.append(_insert('login_events', _EVENT_COLS,
                            [event.get(c) for c in _EVENT_COLS]))
 
@@ -188,7 +188,7 @@ def _statements(text: str):
 
 
 def _split_values(raw: str) -> list:
-    """Значения одного VALUES(...) — запятые внутри строк и скобок не считаются."""
+    """Значения одного VALUES(...) – запятые внутри строк и скобок не считаются."""
     parts, buf, depth, in_str = [], [], 0, False
     i = 0
     while i < len(raw):
@@ -251,7 +251,7 @@ def _value(token: str):
 
 def parse(text: str) -> dict:
     """Строки из дампа по таблицам. Всё, что не INSERT в известную таблицу,
-    молча пропускается — схема и DELETE нас не интересуют."""
+    молча пропускается – схема и DELETE нас не интересуют."""
     rows = {name: [] for name in TABLES}
     skipped = 0
     for stmt in _statements(text):
@@ -282,7 +282,7 @@ def parse(text: str) -> dict:
 def restore(rows: dict, replace: bool = False, keep_login: str = '') -> dict:
     """Записать разобранный дамп в текущее хранилище.
 
-    replace — предварительно очистить проверки, отпечатки и журнал входов и
+    replace – предварительно очистить проверки, отпечатки и журнал входов и
     удалить учётные записи, которых в дампе нет. Учётная запись `keep_login`
     (тот, кто грузит файл) не удаляется никогда, иначе восстановление отрезало
     бы админа от системы, если дамп снят с другого сервера.
@@ -297,7 +297,7 @@ def restore(rows: dict, replace: bool = False, keep_login: str = '') -> dict:
             teams.delete_team(team_id)
         for _ in job_store.clear(None):
             stats['cleared_jobs'] += 1
-        # Журнал тоже: он не «дописывается» к дампу, а заменяется им — иначе
+        # Журнал тоже: он не «дописывается» к дампу, а заменяется им – иначе
         # каждое восстановление удваивало записи. Тот же смысл несёт строка
         # DELETE FROM login_events в самом дампе, когда его скармливают psql.
         accounts.clear_events()

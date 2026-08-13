@@ -9,9 +9,9 @@
   <span>
     Участники группы ищут заимствования по <b>объединённой базе отпечатков</b>:
     работа, сданная одному преподавателю, находится и у другого.
-    Проверки, отчёты и история остаются личными — их группа не открывает.
+    Проверки, отчёты и история остаются личными – их группа не открывает.
     Удалить чужой отпечаток нельзя даже внутри группы: свою базу чистит каждый сам.
-    Преподаватель может состоять в нескольких группах — тогда его база это объединение всех.
+    Преподаватель может состоять в нескольких группах – тогда его база это объединение всех.
   </span>
 </div>
 
@@ -41,11 +41,11 @@
             {% if t.member_list %}
             {% for m in t.member_list %}<span class="chip">{{ m.fio }}</span>{% endfor %}
             {% else %}
-            <span class="sub">Никого — база не объединяется</span>
+            <span class="sub">Никого – база не объединяется</span>
             {% endif %}
           </td>
           <td class="num">{{ t.prints }}</td>
-          <td class="mono sub">{{ t.created_at or '—' }}</td>
+          <td class="mono sub">{{ t.created_at or '–' }}</td>
           <td class="act">
             <button class="btn sm" type="button" data-toggle="team-{{ t.team_id }}">Изменить</button>
             <form method="post" action="{{ url_for('team_delete', team_id=t.team_id) }}"
@@ -103,7 +103,7 @@
       <div class="field">
         <label for="n-team">Название</label>
         <input type="text" id="n-team" name="name" placeholder="Кафедра информатики" required>
-        <span class="hint">Видно только администратору — назовите так, как вам удобно их различать.</span>
+        <span class="hint">Видно только администратору – назовите так, как вам удобно их различать.</span>
       </div>
       <div>
         <div class="eyebrow" style="margin-bottom:6px;">Кто входит в группу</div>

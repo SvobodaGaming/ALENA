@@ -8,12 +8,12 @@
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 7.6v.1"/></svg>
   <span>
     {% if sees_all %}
-    <b>Режим администратора.</b> Показаны отпечатки всех преподавателей — {{ entries | length }} записей.
+    <b>Режим администратора.</b> Показаны отпечатки всех преподавателей – {{ entries | length }} записей.
     Преподаватель видит только свои и общие по своим группам.
     {% elif my_teams %}
     <b>Это общая база вашей группы</b>{% if my_teams | length > 1 %} (их несколько){% endif %}:
     {% for t in my_teams %}<b>{{ t.name }}</b>{% if not loop.last %}, {% endif %}{% endfor %}.
-    Поиск заимствований идёт по работам всех участников — {{ entries | length }} записей.
+    Поиск заимствований идёт по работам всех участников – {{ entries | length }} записей.
     Удалять можно только свои: чужой отпечаток нужен коллеге для его проверок.
     {% else %}
     <b>Это ваша база.</b> Работы других преподавателей сюда не попадают, и ваши работы не видны им.
@@ -29,7 +29,7 @@
     <a class="btn sm" href="{{ url_for('base_export', format='csv') }}"
        title="Список работ таблицей для Excel">Выгрузить CSV</a>
     <a class="btn sm" href="{{ url_for('base_export', format='json') }}"
-       title="Полная копия базы с отпечатками — для переноса на другой сервер">JSON</a>
+       title="Полная копия базы с отпечатками – для переноса на другой сервер">JSON</a>
     <div class="search" style="max-width:260px;">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
       <input type="text" id="base-search" placeholder="ФИО или группа" aria-label="Поиск по базе">
@@ -50,10 +50,10 @@
         {% for e in entries %}
         <tr data-hay="{{ ((e.student.name or '') ~ ' ' ~ (e.student.group or '')) | lower }}">
           <td>{{ e.student.name or 'Имя не распознано' }}</td>
-          <td class="mono">{{ e.student.group or '—' }}</td>
+          <td class="mono">{{ e.student.group or '–' }}</td>
           <td class="sub">{{ e.filename }}</td>
           {% if show_owner %}
-          <td class="sub">{% if e.owner == user.login %}Вы{% else %}{{ e.owner_fio or '—' }}{% endif %}</td>
+          <td class="sub">{% if e.owner == user.login %}Вы{% else %}{{ e.owner_fio or '–' }}{% endif %}</td>
           {% endif %}
           <td class="num">v{{ e.version }}</td>
           <td class="num">{{ e.pages_count }}</td>
@@ -70,7 +70,7 @@
               Удалить
             </button>
             {% else %}
-            <span class="sub">—</span>
+            <span class="sub">–</span>
             {% endif %}
           </td>
           {% endif %}

@@ -140,9 +140,9 @@ def _render_matrix(new_reports: list, historical_relevant: list,
                 cells.append('<td class="mc cell-self" style="color:#c2d2c6;">·</td>')
             elif p1 in no_text or p2 in no_text:
                 # Пара не сравнивалась: из одной из работ текст не извлёкся.
-                # Ноль здесь означал бы «проверено, чисто» — это неправда.
+                # Ноль здесь означал бы «проверено, чисто» – это неправда.
                 cells.append('<td class="mc" style="background:#eef2f7;'
-                             'color:#245a9c;" title="текст не извлечён">—</td>')
+                             'color:#245a9c;" title="текст не извлечён">–</td>')
             else:
                 sim = matrix.get(p1, {}).get(p2, 0.0)
                 pct = int(sim * 100)
@@ -170,7 +170,7 @@ def _render_matrix(new_reports: list, historical_relevant: list,
         hist_note = (
             '<span style="display:inline-block;width:14px;height:14px;'
             'background:#fbf0d8;border:1px solid #e3c169;border-radius:2px;vertical-align:middle;"></span>'
-            ' Строки/столбцы на жёлтом — отчёты из базы предыдущих сессий &nbsp;'
+            ' Строки/столбцы на жёлтом – отчёты из базы предыдущих сессий &nbsp;'
         )
 
     return f'''{dims}
@@ -181,16 +181,16 @@ def _render_matrix(new_reports: list, historical_relevant: list,
 </table>
 </div>
 <p style="font-size:0.78rem;color:#8ba394;margin-top:8px;">
-  <span style="display:inline-block;width:14px;height:14px;background:#eab3ae;border-radius:2px;vertical-align:middle;"></span> ≥{threshold_pct}% — заимствование &nbsp;
-  <span style="display:inline-block;width:14px;height:14px;background:#f0dba6;border-radius:2px;vertical-align:middle;"></span> {int(threshold_pct*0.55)}–{threshold_pct}% — близко &nbsp;
-  {'<span style="display:inline-block;width:14px;height:14px;background:#eef2f7;border:1px solid #c3d2e6;border-radius:2px;vertical-align:middle;"></span> «—» — текст не извлечён, сравнение невозможно &nbsp;' if no_text else ''}
+  <span style="display:inline-block;width:14px;height:14px;background:#eab3ae;border-radius:2px;vertical-align:middle;"></span> ≥{threshold_pct}% – заимствование &nbsp;
+  <span style="display:inline-block;width:14px;height:14px;background:#f0dba6;border-radius:2px;vertical-align:middle;"></span> {int(threshold_pct*0.55)}–{threshold_pct}% – близко &nbsp;
+  {'<span style="display:inline-block;width:14px;height:14px;background:#eef2f7;border:1px solid #c3d2e6;border-radius:2px;vertical-align:middle;"></span> «–» – текст не извлечён, сравнение невозможно &nbsp;' if no_text else ''}
   {hist_note}
 </p>'''
 
 
 # Сколько пар изображений показывать. Превью каждой картинки лежит в HTML
 # целиком, поэтому пара весит десяток килобайт. Курс из полусотни работ с
-# одинаковыми скриншотами даёт десятки тысяч пар — полный список раздувает
+# одинаковыми скриншотами даёт десятки тысяч пар – полный список раздувает
 # отчёт до гигабайтов: сервер не собирает его, а браузер не открывает. Пары
 # посчитаны все, выводятся самые близкие.
 SUMMARY_PAIRS = 200      # в общем разделе «Дублирование изображений»
@@ -207,7 +207,7 @@ def _pairs_note(shown: int, total: int, where: str) -> str:
 
 
 def _by_importance(pairs: list) -> list:
-    """Сначала совпадения, потом «похожий интерфейс»; внутри — от близких к
+    """Сначала совпадения, потом «похожий интерфейс»; внутри – от близких к
     далёким (список приходит отсортированным по расстоянию)."""
     return ([p for p in pairs if not p.get('ui_review')]
             + [p for p in pairs if p.get('ui_review')])
@@ -259,14 +259,14 @@ def _render_image_summary(image_plagiarism: dict, report_by_path: dict) -> str:
         n2_html = _name_with_badge(r2, n2)
 
         if p.get('ui_review'):
-            match_badge = '<span style="background:#dfe9f5;color:#245a9c;padding:2px 8px;border-radius:4px;font-size:0.76rem;font-weight:600;">похожий интерфейс — проверьте вручную</span>'
+            match_badge = '<span style="background:#dfe9f5;color:#245a9c;padding:2px 8px;border-radius:4px;font-size:0.76rem;font-weight:600;">похожий интерфейс – проверьте вручную</span>'
         elif p.get('is_crop'):
             match_badge = '<span style="background:#fbf0d8;color:#8a5200;padding:2px 8px;border-radius:4px;font-size:0.76rem;font-weight:600;">обрезанная копия</span>'
         else:
             match_badge = '<span style="background:#fae4e2;color:#b3261e;padding:2px 8px;border-radius:4px;font-size:0.76rem;font-weight:600;">точная копия</span>'
 
         # src экранируется: превью приходит и из базы отпечатков, а та могла
-        # быть залита чужим SQL-дампом — своей строке base64 экранирование не
+        # быть залита чужим SQL-дампом – своей строке base64 экранирование не
         # мешает, а подставленной кавычке закрывает дорогу.
         img1_html = (f'<img src="{_esc(p["img1"])}" alt="img1">' if p.get('img1')
                      else '<div style="width:120px;height:80px;background:#f6f9f4;border:1px solid #dbe4dc;border-radius:4px;display:flex;align-items:center;justify-content:center;color:#8ba394;font-size:0.75rem;">нет превью</div>')
@@ -293,7 +293,7 @@ def _render_image_summary(image_plagiarism: dict, report_by_path: dict) -> str:
     review_note = ''
     if review:
         review_note = ('<p style="color:#64786a;font-size:0.82rem;margin:4px 0 10px;">'
-                       'Пары «похожий интерфейс» — это скриншоты одинаковых программ '
+                       'Пары «похожий интерфейс» – это скриншоты одинаковых программ '
                        '(терминал, Zabbix и т.п.): совпадение оформления ожидаемо, '
                        'в статистику заимствований они не входят.</p>')
 
@@ -335,7 +335,7 @@ def _render_gost_table(gost_results: list) -> str:
 NO_TEXT_NOTE = (
     '<div class="plagiarism-alert" style="background:#eef2f7;border-color:#c3d2e6;">'
     '<span class="badge badge-blue">ТЕКСТ НЕ ИЗВЛЕЧЁН</span> '
-    'Из файла удалось прочитать слишком мало текста — обычно это скан или '
+    'Из файла удалось прочитать слишком мало текста – обычно это скан или '
     'нестандартные шрифты. Сравнение с другими работами не проводилось: '
     'проверьте заимствование вручную.</div>')
 
@@ -467,7 +467,7 @@ def _render_img_plag_for_report(path: str, image_plagiarism: dict,
         if p.get('ui_review'):
             review_badge = (
                 '<div style="align-self:center;">'
-                '<span class="badge badge-blue">похожий интерфейс — проверьте вручную</span>'
+                '<span class="badge badge-blue">похожий интерфейс – проверьте вручную</span>'
                 '</div>'
             )
 
@@ -509,7 +509,7 @@ def _render_feedback(report: dict, gost_results: list, max_sim: float,
     plain = grading.feedback_text(student, thr_pct)
 
     if mark['pct'] is None:
-        pct_text, color = '—', '#245a9c'
+        pct_text, color = '–', '#245a9c'
     else:
         pct = mark['pct']
         pct_text = f'{pct}%'
@@ -529,7 +529,7 @@ def _render_feedback(report: dict, gost_results: list, max_sim: float,
     if mark['lost']:
         top = mark['lost'][0]
         costly = (f'<p class="flaw-note">Дороже всего обошлось: '
-                  f'{_esc(top["name"])} — минус {top["weight"]:g}%.</p>')
+                  f'{_esc(top["name"])} – минус {top["weight"]:g}%.</p>')
 
     return f'''
     <div class="verdict">
@@ -571,7 +571,7 @@ def _render_card(report: dict, text_plagiarism: dict, image_plagiarism: dict,
         badge = '<span class="badge badge-amber">Нарушения ГОСТ</span>'
         header_border = 'border-left:4px solid #d08700;'
     elif not total:
-        # Критерии сняты все до единого — сказать «OK» не о чем.
+        # Критерии сняты все до единого – сказать «OK» не о чем.
         badge = '<span class="badge badge-blue">ГОСТ не проверялся</span>'
         header_border = 'border-left:4px solid #245a9c;'
     else:
@@ -619,7 +619,7 @@ def _render_card(report: dict, text_plagiarism: dict, image_plagiarism: dict,
     <span style="font-size:1rem;font-weight:600;flex:1;">{_esc(_display_name(report))}</span>
     {badge}
     <span style="font-size:0.82rem;color:#64786a;white-space:nowrap;">
-      ГОСТ: {passed}/{total} &nbsp;|&nbsp; Схожесть: {'—' if no_text else f'{max_sim:.0%}'}
+      ГОСТ: {passed}/{total} &nbsp;|&nbsp; Схожесть: {'–' if no_text else f'{max_sim:.0%}'}
     </span>
     <span class="toggle-arrow">▼</span>
   </div>
@@ -672,7 +672,7 @@ def generate_html_report(reports: list, historical: list,
         text_plagiarism, image_plagiarism: results from checker modules
         threshold: similarity threshold (0-1)
         weights: «процент использования» критериев для рекомендуемой оценки
-        scale: шкала оценки (100 — проценты)
+        scale: шкала оценки (100 – проценты)
     """
     now      = datetime.now().strftime('%d.%m.%Y %H:%M')
     n        = len(reports)
@@ -780,7 +780,7 @@ def generate_html_report(reports: list, historical: list,
             anc = _anchor(other_rep)
             other_name_html = f'<a href="#{anc}">{_esc(_display_name(other_rep))}</a>'
         else:
-            other_name_html = '—'
+            other_name_html = '–'
 
         p, t = _gost_score(r.get('gost_results', []))
         img_count = sum(
@@ -811,11 +811,11 @@ def generate_html_report(reports: list, historical: list,
         elif review_count:
             img_badge = f'<span class="badge badge-blue">{review_count} на проверку</span>'
         else:
-            img_badge = '<span style="color:#17805a;">—</span>'
+            img_badge = '<span style="color:#17805a;">–</span>'
         mark = grading.grade(r.get('gost_results', []), weights, scale)
         if mark['pct'] is None:
-            # Ни одного критерия — оценивать нечего; «0 %» читалось бы как двойка.
-            mark_badge = '<span class="badge badge-blue">—</span>'
+            # Ни одного критерия – оценивать нечего; «0 %» читалось бы как двойка.
+            mark_badge = '<span class="badge badge-blue">–</span>'
         else:
             mark_pct = mark['pct']
             mark_text = (f'{mark["score"]:g} из {mark["scale"]}'
@@ -866,7 +866,7 @@ def generate_html_report(reports: list, historical: list,
         dl_btn = ''
 
 
-    # Логотип встраивается один раз — фоном для двух меток, иначе строка
+    # Логотип встраивается один раз – фоном для двух меток, иначе строка
     # base64 весом под 70 КБ лежала бы в файле дважды.
     logo = branding.logo_data_uri()
     logo_css = f'.logo-mark {{ background-image: url({logo}); }}' if logo else ''
@@ -878,7 +878,7 @@ def generate_html_report(reports: list, historical: list,
   size: A4 portrait;
   margin: 15mm 20mm 24mm 20mm;
   @bottom-left {{
-    content: "{branding.TEAM} · {branding.APP_TITLE} — {branding.APP_FULL_NAME}";
+    content: "{branding.TEAM} · {branding.APP_TITLE} – {branding.APP_FULL_NAME}";
     font-size: 7.5pt;
     color: #8ba394;
     font-family: Arial, sans-serif;
@@ -902,7 +902,7 @@ h3 { font-size: 0.95rem; font-weight: 600; margin-bottom: 8px; }
 a { color: #0a7333; text-decoration: none; }
 a:hover { text-decoration: underline; }
 
-/* Шапка и подвал: та же марка, что и в интерфейсе — логотип #au_team,
+/* Шапка и подвал: та же марка, что и в интерфейсе – логотип #au_team,
    название и расшифровка по буквам. */
 .brand-head {
   display: flex; align-items: flex-start; gap: 16px; flex-wrap: wrap;
@@ -1014,7 +1014,7 @@ a:hover { text-decoration: underline; }
   .brand-acronym { border-left-color: #dbe4dc; }
   .brand-acronym b, .brand-team b { color: #101c14; }
   .brand-head, .brand-foot { break-inside: avoid; }
-  /* На печати grid раскладывается в столбик и съедает страницу — плитки
+  /* На печати grid раскладывается в столбик и съедает страницу – плитки
      ставим потоком. */
   .stats { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 18px; }
   .stat-card { flex: 1 1 150px; padding: 12px 14px; }
@@ -1061,7 +1061,7 @@ document.querySelectorAll('.report-header, .section-head').forEach(function(h) {
   });
 });
 
-/* Копирование отзыва. Кнопка живёт внутри раскрывающейся карточки —
+/* Копирование отзыва. Кнопка живёт внутри раскрывающейся карточки –
    клик не должен её сворачивать, поэтому всплытие останавливаем. */
 document.querySelectorAll('.copy-btn').forEach(function(btn) {
   btn.addEventListener('click', function(e) {
@@ -1093,7 +1093,7 @@ document.querySelectorAll('.copy-btn').forEach(function(btn) {
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>{branding.APP_TITLE} — проверка отчётов, {now}</title>
+<title>{branding.APP_TITLE} – проверка отчётов, {now}</title>
 <style>{css}</style>
 </head>
 <body>
@@ -1147,7 +1147,7 @@ document.querySelectorAll('.copy-btn').forEach(function(btn) {
 <div class="section">
   <h2>Матрица схожести текстов</h2>
   <p style="color:#64786a;font-size:0.83rem;margin-bottom:14px;">
-    Жаккар по 5-граммам слов. Красный — выше порога {thr_pct}%, жёлтый — {int(thr_pct*0.55)}–{thr_pct}%.
+    Жаккар по 5-граммам слов. Красный – выше порога {thr_pct}%, жёлтый – {int(thr_pct*0.55)}–{thr_pct}%.
     {'Включены совпадения с предыдущими сессиями (выделены желтоватым фоном).' if historical_relevant else ''}
   </p>
   {matrix_html}
@@ -1164,12 +1164,11 @@ document.querySelectorAll('.copy-btn').forEach(function(btn) {
 <div class="brand-foot">
   {'<span class="logo-mark"></span>' if logo else ''}
   <div>
-    <b>{branding.APP_TITLE}</b> — {branding.APP_FULL_NAME}.<br>
+    <b>{branding.APP_TITLE}</b> – {branding.APP_FULL_NAME}.<br>
     {branding.TEAM} · версия {branding.APP_VERSION}
   </div>
   <div class="right">
-    Сформировано: {now}<br>
-    {branding.REGISTRY_NOTE}
+    Сформировано: {now}
   </div>
 </div>
 

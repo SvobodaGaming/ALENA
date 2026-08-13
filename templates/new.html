@@ -27,7 +27,7 @@
         <a class="btn sm" id="run-open" href="{{ url_for('index') }}" hidden>Ко всем проверкам</a>
         <a class="btn sm primary" id="run-report" href="#" target="_blank" rel="noopener" hidden>Открыть отчёт</a>
       </div>
-      <p class="hint" style="margin:12px 0 0;">Страницу можно закрыть — проверка продолжится
+      <p class="hint" style="margin:12px 0 0;">Страницу можно закрыть – проверка продолжится
         на сервере, результат появится в списке проверок.</p>
     </div>
   </div>
@@ -50,7 +50,7 @@
         <div class="section-head"><h2>Поиск заимствований</h2></div>
         <div class="section-body">
           <div class="field">
-            <label for="threshold">Порог заимствования — <b class="mono" id="thr-val">{{ threshold }}%</b></label>
+            <label for="threshold">Порог заимствования – <b class="mono" id="thr-val">{{ threshold }}%</b></label>
             <input type="range" id="threshold" min="10" max="90" step="5" value="{{ threshold }}">
             <span class="hint">Совпадение ниже порога не помечается как заимствование.</span>
           </div>
@@ -76,15 +76,15 @@
         <div id="weights-panel" hidden>
           <div class="note">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 7.6v.1"/></svg>
-            <span>Процент использования критерия — от 0 до 100. Веса отмеченных критериев
-              приводятся к сумме 100, справа видна итоговая доля в оценке. Вес 0 — критерий
+            <span>Процент использования критерия – от 0 до 100. Веса отмеченных критериев
+              приводятся к сумме 100, справа видна итоговая доля в оценке. Вес 0 – критерий
               проверяется и попадает в отзыв, но на оценку не влияет.</span>
           </div>
           <div style="display:flex;align-items:flex-end;gap:10px;margin:0 0 14px;">
             <div class="field" style="max-width:220px;">
               <label for="grade-scale">Шкала рекомендуемой оценки</label>
               <select id="grade-scale">
-                <option value="100" {% if scale == 100 %}selected{% endif %}>Проценты, 0—100</option>
+                <option value="100" {% if scale == 100 %}selected{% endif %}>Проценты, 0–100</option>
                 <option value="5" {% if scale == 5 %}selected{% endif %}>5 баллов</option>
                 <option value="10" {% if scale == 10 %}selected{% endif %}>10 баллов</option>
                 <option value="20" {% if scale == 20 %}selected{% endif %}>20 баллов</option>
@@ -105,7 +105,7 @@
             <span class="crit-w">
               <input type="number" class="w-in" data-code="{{ code }}" min="0" max="100" step="5"
                      value="{{ weights[code] }}" aria-label="Вес критерия {{ code }}, %">
-              <b class="mono crit-share" data-share="{{ code }}">—</b>
+              <b class="mono crit-share" data-share="{{ code }}">–</b>
             </span>
           </div>
           {% endfor %}
@@ -122,14 +122,14 @@
             <span class="crit-w">
               <input type="number" class="w-in" data-code="{{ code }}" min="0" max="100" step="5"
                      value="{{ weights[code] }}" aria-label="Вес критерия {{ code }}, %">
-              <b class="mono crit-share" data-share="{{ code }}">—</b>
+              <b class="mono crit-share" data-share="{{ code }}">–</b>
             </span>
           </div>
           {% endfor %}
         </div>
 
         <p class="hint" style="margin:16px 0 0;">
-          В балл ГОСТ и в рекомендуемую оценку войдут только отмеченные критерии —
+          В балл ГОСТ и в рекомендуемую оценку войдут только отмеченные критерии –
           <b class="mono" id="gost-count"></b>.
         </p>
       </div>
@@ -139,9 +139,9 @@
   <div class="section" style="margin-top:12px;">
     <div class="section-body">
       <button class="btn primary" type="submit" id="start-btn" disabled>Запустить проверку</button>
-      <span class="hint when-idle" style="margin-left:10px;">Проверка идёт на сервере — страницу можно закрыть.</span>
+      <span class="hint when-idle" style="margin-left:10px;">Проверка идёт на сервере – страницу можно закрыть.</span>
       <span class="hint when-busy" style="margin-left:10px;">Поля заперты, пока идёт проверка: партия уже
-        ушла на сервер с заданными параметрами. Чтобы задать другие — прервите проверку.</span>
+        ушла на сервер с заданными параметрами. Чтобы задать другие – прервите проверку.</span>
     </div>
   </div>
 </form>

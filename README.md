@@ -6,7 +6,7 @@
 
 **А**втоматический **Л**овец **Ё**рничества, **Н**ебрежности и **А**утентичности
 
-*Проверка студенческих отчётов: заимствования, дубли изображений и ГОСТ 7.32-2017 — за один проход*
+*Проверка студенческих отчётов: заимствования, дубли изображений и ГОСТ 7.32-2017 – за один проход*
 
 [![Python](https://img.shields.io/badge/Python-3.11%2B-3776AB?logo=python&logoColor=white)](https://www.python.org/)
 [![Flask](https://img.shields.io/badge/Flask-3.x-000000?logo=flask&logoColor=white)](https://flask.palletsprojects.com/)
@@ -22,13 +22,13 @@
 
 ## Что это
 
-Преподаватель загружает папку или ZIP с работами группы — АЛЁНА возвращает один
+Преподаватель загружает папку или ZIP с работами группы – АЛЁНА возвращает один
 самодостаточный HTML-отчёт, в котором по каждому студенту видно: что списано,
 какие картинки повторяются, какие пункты ГОСТ нарушены и какая оценка за
 оформление получается.
 
 Принимаются **PDF, DOCX, ODT и DOC**. Постоянная база отпечатков позволяет
-сравнивать новую партию не только между собой, но и со всеми прошлыми сессиями —
+сравнивать новую партию не только между собой, но и со всеми прошлыми сессиями –
 работа, сданная в сентябре, будет узнана в декабре.
 
 > Три проверки идут за один проход по одному и тому же документу: файл читается
@@ -40,13 +40,13 @@
 
 | | Проверка | Как устроено |
 |---|---|---|
-| 📝 | **Заимствование текста** | Шинглы из 5-грамм слов, мера Жаккара, настраиваемый порог. В отчёте — матрица совпадений и дословные общие фрагменты |
-| 🖼 | **Дублирование изображений** | Перцептуальный хеш pHash 12×12 (144 бита) в трёх масштабах кадрирования — обрезанный по краям скриншот всё равно опознаётся |
-| 📐 | **ГОСТ 7.32-2017** | 20 критериев: 9 структурных и 11 по оформлению — от полей страницы до подписей рисунков |
+| 📝 | **Заимствование текста** | Шинглы из 5-грамм слов, мера Жаккара, настраиваемый порог. В отчёте – матрица совпадений и дословные общие фрагменты |
+| 🖼 | **Дублирование изображений** | Перцептуальный хеш pHash 12×12 (144 бита) в трёх масштабах кадрирования – обрезанный по краям скриншот всё равно опознаётся |
+| 📐 | **ГОСТ 7.32-2017** | 20 критериев: 9 структурных и 11 по оформлению – от полей страницы до подписей рисунков |
 | 🎓 | **Рекомендуемая оценка** | Веса критериев нормируются к 100; готовый отзыв студенту формулируется словами замечания, а не пунктами стандарта |
 | 🗂 | **База отпечатков** | Отпечатки живут между проверками и изолированы по преподавателям |
 | 👥 | **Учётные записи** | Роли, гранулярные права, журнал действий, политика паролей |
-| 🔌 | **REST API** | `/api/v1` с доступом по ключу — для встраивания в LMS и свои сервисы |
+| 🔌 | **REST API** | `/api/v1` с доступом по ключу – для встраивания в LMS и свои сервисы |
 | 📄 | **Экспорт** | Автономный HTML (открывается без сети) и PDF через WeasyPrint |
 
 ### Что именно ловит детектор изображений
@@ -57,7 +57,7 @@
 вручную», а не как копия.
 
 Работы, из которых извлеклось меньше 30 слов (скан, PDF со сломанной кодировкой
-шрифта), выводятся из текстового сравнения и помечаются отдельно — иначе целая
+шрифта), выводятся из текстового сравнения и помечаются отдельно – иначе целая
 пачка сканов обвинялась бы в списывании друг у друга.
 
 ---
@@ -80,14 +80,14 @@ flowchart LR
 ```
 
 **Почему всё приводится к PDF.** Половина критериев ГОСТ измеряется на
-свёрстанной странице: поля — по краям чернил букв, номер страницы — как
+свёрстанной странице: поля – по краям чернил букв, номер страницы – как
 отдельная строка в поле, титульный лист опознаётся постранично. У DOCX страниц
 нет, пока его не сверстают, поэтому разбор XML отвечал бы на другие вопросы и
-давал бы другой вердикт для той же работы. Приведение к PDF — единственный
+давал бы другой вердикт для той же работы. Приведение к PDF – единственный
 способ сдержать обещание «все форматы судятся одинаково».
 
 **Своё не считается списанным.** Студенты из текущей партии исключаются из
-исторического списка перед сравнением — иначе работа совпала бы со своим же
+исторического списка перед сравнением – иначе работа совпала бы со своим же
 отпечатком с прошлой сессии.
 
 ---
@@ -106,7 +106,7 @@ docker compose up --build
 и `AU_PASSWORD`. При пароле, похожем на стандартный, система попросит сменить
 его при первом входе.
 
-Образ уже содержит LibreOffice, шрифты Microsoft и библиотеки WeasyPrint —
+Образ уже содержит LibreOffice, шрифты Microsoft и библиотеки WeasyPrint –
 ничего доустанавливать не нужно.
 
 ### Локально
@@ -117,7 +117,7 @@ python app.py            # http://localhost:5000
 python app.py 8080       # другой порт
 ```
 
-Без `DATABASE_URL` приложение работает на JSON-хранилище в `memory/` —
+Без `DATABASE_URL` приложение работает на JSON-хранилище в `memory/` –
 PostgreSQL для запуска не обязателен.
 
 ### На сервере
@@ -126,11 +126,11 @@ PostgreSQL для запуска не обязателен.
 gunicorn --workers=1 --threads=8 --timeout=300 -b 0.0.0.0:5000 app:app
 ```
 
-> ⚠️ **`--workers=1` — требование, а не настройка производительности.**
+> ⚠️ **`--workers=1` – требование, а не настройка производительности.**
 > Частичные загрузки и состояние идущих проверок лежат в памяти процесса.
 > Со вторым воркером куски одной партии попадают в разные процессы и загрузка
 > обрывается сообщением «Загрузка не найдена». Параллелизм даёт `--threads`.
-> Пример конфигурации nginx — в [`nginx.conf.txt`](nginx.conf.txt).
+> Пример конфигурации nginx – в [`nginx.conf.txt`](nginx.conf.txt).
 
 ### Командная строка, без сервера и учётных записей
 
@@ -143,23 +143,23 @@ python check_reports.py ./архив.zip
 
 ## Настройка
 
-Все параметры — переменные окружения; полный список с пояснениями лежит в
+Все параметры – переменные окружения; полный список с пояснениями лежит в
 [`.env.example`](.env.example).
 
 | Переменная | Назначение |
 |---|---|
 | `AU_USERNAME` · `AU_PASSWORD` · `AU_FIO` | Первый администратор. Используются только при пустом списке учётных записей |
-| `SECRET_KEY` | Секрет сессий. **Обязателен в продакшене** — без него ключ генерируется при старте и каждый перезапуск разлогинивает всех |
+| `SECRET_KEY` | Секрет сессий. **Обязателен в продакшене** – без него ключ генерируется при старте и каждый перезапуск разлогинивает всех |
 | `AU_API_KEY` | Ключ для `/api/v1`, выдаётся первому администратору при развёртывании |
 | `AU_HTTPS` | `1` за HTTPS: cookie сессии помечается `Secure` |
 | `DATABASE_URL` | PostgreSQL. Пусто → JSON-хранилище в `memory/` |
 | `AU_MAX_UPLOAD_MB` | Предел одной партии, МБ (по умолчанию 5120) |
-| `AU_TMP_DIR` | Где разворачиваются загрузки. Проверьте, что это диск, а не tmpfs — иначе многогигабайтная партия пишется в RAM |
+| `AU_TMP_DIR` | Где разворачиваются загрузки. Проверьте, что это диск, а не tmpfs – иначе многогигабайтная партия пишется в RAM |
 | `AU_SOFFICE` | Путь к LibreOffice, если он вне `PATH` |
 | `PORT` | Порт веб-интерфейса (по умолчанию 5000) |
 
-Настройки уровня приложения — порог сходства по умолчанию, набор критериев,
-веса для оценки, шкала, срок хранения проверок, политика паролей и блокировки —
+Настройки уровня приложения – порог сходства по умолчанию, набор критериев,
+веса для оценки, шкала, срок хранения проверок, политика паролей и блокировки –
 задаются в интерфейсе: **Администрирование → Настройки**.
 
 ---
@@ -203,17 +203,17 @@ python check_reports.py ./архив.zip
 `/admin/teams`) объединяет базы отпечатков нескольких учётных записей:
 участники ищут заимствования по работам друг друга.
 
-Объединяется **только база**. Проверки, отчёты и история остаются личными —
+Объединяется **только база**. Проверки, отчёты и история остаются личными –
 группа их не открывает. Чужой отпечаток участник видит в разделе «База», но
 удалить не может: он нужен коллеге для его собственных проверок.
 
-Преподаватель может состоять в нескольких группах — тогда его база это
+Преподаватель может состоять в нескольких группах – тогда его база это
 объединение всех. Роспуск группы ничего не удаляет: отпечатки принадлежат
 своим владельцам, и база просто снова становится личной.
 
 Тот же студент, сдавший работу другому преподавателю группы, за плагиат не
 считается: в истории он отсеивается по ФИО и группе, а не по владельцу
-записи, — иначе пересдача выглядела бы как стопроцентное списывание у себя.
+записи, – иначе пересдача выглядела бы как стопроцентное списывание у себя.
 
 ---
 
@@ -235,7 +235,7 @@ python check_reports.py ./архив.zip
 | `S9` | Список использованных источников |
 
 `S3` обязателен для отчёта о НИР и ВКР; для отчёта по практике и курсовой обычно
-не требуется — снимите критерий, если он не нужен.
+не требуется – снимите критерий, если он не нужен.
 
 </details>
 
@@ -249,9 +249,9 @@ python check_reports.py ./архив.zip
 | `F3` | Основной текст 14 пт |
 | `F4` | Текст рисунков и таблиц не больше 14 пт |
 | `F5` | Шрифт номеров страниц |
-| `F6` | Подписи рисунков: «Рисунок 1 — Название» |
+| `F6` | Подписи рисунков: «Рисунок 1 – Название» |
 | `F7` | Ссылки на рисунки в тексте |
-| `F8` | Подписи таблиц: «Таблица 1 — Название» |
+| `F8` | Подписи таблиц: «Таблица 1 – Название» |
 | `F9` | Точки в конце заголовков |
 | `F10` | Ссылки на источники `[N]` |
 | `F11` | Поля страницы: 30 / 15 / 20 / 20 мм |
@@ -263,13 +263,13 @@ python check_reports.py ./архив.zip
 </details>
 
 Любой критерий можно отключить для конкретной проверки. Критерий с весом `0`
-по-прежнему проверяется и попадает в отзыв — он просто не двигает оценку.
+по-прежнему проверяется и попадает в отзыв – он просто не двигает оценку.
 
 ---
 
 ## API
 
-REST-слой `/api/v1` возвращает JSON, включая ошибки. Полная спецификация —
+REST-слой `/api/v1` возвращает JSON, включая ошибки. Полная спецификация –
 [`API_REFERENCE.md`](API_REFERENCE.md).
 
 ```bash
@@ -297,7 +297,7 @@ curl -H "X-API-Key: $AU_API_KEY" http://localhost:5000/api/v1/jobs/<job_id>/expo
 | `GET` | `/memory` | Содержимое базы отпечатков |
 | `DELETE` | `/memory/<key>` | Удалить запись из базы |
 
-Авторизация — заголовок `X-API-Key` либо сессия браузера (тогда изменяющие
+Авторизация – заголовок `X-API-Key` либо сессия браузера (тогда изменяющие
 вызовы дополнительно требуют `X-CSRF-Token`). Каждый вызов действует **от имени
 учётной записи** и видит только её данные.
 
@@ -306,14 +306,14 @@ curl -H "X-API-Key: $AU_API_KEY" http://localhost:5000/api/v1/jobs/<job_id>/expo
 ## Хранилище
 
 Каждый модуль работает одинаково: **PostgreSQL**, если задан `DATABASE_URL`,
-иначе **JSON-файлы** в `memory/`. Переключение — вопрос одной переменной, а
+иначе **JSON-файлы** в `memory/`. Переключение – вопрос одной переменной, а
 перенос данных в обе стороны делается через **Администрирование → Миграция
 базы**.
 
-Импортёр разбирает дамп собственным парсером и **никогда его не исполняет** —
+Импортёр разбирает дамп собственным парсером и **никогда его не исполняет** –
 «восстановить базу» не означает «выполнить произвольный SQL».
 
-Каталоги `memory/`, `reports/` и файл `.env` — это состояние времени
+Каталоги `memory/`, `reports/` и файл `.env` – это состояние времени
 выполнения, а не код; они исключены из репозитория.
 
 ---
@@ -324,7 +324,7 @@ curl -H "X-API-Key: $AU_API_KEY" http://localhost:5000/api/v1/jobs/<job_id>/expo
 |---|---|
 | **Python** | 3.11+ |
 | **LibreOffice** | Для DOCX / ODT / DOC. Без него эти форматы отклоняются по файлу, PDF в той же партии проверяются как обычно |
-| **Шрифты Microsoft** | **Обязательны рядом с LibreOffice.** Без них подставляется метрически совместимый Liberation Serif: вёрстка не съезжает, но в готовом PDF гарнитура называется уже им — и критерии `F2`/`F5` проваливала бы каждая работа в DOCX |
+| **Шрифты Microsoft** | **Обязательны рядом с LibreOffice.** Без них подставляется метрически совместимый Liberation Serif: вёрстка не съезжает, но в готовом PDF гарнитура называется уже им – и критерии `F2`/`F5` проваливала бы каждая работа в DOCX |
 | **Pango / Cairo** | Для WeasyPrint. Без них приложение работает, а экспорт в PDF возвращает `501` |
 | **PostgreSQL** | Опционально |
 
@@ -340,18 +340,17 @@ curl -H "X-API-Key: $AU_API_KEY" http://localhost:5000/api/v1/jobs/<job_id>/expo
 `python -m py_compile`.
 
 Комментарии в коде объясняют **почему**, а не что делает строка, и часто
-называют ошибку, ради которой код написан. Новый критерий ГОСТ — это строка в
+называют ошибку, ради которой код написан. Новый критерий ГОСТ – это строка в
 таблице `GOST_CHECKS`, функция `_check_*` в `check_gost()` и запись в
 `FLAW_TEXT`; всё остальное выводится из таблицы. При добавлении сохраняемого
-поля его нужно провести по обоим хранилищам — по колонкам PostgreSQL и по
-словарю JSON, — и по кортежам в `checker/sqlmigrate.py`.
+поля его нужно провести по обоим хранилищам – по колонкам PostgreSQL и по
+словарю JSON, – и по кортежам в `checker/sqlmigrate.py`.
 
 ---
 
 ## Лицензия
 
-[GNU AGPL-3.0](LICENSE) · Заявка на государственную регистрацию № 2026680426,
-Роспатент · `#au_team`
+[GNU AGPL-3.0](LICENSE) · `#au_team`
 
 ---
 ---
@@ -363,16 +362,16 @@ curl -H "X-API-Key: $AU_API_KEY" http://localhost:5000/api/v1/jobs/<job_id>/expo
 # <a name="english"></a>АЛЁНА / ALYONA
 
 **А**втоматический **Л**овец **Ё**рничества, **Н**ебрежности и **А**утентичности
-*— "Automatic Catcher of Mockery, Sloppiness and Authenticity", an acronym
+*– "Automatic Catcher of Mockery, Sloppiness and Authenticity", an acronym
 spelling out the Russian given name Alyona*
 
-*Student report checking: borrowing, duplicated images and GOST 7.32-2017 — in a single pass*
+*Student report checking: borrowing, duplicated images and GOST 7.32-2017 – in a single pass*
 
 [Русский](#алёна) · **English**
 
 </div>
 
-> The interface, comments and all user-facing strings are in Russian — the tool
+> The interface, comments and all user-facing strings are in Russian – the tool
 > is built for Russian-language academic reports and the GOST standard they are
 > graded against. This section documents it for readers who do not read Russian.
 
@@ -380,12 +379,12 @@ spelling out the Russian given name Alyona*
 
 ## What it is
 
-A teacher uploads a folder or ZIP of a group's work — ALYONA returns one
+A teacher uploads a folder or ZIP of a group's work – ALYONA returns one
 self-contained HTML report showing, per student: what was copied, which images
 repeat, which GOST clauses are violated, and what formatting grade follows.
 
 **PDF, DOCX, ODT and DOC** are accepted. A persistent fingerprint base compares
-each new batch not only against itself but against every earlier session — work
+each new batch not only against itself but against every earlier session – work
 submitted in September is recognised in December.
 
 > All three checks run in a single pass over the same document: the file is read
@@ -398,12 +397,12 @@ submitted in September is recognised in December.
 | | Check | How it works |
 |---|---|---|
 | 📝 | **Text borrowing** | 5-gram word shingles, Jaccard similarity, configurable threshold. The report shows a match matrix and the verbatim shared passages |
-| 🖼 | **Duplicated images** | 12×12 perceptual hash (144-bit) at three crop scales — a screenshot trimmed at the edges is still recognised |
-| 📐 | **GOST 7.32-2017** | 20 criteria: 9 structural and 11 formatting — from page margins to figure captions |
+| 🖼 | **Duplicated images** | 12×12 perceptual hash (144-bit) at three crop scales – a screenshot trimmed at the edges is still recognised |
+| 📐 | **GOST 7.32-2017** | 20 criteria: 9 structural and 11 formatting – from page margins to figure captions |
 | 🎓 | **Recommended grade** | Per-criterion weights normalised to 100; the student-facing feedback is phrased as a remark, not as a clause number |
 | 🗂 | **Fingerprint base** | Fingerprints persist between checks and are isolated per teacher |
 | 👥 | **Accounts** | Roles, granular permissions, audit log, password policy |
-| 🔌 | **REST API** | `/api/v1` with key access — for embedding into an LMS or your own services |
+| 🔌 | **REST API** | `/api/v1` with key access – for embedding into an LMS or your own services |
 | 📄 | **Export** | Standalone HTML (opens offline) and PDF via WeasyPrint |
 
 ### What the image detector actually catches
@@ -414,7 +413,7 @@ borderline pairs are flagged as "similar interface, check manually" rather than
 as a copy.
 
 Reports yielding fewer than 30 extracted words (a scan, a PDF with a broken font
-encoding) are excluded from text comparison and flagged separately — otherwise a
+encoding) are excluded from text comparison and flagged separately – otherwise a
 batch of scans would accuse itself of wholesale plagiarism.
 
 ---
@@ -444,7 +443,7 @@ questions and return a different verdict on the same work. Converting to PDF is
 the only way the promise "every format is judged the same" can hold.
 
 **Your own work is not plagiarism.** Students present in the current batch are
-excluded from the historical list before comparison — otherwise a student would
+excluded from the historical list before comparison – otherwise a student would
 match their own stored fingerprint from last session.
 
 ---
@@ -464,7 +463,7 @@ the password looks like a default, the account is asked to change it at first
 login.
 
 The image already contains LibreOffice, the Microsoft fonts and the WeasyPrint
-libraries — nothing else to install.
+libraries – nothing else to install.
 
 ### Local
 
@@ -474,7 +473,7 @@ python app.py            # http://localhost:5000
 python app.py 8080       # another port
 ```
 
-Without `DATABASE_URL` the app runs on the JSON store in `memory/` — PostgreSQL
+Without `DATABASE_URL` the app runs on the JSON store in `memory/` – PostgreSQL
 is not required to start.
 
 ### On a server
@@ -489,7 +488,7 @@ gunicorn --workers=1 --threads=8 --timeout=300 -b 0.0.0.0:5000 app:app
 > fails with «Загрузка не найдена». Concurrency comes from `--threads`.
 > A sample nginx config is in [`nginx.conf.txt`](nginx.conf.txt).
 
-### Command line — no server, no accounts
+### Command line – no server, no accounts
 
 ```bash
 python check_reports.py ./reports_folder -o report.html --threshold 0.5
@@ -506,17 +505,17 @@ Everything is an environment variable; the full annotated list is in
 | Variable | Purpose |
 |---|---|
 | `AU_USERNAME` · `AU_PASSWORD` · `AU_FIO` | First administrator. Used only while the account list is empty |
-| `SECRET_KEY` | Session secret. **Required in production** — without it a key is generated at startup and every restart logs everyone out |
+| `SECRET_KEY` | Session secret. **Required in production** – without it a key is generated at startup and every restart logs everyone out |
 | `AU_API_KEY` | Key for `/api/v1`, assigned to the first administrator at bootstrap |
 | `AU_HTTPS` | `1` behind HTTPS: the session cookie is marked `Secure` |
 | `DATABASE_URL` | PostgreSQL. Empty → JSON store in `memory/` |
 | `AU_MAX_UPLOAD_MB` | Largest single batch, MB (default 5120) |
-| `AU_TMP_DIR` | Where uploads are staged. Check it is on disk, not tmpfs — otherwise a multi-gigabyte batch is written straight into RAM |
+| `AU_TMP_DIR` | Where uploads are staged. Check it is on disk, not tmpfs – otherwise a multi-gigabyte batch is written straight into RAM |
 | `AU_SOFFICE` | Path to LibreOffice if it is outside `PATH` |
 | `PORT` | Web UI port (default 5000) |
 
-Application-level settings — the default similarity threshold, the criteria set,
-grade weights and scale, retention period, password and lockout policy — are set
+Application-level settings – the default similarity threshold, the criteria set,
+grade weights and scale, retention period, password and lockout policy – are set
 in the UI under **Администрирование → Настройки** (Administration → Settings).
 
 ---
@@ -557,11 +556,11 @@ history.
 
 Two teachers running one course cannot see each other's submissions: the
 fingerprint base is per account. **Группы преподавателей** (admin only,
-`/admin/teams`) merges the base across several accounts — members search
+`/admin/teams`) merges the base across several accounts – members search
 borrowing across each other's stored works.
 
 Only the base is shared. Checks, reports and history stay personal. A member
-sees a colleague's entry on the «База» page but cannot delete it — the colleague
+sees a colleague's entry on the «База» page but cannot delete it – the colleague
 needs it for their own checks.
 
 A teacher may belong to several groups; the base is then the union of all of
@@ -592,7 +591,7 @@ name and student group rather than by record owner.
 | `S9` | List of references |
 
 `S3` is mandatory for research reports and theses; internship reports and
-coursework usually do not need it — deselect the criterion when it does not
+coursework usually do not need it – deselect the criterion when it does not
 apply.
 
 </details>
@@ -607,9 +606,9 @@ apply.
 | `F3` | Body text exactly 14 pt |
 | `F4` | Figure and table text no larger than 14 pt |
 | `F5` | Page-number typeface |
-| `F6` | Figure captions: «Рисунок 1 — Название» |
+| `F6` | Figure captions: «Рисунок 1 – Название» |
 | `F7` | In-text references to figures |
-| `F8` | Table captions: «Таблица 1 — Название» |
+| `F8` | Table captions: «Таблица 1 – Название» |
 | `F9` | No full stop at the end of headings |
 | `F10` | Source references in brackets `[N]` |
 | `F11` | Page margins: 30 / 15 / 20 / 20 mm |
@@ -621,7 +620,7 @@ still be right.
 </details>
 
 Any criterion can be switched off for a given check. A criterion weighted `0` is
-still evaluated and still appears in the feedback — it simply does not move the
+still evaluated and still appears in the feedback – it simply does not move the
 grade.
 
 ---
@@ -668,7 +667,7 @@ Every persistence module works the same way: **PostgreSQL** when `DATABASE_URL`
 is set, otherwise **JSON files** in `memory/`. Switching is one variable, and
 moving data either way is done in **Администрирование → Миграция базы**.
 
-The importer parses the dump with its own parser and **never executes it** —
+The importer parses the dump with its own parser and **never executes it** –
 "restore the base" is not "run arbitrary SQL".
 
 `memory/`, `reports/` and `.env` are runtime state, not code, and are excluded
@@ -682,7 +681,7 @@ from the repository.
 |---|---|
 | **Python** | 3.11+ |
 | **LibreOffice** | For DOCX / ODT / DOC. Without it those formats are refused per file, and PDFs in the same batch are still checked |
-| **Microsoft fonts** | **Mandatory next to LibreOffice.** Without them the metric-compatible Liberation Serif is substituted: the layout holds, but the typeface in the produced PDF is renamed to it — and `F2`/`F5` would fail on every DOCX |
+| **Microsoft fonts** | **Mandatory next to LibreOffice.** Without them the metric-compatible Liberation Serif is substituted: the layout holds, but the typeface in the produced PDF is renamed to it – and `F2`/`F5` would fail on every DOCX |
 | **Pango / Cairo** | For WeasyPrint. Without them the app still runs and PDF export returns `501` |
 | **PostgreSQL** | Optional |
 
@@ -692,21 +691,20 @@ All of it is already assembled in the [`Dockerfile`](Dockerfile).
 
 ## Development
 
-There is no test suite, linter config or build step. Verify changes directly —
+There is no test suite, linter config or build step. Verify changes directly –
 import the module and run the function against constructed inputs, or run
 `check_reports.py` over a folder of PDFs. `python -m py_compile` catches syntax
 errors.
 
 Comments explain **why**, not what the line does, and often name the bug the code
 exists to prevent. A new GOST criterion is one row in the `GOST_CHECKS` table, a
-`_check_*` function wired into `check_gost()`, and a `FLAW_TEXT` entry —
+`_check_*` function wired into `check_gost()`, and a `FLAW_TEXT` entry –
 everything else is derived from the table. A newly persisted field must be
-carried through both backends — the PostgreSQL column list and the JSON dict —
+carried through both backends – the PostgreSQL column list and the JSON dict –
 and through the column tuples in `checker/sqlmigrate.py`.
 
 ---
 
 ## License
 
-[GNU AGPL-3.0](LICENSE) · State registration application No. 2026680426,
-Rospatent · `#au_team`
+[GNU AGPL-3.0](LICENSE) · `#au_team`

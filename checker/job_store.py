@@ -1,7 +1,7 @@
 """Persistent check history.
 
-Wraps the PostgreSQL `jobs` table and falls back to a JSON file, so history —
-and with it the record of who owns which check — survives a restart in both
+Wraps the PostgreSQL `jobs` table and falls back to a JSON file, so history –
+and with it the record of who owns which check – survives a restart in both
 deployments. Ownership matters: a report is served only to its owner (or to an
 account allowed to see everything), and that decision needs the record.
 """

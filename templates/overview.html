@@ -22,7 +22,7 @@
   </div>
   <div class="tile">
     <span class="eyebrow">Оценка за оформление</span>
-    <span class="tile-val">{% if avg_grade is none %}—{% else %}{{ avg_grade }}%{% endif %}</span>
+    <span class="tile-val">{% if avg_grade is none %}–{% else %}{{ avg_grade }}%{% endif %}</span>
     <span class="tile-foot">средняя рекомендуемая</span>
   </div>
   <div class="tile">
@@ -78,11 +78,11 @@
         {% for r in recent %}
         <tr>
           <td><a class="mono" href="{{ url_for('report', job_id=r.job_id) }}" target="_blank" rel="noopener">#{{ r.job_id[:6] }}</a></td>
-          <td>{{ r.summary.group if r.summary else '—' }}</td>
-          {% if can(user, 'see_all') %}<td>{{ r.owner_fio or '—' }}</td>{% endif %}
+          <td>{{ r.summary.group if r.summary else '–' }}</td>
+          {% if can(user, 'see_all') %}<td>{{ r.owner_fio or '–' }}</td>{% endif %}
           <td class="num">{{ r.total or 0 }}</td>
-          <td class="num">{% if r.summary %}{{ r.summary.gost }}%{% else %}—{% endif %}</td>
-          <td class="num">{% if r.summary %}{{ r.summary.plag }}%{% else %}—{% endif %}</td>
+          <td class="num">{% if r.summary %}{{ r.summary.gost }}%{% else %}–{% endif %}</td>
+          <td class="num">{% if r.summary %}{{ r.summary.plag }}%{% else %}–{% endif %}</td>
           <td class="mono sub">{{ r.created_at }}</td>
         </tr>
         {% else %}

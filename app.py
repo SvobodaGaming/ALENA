@@ -1,5 +1,5 @@
 """
-АЛЁНА — Автоматический Ловец Ёрничества, Небрежности и Аутентичности.
+АЛЁНА – Автоматический Ловец Ёрничества, Небрежности и Аутентичности.
 
 Flask web application for autonomous student report checking.
 
@@ -9,7 +9,7 @@ manages accounts and system settings and may be allowed to see everything.
 
 Групп преподавателей (checker/teams.py) раздвигает ровно одну эту стену: у
 участников группы база отпечатков общая, а проверки и история остаются
-личными. Отсюда две области видимости — `_scope()` для личного и
+личными. Отсюда две области видимости – `_scope()` для личного и
 `_base_scope()` для базы.
 
 Run locally:
@@ -21,7 +21,7 @@ Run with Docker:
 Run on server (production):
     gunicorn --workers=1 --threads=8 --timeout=300 -b 0.0.0.0:5000 app:app
 
-Один рабочий процесс — не экономия, а требование: частичные загрузки и состояние
+Один рабочий процесс – не экономия, а требование: частичные загрузки и состояние
 идущих проверок лежат в памяти процесса. Со вторым воркером куски одной партии
 попадают в разные процессы и загрузка обрывается «Загрузка не найдена».
 Параллелизм даёт --threads. То же значение стоит в Dockerfile.
@@ -71,18 +71,18 @@ APP_FULL_NAME = branding.APP_FULL_NAME
 app = Flask(__name__)
 
 # Предел одного запроса. Партия отчётов приходит кусками, поэтому её общий
-# объём этим не ограничен — см. UPLOAD_MAX_TOTAL.
+# объём этим не ограничен – см. UPLOAD_MAX_TOTAL.
 app.config['MAX_CONTENT_LENGTH'] = 600 * 1024 * 1024
 
 # Без SECRET_KEY из окружения ключ рождается случайным на каждый запуск: сессии
 # переживут только этот процесс, зато подделать их нельзя. Прежнее значение по
-# умолчанию было одинаковым у всех установок — с ним чужая cookie принималась
+# умолчанию было одинаковым у всех установок – с ним чужая cookie принималась
 # как своя.
 _secret = os.environ.get('SECRET_KEY', '').strip()
 if not _secret or _secret in ('dev-secret-change-in-production',
                               'change-this-to-a-random-string'):
     _secret = secrets.token_hex(32)
-    print('  ВНИМАНИЕ: SECRET_KEY не задан — сессии сбросятся при перезапуске. '
+    print('  ВНИМАНИЕ: SECRET_KEY не задан – сессии сбросятся при перезапуске. '
           'Задайте его в .env для рабочей установки.')
 app.config['SECRET_KEY'] = _secret
 
@@ -98,7 +98,7 @@ app.config.update(
 REPORTS_DIR = Path(__file__).parent / 'reports'
 REPORTS_DIR.mkdir(exist_ok=True)
 
-JOB_ID_RE = re.compile(r'^[0-9a-f]{6,40}$')     # id проверки — только hex
+JOB_ID_RE = re.compile(r'^[0-9a-f]{6,40}$')     # id проверки – только hex
 # Форматы работ. DOCX, ODT и DOC перед разбором приводятся к PDF, поэтому
 # дальше первого шага проверки разница между ними не доходит.
 DOC_EXTS = ('.pdf',) + convert.SOURCE_EXTS
@@ -107,7 +107,7 @@ UPLOAD_EXTS_TEXT = 'PDF, DOCX, ODT, DOC и ZIP'
 
 
 def _mb_text(mb: int) -> str:
-    """«800 МБ» или «5 ГБ» — как удобнее читать преподавателю."""
+    """«800 МБ» или «5 ГБ» – как удобнее читать преподавателю."""
     if mb < 1024:
         return f'{mb} МБ'
     return f"{f'{mb / 1024:.1f}'.rstrip('0').rstrip('.')} ГБ"
@@ -120,7 +120,7 @@ def _mb_env(name: str, default: int) -> int:
         return default
 
 
-# Курс целиком — это гигабайты. Один запрос столько не тянет: nginx, таймауты и
+# Курс целиком – это гигабайты. Один запрос столько не тянет: nginx, таймауты и
 # память рвутся раньше, поэтому браузер шлёт партию кусками, а здесь ограничен
 # её суммарный объём.
 UPLOAD_MAX_MB = _mb_env('AU_MAX_UPLOAD_MB', 5120)   # 5 ГБ
@@ -129,7 +129,7 @@ UPLOAD_CHUNK = 16 * 1024 * 1024      # рекомендуемый браузер
 UPLOAD_TTL = 6 * 3600                # брошенная загрузка живёт не дольше
 
 # Где держать принятые файлы и распакованные PDF. По умолчанию системный temp,
-# но на многих серверах это tmpfs в оперативной памяти — партия на гигабайты
+# но на многих серверах это tmpfs в оперативной памяти – партия на гигабайты
 # положит машину. AU_TMP_DIR переводит её на обычный диск.
 TMP_ROOT = os.environ.get('AU_TMP_DIR', '').strip() or None
 if TMP_ROOT:
@@ -139,7 +139,7 @@ ZIP_MAX_TOTAL = UPLOAD_MAX_TOTAL * 2  # предел распаковки: ар�
 ZIP_MAX_FILES = 5000
 
 # Приставки временных каталогов. Собственные, а не общие up_/rc_: уборка чужого
-# мусора из системного /tmp — не наше дело, а прежние приставки могли совпасть
+# мусора из системного /tmp – не наше дело, а прежние приставки могли совпасть
 # с чужими.
 TMP_PREFIX_UPLOAD = 'alena_up_'
 TMP_PREFIX_JOB    = 'alena_rc_'
@@ -153,7 +153,7 @@ JOB_BEAT_EVERY = 15
 JOB_STALE_AFTER = 90
 
 # Частичные загрузки: id → каталог, владелец, объём. Ключ выдаётся сервером и
-# проверяется по владельцу — чужую партию не дополнить.
+# проверяется по владельцу – чужую партию не дополнить.
 uploads: dict = {}
 uploads_lock = threading.Lock()
 
@@ -176,11 +176,11 @@ def inject_globals():
 def _mark_if_stale(job_id: str, data: dict) -> dict:
     """Пометить ошибкой проверку, которую никто не ведёт.
 
-    Признак — не факт перезапуска, а молчание: поток проверки отмечается в
+    Признак – не факт перезапуска, а молчание: поток проверки отмечается в
     хранилище каждые JOB_BEAT_EVERY секунд, и если отметки нет дольше
     JOB_STALE_AFTER, процесс с этим потоком умер (кончилась память, сервер
     перезапустили, случился сбой). Раньше все идущие проверки списывались при
-    старте процесса — и второй рабочий процесс gunicorn, поднявшись, гасил
+    старте процесса – и второй рабочий процесс gunicorn, поднявшись, гасил
     живую проверку соседа сообщением о перезагрузке, которой не было.
     """
     if data.get('status') != 'processing':
@@ -196,7 +196,7 @@ def _mark_if_stale(job_id: str, data: dict) -> dict:
         data,
         status='error',
         step=('Проверка оборвалась: процесс проверки остановлен. Чаще всего '
-              'серверу не хватило памяти на большой партии — попробуйте '
+              'серверу не хватило памяти на большой партии – попробуйте '
               'разделить её на части. Последний шаг: '
               f'«{data.get("step") or "неизвестен"}».'),
         error='job thread gone: no heartbeat',
@@ -210,7 +210,7 @@ def _mark_if_stale(job_id: str, data: dict) -> dict:
 
 def _recover_stale_jobs():
     """Проверки, чей поток не пережил остановку процесса, при старте помечаются
-    ошибкой — иначе они висят «выполняется» вечно и их нельзя даже удалить.
+    ошибкой – иначе они висят «выполняется» вечно и их нельзя даже удалить.
 
     Молчащие меньше JOB_STALE_AFTER не трогаем: их мог вести соседний процесс.
     """
@@ -279,7 +279,7 @@ def _purge_temp_dirs(older_than: float = 24 * 3600):
     """Убрать временные каталоги загрузок и проверок, брошенные перезапуском.
 
     Порог в сутки: идущую проверку соседнего процесса задеть нельзя, а гигабайты
-    от оборванных загрузок за неделю забьют диск. Приставки свои — в общем /tmp
+    от оборванных загрузок за неделю забьют диск. Приставки свои – в общем /tmp
     под `up_`/`rc_` мог лежать и чужой каталог.
     """
     now = time.time()
@@ -330,7 +330,7 @@ def _csrf_ok() -> bool:
 def _csrf_protect():
     """Меняющий данные запрос принимается только со своим токеном.
 
-    Исключение — вызовы API по ключу: заголовок X-API-Key браузер сам к чужому
+    Исключение – вызовы API по ключу: заголовок X-API-Key браузер сам к чужому
     запросу не добавит, подделать такой вызов с постороннего сайта нельзя.
     """
     if request.method in SAFE_METHODS:
@@ -340,7 +340,7 @@ def _csrf_protect():
     if _csrf_ok():
         return None
     if _wants_json():
-        return jsonify({'error': 'Сессия устарела — обновите страницу '
+        return jsonify({'error': 'Сессия устарела – обновите страницу '
                                  'и повторите действие.'}), 403
     return render_template('error.html', code=403,
                            message='Сессия устарела или запрос пришёл со '
@@ -357,7 +357,7 @@ def _security_headers(response):
     response.headers.setdefault(
         'Content-Security-Policy',
         # 'unsafe-inline' нужен: разметка страниц и сам отчёт держат стили и
-        # небольшие скрипты внутри. Всё остальное — только со своего адреса,
+        # небольшие скрипты внутри. Всё остальное – только со своего адреса,
         # никаких внешних загрузок и встраивания в чужие рамки.
         "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; "
         "script-src 'self' 'unsafe-inline'; font-src 'self' data:; "
@@ -394,7 +394,7 @@ def _float_field(form, name: str, default: float, low: float, high: float) -> fl
     """Дробное из формы, зажатое в границы.
 
     Порог заимствования приходит из формы и из API, и его никто не проверял:
-    «abc» и пустая строка роняли запуск проверки пятисоткой, «inf» — переполнением
+    «abc» и пустая строка роняли запуск проверки пятисоткой, «inf» – переполнением
     при округлении, а «-5» и «99» тихо запускали проверку с бессмысленным
     порогом в −500 % и 9900 %.
     """
@@ -462,9 +462,9 @@ def admin_required(f):
 def _wants_json() -> bool:
     """Ждёт ли вызывающий JSON, а не страницу.
 
-    Страницы шлют формы, скрипт страницы — fetch/XHR с заголовком токена.
+    Страницы шлют формы, скрипт страницы – fetch/XHR с заголовком токена.
     Раньше признаком был только Accept: application/json, а fetch по умолчанию
-    шлёт «*/*» — и на отказ скрипт получал HTML-страницу ошибки, спотыкался на
+    шлёт «*/*» – и на отказ скрипт получал HTML-страницу ошибки, спотыкался на
     res.json() и показывал общее «не удалось» вместо настоящей причины.
     """
     return (request.path.startswith('/api/')
@@ -572,10 +572,10 @@ def forbidden(exc):
 
 @app.errorhandler(413)
 def too_large(exc):
-    """Тело запроса больше предела. Загрузка идёт из скрипта — отвечаем JSON,
+    """Тело запроса больше предела. Загрузка идёт из скрипта – отвечаем JSON,
     иначе на странице просто оборвётся связь без объяснения."""
     limit = app.config['MAX_CONTENT_LENGTH'] // (1024 * 1024)
-    text = f'Запрос больше {limit} МБ — уменьшите порцию файлов'
+    text = f'Запрос больше {limit} МБ – уменьшите порцию файлов'
     if request.path.startswith('/api/') or request.path.startswith('/upload'):
         return jsonify({'error': text, 'status': 413}), 413
     return render_template('error.html', code=413, message=text), 413
@@ -603,7 +603,7 @@ def _scope(user):
 
 
 def _base_scope(user):
-    """Owner filter for the fingerprint base — шире, чем `_scope`.
+    """Owner filter for the fingerprint base – шире, чем `_scope`.
 
     Проверки и отчёты остаются личными, а база отпечатков общая на группу:
     ради этого группы и заводятся. Вне групп список равен `[login]`, то есть
@@ -619,7 +619,7 @@ def _may_touch(job: dict, user) -> bool:
 def _public_job(job: dict) -> dict:
     """Job state without the heavy inline report HTML.
 
-    Ключи с подчёркиванием — служебные отметки времени для троттлинга записи,
+    Ключи с подчёркиванием – служебные отметки времени для троттлинга записи,
     наружу они не идут.
     """
     return {k: v for k, v in job.items()
@@ -628,7 +628,7 @@ def _public_job(job: dict) -> dict:
 
 def _find_job(job_id: str):
     """Live in-memory state if the job is running, else the stored record."""
-    # id проверки уходит в имя файла отчёта — принимаем только тот вид, в
+    # id проверки уходит в имя файла отчёта – принимаем только тот вид, в
     # котором сами его выдаём, чтобы «../» из адреса никуда не привёл.
     if not JOB_ID_RE.match(job_id or ''):
         return None
@@ -779,7 +779,7 @@ def admin_users():
     return render_template(
         'users.html', page='users', users=users,
         permissions=accounts.PERMISSIONS,
-        # Политика паролей — нижняя граница: при включённой настройке галочку
+        # Политика паролей – нижняя граница: при включённой настройке галочку
         # «сменить при первом входе» снять нельзя.
         force_change=bool(accounts.get_settings().get('pw_require_change_first')))
 
@@ -856,7 +856,7 @@ def admin_migration():
 @app.route('/admin/migration/export')
 @admin_required
 def migration_export():
-    """Весь состав базы одним файлом .sql — схема, данные, порядок вставки."""
+    """Весь состав базы одним файлом .sql – схема, данные, порядок вставки."""
     payload = sqlmigrate.dump().encode('utf-8')
     stamp = datetime.now().strftime('%d.%m.%Y')
     accounts.record_event(g.user['login'], True, _client_ip(),
@@ -882,7 +882,7 @@ def migration_import():
     try:
         text = upload.read().decode('utf-8')
     except UnicodeDecodeError:
-        flash('Файл не в кодировке UTF-8 — это не наш дамп')
+        flash('Файл не в кодировке UTF-8 – это не наш дамп')
         return redirect(url_for('admin_migration'))
 
     try:
@@ -902,7 +902,7 @@ def migration_import():
           'групп преподавателей: {teams}.'
           .format(**stats))
     if rows.get('skipped'):
-        flash(f'Пропущено непонятных инструкций: {rows["skipped"]} — '
+        flash(f'Пропущено непонятных инструкций: {rows["skipped"]} – '
               'загружаются только INSERT в таблицы базы.')
     return redirect(url_for('admin_migration'))
 
@@ -984,7 +984,7 @@ def _parse_weights_form(form) -> dict:
 def _grade_params(form) -> tuple:
     """(weights, scale) для запускаемой проверки.
 
-    Форма может прислать свои — «S1:100,F2:40». Чего нет в запросе, берётся из
+    Форма может прислать свои – «S1:100,F2:40». Чего нет в запросе, берётся из
     системных настроек, поэтому старые клиенты и API без параметров считают по
     администраторским весам.
     """
@@ -997,7 +997,7 @@ def _grade_params(form) -> tuple:
 
 # Предел длины имени файла. Файловые системы меряют его в байтах, а не в
 # буквах: 255 байт на ext4. Кириллическая буква занимает два байта, арабская
-# или китайская — три, так что «безопасные» 180 букв превращались в 400 байт и
+# или китайская – три, так что «безопасные» 180 букв превращались в 400 байт и
 # запись падала с «File name too long». Оставляем запас на приписку _N, которой
 # разводятся одинаковые имена внутри архива.
 NAME_MAX_BYTES = 200
@@ -1027,11 +1027,11 @@ def _fit_name(name: str, limit: int = NAME_MAX_BYTES) -> str:
 def _safe_upload_name(raw: str):
     r"""Имя загружаемого файла, пригодное для записи на диск.
 
-    Кириллицу оставляем — из имени файла берутся фамилия и группа. Убираем
+    Кириллицу оставляем – из имени файла берутся фамилия и группа. Убираем
     путь, служебные символы и всё, что не работа и не архив.
 
     Обратный слэш режется наравне с прямым: на Linux это допустимый символ
-    имени, и `a\..\..\x.pdf` проходило бы целиком — безвредно здесь, но на
+    имени, и `a\..\..\x.pdf` проходило бы целиком – безвредно здесь, но на
     файловой системе Windows это выход из каталога.
     """
     name = (raw or '').replace('\\', '/')
@@ -1046,7 +1046,7 @@ def _safe_upload_name(raw: str):
 def _unique_name(dest_dir: str, name: str, taken=()) -> str:
     """Имя, которое ещё не занято в каталоге задания.
 
-    Две работы с одинаковым именем файла — обычное дело: выгрузка из Moodle
+    Две работы с одинаковым именем файла – обычное дело: выгрузка из Moodle
     раскладывает их по папкам студентов, а на сервер приходят одни basename.
     Без разведения имён вторая работа молча записывалась поверх первой и
     выпадала из проверки.
@@ -1065,7 +1065,7 @@ def _unique_name(dest_dir: str, name: str, taken=()) -> str:
 def _zip_name(info: zipfile.ZipInfo) -> str:
     """Имя записи архива в читаемом виде.
 
-    Архив без флага UTF-8 zipfile разбирает как cp437 — русские и арабские
+    Архив без флага UTF-8 zipfile разбирает как cp437 – русские и арабские
     фамилии превращаются в мусор вроде «Ð˜Ð²Ð°Ð½Ð¾Ð²». Возвращаем байты назад
     и читаем их как UTF-8: так собирают архивы Moodle и большинство архиваторов.
     """
@@ -1091,7 +1091,7 @@ def _doc_entries(zf: zipfile.ZipFile) -> list:
 
 
 def _zip_doc_count(archive: str) -> int:
-    """Сколько работ в архиве. Читается только оглавление — ответ мгновенный,
+    """Сколько работ в архиве. Читается только оглавление – ответ мгновенный,
     поэтому «в архиве нет работ» видно сразу, а не после долгой распаковки."""
     with zipfile.ZipFile(archive, 'r') as zf:
         return len(_doc_entries(zf))
@@ -1102,7 +1102,7 @@ def _extract_zip(archive: str, dest_dir: str, on_file=None) -> None:
 
     Имена берём по последнему сегменту пути: архив с записью вида
     `../../etc/passwd` не должен ничего написать за пределами tmp_dir. Заодно
-    ограничиваем число файлов и суммарный размер — распаковка «архива-бомбы»
+    ограничиваем число файлов и суммарный размер – распаковка «архива-бомбы»
     иначе забьёт диск сервера.
 
     on_file(готово, всего) вызывается после каждого файла: распаковка сотни
@@ -1143,7 +1143,7 @@ def _upload_slot(upload_id):
     with uploads_lock:
         slot = uploads.get(upload_id or '')
         if slot is None:
-            return None, 'Загрузка не найдена или устарела — начните заново', 404
+            return None, 'Загрузка не найдена или устарела – начните заново', 404
         if slot['owner'] != g.user['login']:
             return None, 'Загрузка принадлежит другой учётной записи', 403
         return slot, None, 200
@@ -1169,7 +1169,7 @@ def _start_job(uploaded, threshold: float, owner, enabled_checks=None,
     """Принять файлы одним запросом и запустить проверку.
 
     Так работают API и старые клиенты: объём такой загрузки ограничен пределом
-    одного запроса. Интерфейс шлёт партию кусками — см. /upload/part.
+    одного запроса. Интерфейс шлёт партию кусками – см. /upload/part.
     """
     if not uploaded or all(f.filename == '' for f in uploaded):
         return None, 'Файлы не выбраны', 400
@@ -1181,7 +1181,7 @@ def _start_job(uploaded, threshold: float, owner, enabled_checks=None,
             if name is None:
                 continue
             # Имя разводится, а не перезаписывается: два файла с одинаковым
-            # basename — это две разные работы, а не одна.
+            # basename – это две разные работы, а не одна.
             f.save(os.path.join(tmp_dir, _unique_name(tmp_dir, name)))
     except Exception as e:
         shutil.rmtree(tmp_dir, ignore_errors=True)
@@ -1199,7 +1199,7 @@ def _launch(tmp_dir: str, threshold: float, owner, enabled_checks=None,
     use_memory: when False, skip comparison against stored fingerprints
     (new reports are still added to the base).
     weights/scale: «процент использования» каждого критерия и шкала оценки.
-    Захватываются в момент запуска — оценка не должна меняться задним числом.
+    Захватываются в момент запуска – оценка не должна меняться задним числом.
 
     Returns (job_id, error_message, http_status). On success error_message is
     None; on failure job_id is None.
@@ -1215,7 +1215,7 @@ def _launch(tmp_dir: str, threshold: float, owner, enabled_checks=None,
             if not item.is_file():
                 continue
             # Оглавление архива читается мгновенно: число работ известно сразу,
-            # а сама распаковка — уже в потоке проверки.
+            # а сама распаковка – уже в потоке проверки.
             expected += (_zip_doc_count(str(item))
                          if item.name.lower().endswith('.zip') else 1)
     except zipfile.BadZipFile:
@@ -1334,7 +1334,7 @@ def _cancel_job(job_id: str):
 
     Отметка ставится в память процесса: поток проверки видит её в ближайшей
     точке остановки (см. _tick) и сворачивается сам. Убить поток снаружи нечем,
-    да и не нужно — отпущенный по-хорошему, он успевает стереть временный
+    да и не нужно – отпущенный по-хорошему, он успевает стереть временный
     каталог с принятыми файлами.
     """
     job = _find_job(job_id)
@@ -1343,7 +1343,7 @@ def _cancel_job(job_id: str):
     if not _may_touch(job, g.user):
         return _deny('Эта проверка принадлежит другому преподавателю.')
     if job.get('status') != 'processing':
-        return jsonify({'error': 'Проверка уже завершена — прерывать нечего.'}), 409
+        return jsonify({'error': 'Проверка уже завершена – прерывать нечего.'}), 409
 
     with jobs_lock:
         live = jobs.get(job_id)
@@ -1352,7 +1352,7 @@ def _cancel_job(job_id: str):
     if live is None:
         # Отметка свежая, а потока в этом процессе нет: проверку ведёт соседний
         # процесс, и его память отсюда не достать.
-        return jsonify({'error': 'Проверку ведёт другой процесс сервера — '
+        return jsonify({'error': 'Проверку ведёт другой процесс сервера – '
                                  'остановить её отсюда нельзя.'}), 409
 
     _update(job_id, _force=True, step='Останавливаем проверку…')
@@ -1361,7 +1361,7 @@ def _cancel_job(job_id: str):
 
 def _delete_job(job_id: str):
     """Delete a single check from history: in-memory state, stored record and
-    the saved HTML report. Fingerprints in the student base are kept — they are
+    the saved HTML report. Fingerprints in the student base are kept – they are
     managed separately via /memory."""
     job = _find_job(job_id)
     if job is None:
@@ -1371,7 +1371,7 @@ def _delete_job(job_id: str):
     if not accounts.can(g.user, 'delete_own'):
         return _deny('Нет права удалять проверки.')
     if job.get('status') == 'processing':
-        return jsonify({'error': 'Проверка ещё выполняется — дождитесь '
+        return jsonify({'error': 'Проверка ещё выполняется – дождитесь '
                                  'завершения или ошибки.'}), 409
     with jobs_lock:
         jobs.pop(job_id, None)
@@ -1394,7 +1394,7 @@ def _memory_delete(key: str):
     entry = load_store().get(key)
     if entry is None:
         abort(404)
-    # Видеть чужую запись по общей базе группы можно, удалять — нет: коллега
+    # Видеть чужую запись по общей базе группы можно, удалять – нет: коллега
     # лишился бы отпечатка, по которому ищет заимствования, и не узнал бы об
     # этом. Свою базу чистит каждый сам.
     if not _sees_all(g.user) and entry.get('owner', '') != g.user['login']:
@@ -1426,7 +1426,7 @@ def upload():
 def upload_start():
     """Открыть частичную загрузку.
 
-    Партия за курс — это гигабайты, одним запросом столько не проходит:
+    Партия за курс – это гигабайты, одним запросом столько не проходит:
     упирается в лимит nginx и в таймаут. Браузер берёт отсюда номер загрузки и
     досылает файлы кусками.
     """
@@ -1465,8 +1465,8 @@ def upload_part():
 
     # Номер файла в партии присылает браузер: по одному имени два файла не
     # различить, и раньше второй «отчет.pdf» попадал в ветку «повтор после
-    # обрыва» — сервер отвечал успехом, а работа терялась. Старые клиенты и
-    # прямые вызовы номера не шлют: для них ключ — по-прежнему имя.
+    # обрыва» – сервер отвечал успехом, а работа терялась. Старые клиенты и
+    # прямые вызовы номера не шлют: для них ключ – по-прежнему имя.
     key = (request.form.get('idx') or '').strip() or name
     with uploads_lock:
         stored = slot['files'].get(key)
@@ -1480,7 +1480,7 @@ def upload_part():
     have = os.path.getsize(dest) if os.path.exists(dest) else 0
     offset = _int_field(request.form, 'offset', have, 0, UPLOAD_MAX_TOTAL)
     if offset > have:
-        return jsonify({'error': 'Кусок пришёл не по порядку — начните заново',
+        return jsonify({'error': 'Кусок пришёл не по порядку – начните заново',
                         'have': have}), 409
     if offset < have:
         # Повтор после обрыва: эти байты уже записаны, второй раз не дописываем.
@@ -1527,7 +1527,7 @@ def upload_finish():
 @app.route('/upload/cancel', methods=['POST'])
 @permission_required('run_checks')
 def upload_cancel():
-    """Отменить загрузку — вкладку закрыли или связь оборвалась."""
+    """Отменить загрузку – вкладку закрыли или связь оборвалась."""
     upload_id = request.form.get('upload_id')
     slot, error, code = _upload_slot(upload_id)
     if error:
@@ -1598,8 +1598,8 @@ def list_jobs():
 def list_active_jobs():
     """Незаконченные проверки этой учётной записи, новые сверху.
 
-    Нужны странице «Новая проверка»: её открывают заново — перезагрузили,
-    вернулись с другой вкладки — и она должна снова показать идущую проверку,
+    Нужны странице «Новая проверка»: её открывают заново – перезагрузили,
+    вернулись с другой вкладки – и она должна снова показать идущую проверку,
     а не пустую форму. Чужие сюда не попадают даже у записи с правом видеть
     всё: это «мои идущие», а не «все идущие».
     """
@@ -1622,7 +1622,7 @@ def list_active_jobs():
 def _must_change(form) -> bool:
     """Требовать ли смену пароля при первом входе.
 
-    Настройка «Требовать смену пароля при первом входе» — нижняя граница:
+    Настройка «Требовать смену пароля при первом входе» – нижняя граница:
     администратор может её ужесточить для отдельной записи, но не ослабить.
     Раньше настройка сохранялась и не читалась никем, то есть не делала ничего.
     """
@@ -1634,7 +1634,7 @@ def _must_change(form) -> bool:
 @admin_required
 def user_create():
     """Учётная запись заводится сразу с рабочим паролем: администратор
-    задаёт его вместе с ФИО и передаёт лично. Временных паролей нет — не
+    задаёт его вместе с ФИО и передаёт лично. Временных паролей нет – не
     остаётся окна, когда в систему можно войти по строке из общей переписки."""
     form = request.form
     login_name = form.get('login', '').strip().lower()
@@ -1657,7 +1657,7 @@ def user_create():
             login=login_name, fio=fio, password=password,
             role=form.get('role', 'teacher'), email=form.get('email', '').strip(),
             must_change=_must_change(form))
-        flash(f'Учётная запись {login_name} создана — сообщите пароль лично.')
+        flash(f'Учётная запись {login_name} создана – сообщите пароль лично.')
     return redirect(url_for('admin_users'))
 
 
@@ -1682,7 +1682,7 @@ def user_perms(login_name):
 @app.route('/admin/users/<login_name>/password', methods=['POST'])
 @admin_required
 def user_reset_password(login_name):
-    """Новый пароль задаёт администратор — тем же способом, что и при
+    """Новый пароль задаёт администратор – тем же способом, что и при
     создании записи."""
     user = accounts.get_user(login_name)
     if user is None:
@@ -1696,7 +1696,7 @@ def user_reset_password(login_name):
     else:
         accounts.set_password(login_name, password,
                               must_change=_must_change(request.form))
-        flash(f'Пароль для {user["fio"]} изменён — сообщите его лично.')
+        flash(f'Пароль для {user["fio"]} изменён – сообщите его лично.')
     return redirect(url_for('admin_users'))
 
 
@@ -1726,7 +1726,7 @@ def user_apikey(login_name):
     if user is None:
         abort(404)
     key = accounts.issue_api_key(login_name)
-    flash(f'Ключ API для {user["fio"]}: {key} — сохраните, второй раз он не покажется')
+    flash(f'Ключ API для {user["fio"]}: {key} – сохраните, второй раз он не покажется')
     return redirect(url_for('admin_users'))
 
 
@@ -1748,7 +1748,7 @@ def user_delete(login_name):
 # ─────────────────────────  Teacher groups  ─────────────────────────
 
 def _team_members_form(form) -> list:
-    """Логины из формы состава — только существующие учётные записи.
+    """Логины из формы состава – только существующие учётные записи.
 
     Состав приходит галочками, а список для них строится из тех же учётных
     записей, поэтому чужой логин здесь появиться может только подделкой формы.
@@ -1837,16 +1837,16 @@ TICK_EVERY = 0.4    # как часто пересчитывается проц�
 
 
 class JobCancelled(Exception):
-    """Проверку прервал преподаватель — это не сбой, а решение."""
+    """Проверку прервал преподаватель – это не сбой, а решение."""
 
 
 def _update(job_id: str, _force: bool = False, **kwargs):
     """Обновить состояние проверки.
 
-    В памяти пишем всегда — страница берёт статус оттуда. На диск (или в
+    В памяти пишем всегда – страница берёт статус оттуда. На диск (или в
     PostgreSQL) сбрасываем не чаще раза в секунду: на партии из сотни отчётов
     прогресс меняется сотни раз, и переписывать jobs.json на каждый шаг дороже
-    самой проверки. Смена статуса сохраняется немедленно — по ней восстанавливают
+    самой проверки. Смена статуса сохраняется немедленно – по ней восстанавливают
     историю после перезапуска.
     """
     snapshot = None
@@ -1869,7 +1869,7 @@ def _update(job_id: str, _force: bool = False, **kwargs):
 def _stop_point(job_id: str):
     """Прерваться, если преподаватель попросил остановить проверку.
 
-    Ставится между этапами — там, где _tick не вызывается и до следующего
+    Ставится между этапами – там, где _tick не вызывается и до следующего
     сообщения о ходе могут пройти минуты.
     """
     with jobs_lock:
@@ -1880,7 +1880,7 @@ def _stop_point(job_id: str):
 def _tick(job_id: str, lo: int, hi: int, done: int, total: int, step: str):
     """Процент внутри длинного этапа: lo…hi пропорционально done/total.
 
-    Без этого полоса замирает на одном значении на всё время сравнения пар —
+    Без этого полоса замирает на одном значении на всё время сравнения пар –
     на большой партии это минуты, и проверка выглядит зависшей.
 
     Здесь же точка остановки внутри длинных циклов: отметку об отмене смотрим
@@ -1904,7 +1904,7 @@ def _tick(job_id: str, lo: int, hi: int, done: int, total: int, step: str):
 def _beat(job_id: str, stop: threading.Event):
     """Отмечать в хранилище, что проверка ещё идёт.
 
-    Между шагами бывают долгие паузы — сборка отчёта на сотне работ занимает
+    Между шагами бывают долгие паузы – сборка отчёта на сотне работ занимает
     минуты и не обновляет ни процент, ни надпись. Без отметки такую проверку
     сочли бы брошенной и погасили ошибкой.
     """
@@ -1919,7 +1919,7 @@ def _collect_docs(job_id: str, tmp_dir: str) -> tuple:
 
     Имена нужны отдельно: после конвертации работа лежит под своим именем с
     расширением .pdf, а в отчёте и в ведомости должно стоять «Иванов.docx».
-    Третьим списком идут работы, которые прочитать не удалось, — они попадают
+    Третьим списком идут работы, которые прочитать не удалось, – они попадают
     в отчёт карточкой с ошибкой и не пропадают из ведомости молча.
 
     Живёт в потоке проверки, а не в обработчике запроса: на архиве в сотни
@@ -1995,7 +1995,7 @@ _OS_REASON = {
 def _error_text(exc: Exception, step: str) -> str:
     """Сообщение об обрыве проверки. Подробности остаются в поле error."""
     if isinstance(exc, MemoryError):
-        reason = ('серверу не хватило памяти на этой партии — попробуйте '
+        reason = ('серверу не хватило памяти на этой партии – попробуйте '
                   'разделить её на части')
     elif isinstance(exc, OSError) and exc.errno in _OS_REASON:
         reason = _OS_REASON[exc.errno]
@@ -2026,7 +2026,7 @@ def _process_job(job_id: str, tmp_dir: str, threshold: float,
 
         # 1. Load the base visible to this teacher: their own entries plus
         #    those of colleagues in their groups. Loaded even with
-        #    use_memory=False — step 8 appends to it.
+        #    use_memory=False – step 8 appends to it.
         store = load_store(teams.visible_owners(owner))
         if use_memory:
             _update(job_id, progress=5, step=f'База загружена: {len(store)} записей')
@@ -2059,7 +2059,7 @@ def _process_job(job_id: str, tmp_dir: str, threshold: float,
         #    fingerprint from a previous session (false "self-plagiarism").
         #    Отбор идёт по «фио|группа», а не по ключу записи: в общей базе
         #    группы преподавателей ту же работу мог сохранить коллега, под
-        #    своим владельцем, и по ключу она бы не отсеялась — пересдача у
+        #    своим владельцем, и по ключу она бы не отсеялась – пересдача у
         #    другого преподавателя показывалась бы как стопроцентное
         #    заимствование у самого себя.
         new_students = {sid for r in reports

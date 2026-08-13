@@ -1,4 +1,4 @@
-/* АЛЁНА — интерфейс: список проверок, детали, загрузка, общие элементы. */
+/* АЛЁНА – интерфейс: список проверок, детали, загрузка, общие элементы. */
 (() => {
   "use strict";
 
@@ -38,9 +38,9 @@
     const t = document.createElement('div');
     t.className = 'toast';
     t.textContent = text;
-    t.style.cssText = 'position:fixed;left:50%;bottom:26px;transform:translateX(-50%);' +
-      'background:var(--ink);color:var(--surface);padding:9px 16px;border-radius:20px;' +
-      'font-size:13px;z-index:60;box-shadow:var(--shadow)';
+    t.style.cssText = 'position:fixed;left:50%;bottom:var(--space-5);transform:translateX(-50%);' +
+      'background:var(--ink);color:var(--surface);padding:var(--space-2) var(--space-4);' +
+      'border-radius:var(--radius-pill);font-size:var(--text-13);z-index:60;box-shadow:var(--shadow-3)';
     document.body.appendChild(t);
     setTimeout(() => t.remove(), 2600);
   }
@@ -109,7 +109,7 @@
       }
       toast(okMessage);
     } catch (e) {
-      toast('Не удалось скопировать — выделите текст вручную');
+      toast('Не удалось скопировать – выделите текст вручную');
     }
   }
 
@@ -128,8 +128,8 @@
 
     rows.forEach(r => {
       const out = r.querySelector('.crit-share');
-      if (!on(r)) { out.textContent = '—'; out.title = 'Критерий снят'; return; }
-      // Сумма нулей — вырожденный случай, критерии считаются равными.
+      if (!on(r)) { out.textContent = '–'; out.title = 'Критерий снят'; return; }
+      // Сумма нулей – вырожденный случай, критерии считаются равными.
       const share = total ? val(r) * 100 / total : 100 / active.length;
       out.textContent = (share < 9.95 ? share.toFixed(1) : Math.round(share)) + '%';
       out.title = 'Доля в рекомендуемой оценке';
@@ -179,12 +179,12 @@
     // Та же строка, что и в checker/grading.py: отзыв должен совпадать с тем,
     // что напечатано в HTML-отчёте.
     if (st.no_text) {
-      lines.push('Текст из файла не извлекается — скорее всего это скан или '
+      lines.push('Текст из файла не извлекается – скорее всего это скан или '
         + 'нестандартные шрифты. Заимствование автоматически не проверено, '
         + 'нужна ручная проверка');
     }
     if (st.plag != null && thr != null && st.plag >= thr) {
-      lines.push(`Совпадение с другой работой — ${st.plag}% (допустимый порог ${thr}%)`);
+      lines.push(`Совпадение с другой работой – ${st.plag}% (допустимый порог ${thr}%)`);
     }
     return lines;
   }
@@ -271,7 +271,7 @@
           <button class="job" data-job="${esc(j.id)}" style="--tone:${toneVar(tone)}" aria-selected="${j.id === selected}">
             <span class="job-top">
               <span class="job-id mono">#${esc(j.id.slice(0, 6))}</span>
-              <span class="job-group">${esc(s.group || '—')}</span>
+              <span class="job-group">${esc(s.group || '–')}</span>
             </span>
             <span class="job-meta">
               <span class="mono">${j.total || 0}</span> файлов
@@ -306,7 +306,7 @@
       const set = (id, v) => { const el = $(id); if (el) el.textContent = v; };
       set('#t-checks', list.length);
       set('#t-files', files);
-      set('#t-gost', gosts.length ? Math.round(gosts.reduce((a, b) => a + b, 0) / gosts.length) + '%' : '—');
+      set('#t-gost', gosts.length ? Math.round(gosts.reduce((a, b) => a + b, 0) / gosts.length) + '%' : '–');
       set('#t-match', matches);
     }
 
@@ -353,7 +353,7 @@
               <span class="stat-chip">Пар текста: <b>${j.text_pairs || 0}</b></span>
               <span class="stat-chip">Дублей изображений: <b>${j.img_pairs || 0}</b></span>
             </div>
-            <p class="hint" style="margin:14px 0 0;">Можно закрыть страницу — проверка продолжится на сервере,
+            <p class="hint" style="margin:14px 0 0;">Можно закрыть страницу – проверка продолжится на сервере,
               результат появится в списке.</p>
           </div>`;
         wireDelete(); wireStop(); return;
@@ -418,8 +418,8 @@
       const students = (s.students || []).map((st, i) => {
         const fb = `<td class="act"><button class="btn sm" data-fb="${i}">Отзыв</button></td>`;
         if (st.error) {
-          return `<tr><td>${esc(st.fio)}</td><td class="num">—</td><td class="num">—</td>
-            <td class="num">—</td>
+          return `<tr><td>${esc(st.fio)}</td><td class="num">–</td><td class="num">–</td>
+            <td class="num">–</td>
             <td><span class="code">не обработан: ${esc(st.error)}</span></td>${fb}</tr>`;
         }
         const a = gostTone(st.gost);
@@ -428,16 +428,16 @@
         /* Работа без извлекаемого текста не сравнивалась ни с чем: «0 %»
            читалось бы как «проверено, чисто». */
         const plagCell = st.plag == null
-          ? `<td class="num" title="текст не извлечён — сравнение не проводилось">—</td>`
+          ? `<td class="num" title="текст не извлечён – сравнение не проводилось">–</td>`
           : `<td class="num" style="color:${toneVar(plagTone(st.plag, thr))}">${st.plag}%</td>`;
         return `<tr>
           <td>${esc(st.fio)}${st.group ? `<br><span class="sub mono">${esc(st.group)}</span>` : ''}</td>
           <td class="num" style="color:${toneVar(a)}">${st.gost}%</td>
-          <td class="num" style="color:${toneVar(mt2)}"><b>${g.pct == null ? '—' : g.pct + '%'}</b>
+          <td class="num" style="color:${toneVar(mt2)}"><b>${g.pct == null ? '–' : g.pct + '%'}</b>
             ${g.score != null ? `<br><span class="sub mono">${g.score} из ${g.scale}</span>` : ''}</td>
           ${plagCell}
           <td>${st.no_text
-            ? '<span class="code">текст не извлечён — проверить вручную</span> '
+            ? '<span class="code">текст не извлечён – проверить вручную</span> '
             : ''}${st.fails.length
             ? '<span class="sub">не пройдено:</span> ' + st.fails.map(c => `<span class="code">${esc(c)}</span>`).join(' ')
             : '<span class="code pass">все критерии пройдены</span>'}</td>
@@ -445,12 +445,12 @@
         </tr>`;
       }).join('');
 
-      // Совпадений может быть десятки тысяч — в дайджесте лежат самые заметные.
+      // Совпадений может быть десятки тысяч – в дайджесте лежат самые заметные.
       const shownMatches = (s.matches || []).length;
       const totalMatches = s.matches_total != null ? s.matches_total : shownMatches;
       const moreMatches = totalMatches > shownMatches
         ? `<tr><td colspan="5" class="sub" style="padding:12px;">Показаны ${shownMatches}
-             самых заметных совпадений из ${totalMatches}. Полный список — в отчёте.</td></tr>`
+             самых заметных совпадений из ${totalMatches}. Полный список – в отчёте.</td></tr>`
         : '';
       const matches = shownMatches ? s.matches.map(m => `
         <tr>
@@ -492,7 +492,7 @@
       wireFeedback(s, thr);
     }
 
-    /* Готовый отзыв: то же, что видно в таблице, но словами и одним куском —
+    /* Готовый отзыв: то же, что видно в таблице, но словами и одним куском –
        преподаватель копирует его на портал, ничего не переписывая. */
     function wireFeedback(s, thr) {
       const list = s.students || [];
@@ -507,7 +507,7 @@
       const many = Array.isArray(target);
       if (many && !target.length) { toast('В этой проверке нет работ'); return; }
       const build = det => many
-        ? target.map(st => feedbackText(st, thr, det)).join('\n\n————————\n\n')
+        ? target.map(st => feedbackText(st, thr, det)).join('\n\n––––––––\n\n')
         : feedbackText(target, thr, det);
 
       confirmAction({
@@ -517,11 +517,11 @@
         body: `
           <label class="check" style="margin-bottom:10px;">
             <input type="checkbox" id="fb-details">
-            <span>С подробностями проверки — что именно нашлось</span>
+            <span>С подробностями проверки – что именно нашлось</span>
           </label>
           <textarea id="fb-text" class="fb-text" rows="${many ? 16 : 11}"
             aria-label="Текст отзыва">${esc(build(false))}</textarea>
-          <p class="hint" style="margin:8px 0 0;">Текст можно поправить прямо здесь — копируется то,
+          <p class="hint" style="margin:8px 0 0;">Текст можно поправить прямо здесь – копируется то,
             что осталось в поле.</p>`,
         okText: 'Копировать',
         cancelText: 'Закрыть',
@@ -545,7 +545,7 @@
       };
     }
 
-    /* Прервать идущую проверку: партию загрузили не ту, порог задали не тот —
+    /* Прервать идущую проверку: партию загрузили не ту, порог задали не тот –
        ждать полчаса до конца, чтобы начать заново, незачем. */
     function wireStop() {
       const b = $('#detail-pane [data-stop]');
@@ -570,7 +570,7 @@
       if (!b || b.disabled) return;
       b.onclick = () => confirmAction({
         title: 'Удалить проверку?',
-        sub: 'Отчёт и запись в истории будут удалены. Отпечатки студентов останутся в базе — их удаляют отдельно.',
+        sub: 'Отчёт и запись в истории будут удалены. Отпечатки студентов останутся в базе – их удаляют отдельно.',
         body: `<p style="margin:0;font-size:13px;">Проверка <b class="mono">#${esc(b.dataset.del)}</b></p>`,
         okText: 'Удалить', danger: true,
         onOk: async () => {
@@ -587,11 +587,11 @@
 
     const clearBtn = $('#clear-all');
     /* У записи, которая видит чужие проверки, «очистить» стирает данные всех
-       преподавателей, а не только свои, — предупреждение должно это говорить. */
+       преподавателей, а не только свои, – предупреждение должно это говорить. */
     if (clearBtn) clearBtn.onclick = () => confirmAction({
       title: 'Очистить историю и базу отпечатков?',
       sub: seesAll
-        ? 'Будут удалены проверки, отчёты и отпечатки ВСЕХ преподавателей — не только ваши. Отменить нельзя.'
+        ? 'Будут удалены проверки, отчёты и отпечатки ВСЕХ преподавателей – не только ваши. Отменить нельзя.'
         : 'Будут удалены все ваши проверки, их отчёты и все сохранённые отпечатки. Отменить нельзя.',
       okText: 'Очистить всё', danger: true,
       onOk: async () => {
@@ -634,7 +634,7 @@
       + (names.length > 3 ? ` и ещё ${names.length - 3}` : '');
 
     /* Формат проверяем до отправки: перетащить можно что угодно, а узнавать об
-       отказе после получаса загрузки — обидно. */
+       отказе после получаса загрузки – обидно. */
     const addFiles = list => {
       if (locked) return;
       const wrong = [], empty = [], dup = [];
@@ -659,7 +659,7 @@
           `<button type="button" class="chip-x" data-drop="${i}" title="Убрать файл"` +
           ` aria-label="Убрать ${esc(f.name)}">×</button></span>`).join('') + '</div>' +
         `<p class="hint" style="margin:8px 0 0;">Выбрано файлов: ${picked.length} · ${mb(total)} МБ` +
-        (overLimit ? ` — больше допустимых ${limitMb} МБ, уберите лишние` : '') + '</p>';
+        (overLimit ? ` – больше допустимых ${limitMb} МБ, уберите лишние` : '') + '</p>';
 
       $$('#file-list [data-drop]').forEach(b => {
         b.disabled = locked;
@@ -692,7 +692,7 @@
     $('#gost-none').onclick = () => { $$('.gost-cb').forEach(c => c.checked = false); countGost(); };
     countGost();
 
-    /* Веса скрыты, пока преподаватель их не открыл: обычный запуск — это
+    /* Веса скрыты, пока преподаватель их не открыл: обычный запуск – это
        три клика, а не настройка формулы. */
     const wBtn = $('#gost-weights');
     if (wBtn) wBtn.onclick = () => {
@@ -706,7 +706,7 @@
 
     /* Пока партия загружается и проверяется, поля формы заперты: параметры уже
        ушли на сервер вместе с файлами, и сдвинутый ползунок или снятая галочка
-       на идущую проверку не влияют — а выглядит так, будто влияют. Кнопку
+       на идущую проверку не влияют – а выглядит так, будто влияют. Кнопку
        «Прервать» и показ весов не трогаем: смотреть и останавливать можно. */
     const LOCKABLE = '#file-input,#threshold,#use-memory,.gost-cb,.w-in,'
       + '#grade-scale,#gost-all,#gost-none,#w-equal';
@@ -716,11 +716,11 @@
       $$(LOCKABLE).forEach(el => { el.disabled = on; });
       zone.classList.toggle('off', on);
       uploadForm.classList.toggle('locked', on);
-      showFiles();          // крестики «убрать файл» и кнопка запуска — там же
+      showFiles();          // крестики «убрать файл» и кнопка запуска – там же
     };
 
-    /* Полоса идёт сквозная: первые UPLOAD_SHARE процентов — передача файлов на
-       сервер, остальное — сама проверка. Иначе при загрузке пачки отчётов
+    /* Полоса идёт сквозная: первые UPLOAD_SHARE процентов – передача файлов на
+       сервер, остальное – сама проверка. Иначе при загрузке пачки отчётов
        страница минутами стоит на нуле: fetch не сообщает, сколько уже ушло. */
     const UPLOAD_SHARE = 15;
 
@@ -733,12 +733,12 @@
 
     /* Идущий запрос: по нему «Прервать» обрывает передачу файлов, пока сама
        проверка ещё не запущена и останавливать на сервере нечего. Отдельная
-       отметка нужна потому, что между кусками запроса нет — оборвать в этот
+       отметка нужна потому, что между кусками запроса нет – оборвать в этот
        миг нечего, а решение уже принято. */
     let sending = null;
     let aborting = false;
 
-    /* Запрос с телом: XHR, а не fetch, — нужен ход отправки. */
+    /* Запрос с телом: XHR, а не fetch, – нужен ход отправки. */
     const send = (url, data, onSent) => new Promise((resolve, reject) => {
       const xhr = new XMLHttpRequest();
       sending = xhr;
@@ -767,7 +767,7 @@
       xhr.send(data);
     });
 
-    /* Файлы уходят кусками: партия за курс — это гигабайты, одним запросом
+    /* Файлы уходят кусками: партия за курс – это гигабайты, одним запросом
        столько не проходит (лимит nginx, таймаут, память). Куски пишутся на
        сервере в один каталог, проверка запускается после последнего. */
     const sendFiles = async (files, extra) => {
@@ -778,10 +778,10 @@
 
       const show = sent => setBar(
         totalBytes ? (doneBytes + sent) / totalBytes * UPLOAD_SHARE : 0,
-        `Загрузка на сервер — ${mb(doneBytes + sent)} из ${mb(totalBytes)} МБ…`);
+        `Загрузка на сервер – ${mb(doneBytes + sent)} из ${mb(totalBytes)} МБ…`);
 
       /* Кусок помечен смещением, поэтому повтор после обрыва связи не
-         задваивает байты — сервер узнаёт уже записанное и пропускает его. */
+         задваивает байты – сервер узнаёт уже записанное и пропускает его. */
       const stopped = () => Object.assign(new Error('Загрузка прервана'), { aborted: true });
 
       const sendChunk = async (f, idx, off) => {
@@ -791,14 +791,14 @@
           part.append('upload_id', start.upload_id);
           part.append('name', f.name);
           /* Номер файла в партии: по одному имени сервер не отличит второй
-             «отчет.pdf» от повтора куска первого — и молча терял работу. */
+             «отчет.pdf» от повтора куска первого – и молча терял работу. */
           part.append('idx', String(idx));
           part.append('offset', String(off));
           part.append('chunk', f.slice(off, off + chunkSize), 'part');
           try {
             return await send('/upload/part', part, sent => show(sent));
           } catch (err) {
-            // Отказ по сути — не тот файл, нет прав, превышен объём — повторять
+            // Отказ по сути – не тот файл, нет прав, превышен объём – повторять
             // бессмысленно. Повтор только для обрыва связи и сбоя сервера.
             const worth = !err.aborted && (!err.status || err.status >= 500);
             if (!worth || attempt >= 3) throw err;
@@ -818,7 +818,7 @@
           }
         }
         // Прервать могли и на последнем куске: файлы у сервера целиком, но
-        // запускать по ним проверку уже не надо — здесь их ещё уберут.
+        // запускать по ним проверку уже не надо – здесь их ещё уберут.
         if (aborting) throw stopped();
       } catch (err) {
         const cancel = new FormData();
@@ -828,7 +828,7 @@
       }
 
       /* Прерывать больше нечего: куски у сервера, остаётся получить номер
-         проверки. Кнопка вернётся, когда прерывать станет что — саму проверку. */
+         проверки. Кнопка вернётся, когда прерывать станет что – саму проверку. */
       cancelBtn.hidden = true;
       setBar(UPLOAD_SHARE, 'Файлы приняты, готовим проверку…');
       extra.append('upload_id', start.upload_id);
@@ -853,7 +853,7 @@
       $('#run-imgs').textContent = j.img_pairs || 0;
     };
 
-    /* redirect — проверку только что запустили с этой страницы: дождались конца
+    /* redirect – проверку только что запустили с этой страницы: дождались конца
        и ушли к результату. Восстановленную после перезагрузки никуда не уводим,
        иначе набранная рядом следующая партия пропала бы. */
     const watch = (jobId, redirect) => {
@@ -883,7 +883,7 @@
         let res;
         try { res = await fetch(`/status/${jobId}`); }
         catch (e) { setTimeout(poll, 2000); return; }
-        // Проверку удалили из истории — показывать больше нечего.
+        // Проверку удалили из истории – показывать больше нечего.
         if (res.status === 404) { watched = null; panel.hidden = true; setLocked(false); return; }
         if (!res.ok) { setTimeout(poll, 2000); return; }
         const j = await res.json();
@@ -942,7 +942,7 @@
       if (!files.length) { toast('Сначала выберите отчёты'); return; }
       if (overLimit) {
         const totalMb = files.reduce((s, f) => s + f.size, 0) / 1048576;
-        toast(`Выбрано ${totalMb.toFixed(0)} МБ — больше допустимых ${limitMb} МБ`);
+        toast(`Выбрано ${totalMb.toFixed(0)} МБ – больше допустимых ${limitMb} МБ`);
         return;
       }
 

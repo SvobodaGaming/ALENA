@@ -12,7 +12,7 @@
         <div class="section-head"><h2>Значения по умолчанию</h2></div>
         <div class="section-body stack">
           <div class="field">
-            <label for="threshold">Порог заимствования — <b class="mono" id="thr-out">{{ (conf.default_threshold * 100) | round | int }}%</b></label>
+            <label for="threshold">Порог заимствования – <b class="mono" id="thr-out">{{ (conf.default_threshold * 100) | round | int }}%</b></label>
             <input type="range" id="threshold" name="threshold" min="10" max="90" step="5"
                    value="{{ (conf.default_threshold * 100) | round | int }}"
                    oninput="document.getElementById('thr-out').textContent = this.value + '%'">
@@ -21,7 +21,7 @@
           <div class="field">
             <label for="grade_scale">Шкала рекомендуемой оценки</label>
             <select id="grade_scale" name="grade_scale">
-              <option value="100" {% if scale == 100 %}selected{% endif %}>Проценты, 0—100</option>
+              <option value="100" {% if scale == 100 %}selected{% endif %}>Проценты, 0–100</option>
               <option value="5" {% if scale == 5 %}selected{% endif %}>5 баллов</option>
               <option value="10" {% if scale == 10 %}selected{% endif %}>10 баллов</option>
               <option value="20" {% if scale == 20 %}selected{% endif %}>20 баллов</option>
@@ -62,16 +62,16 @@
                 <input type="number" class="w-in" name="weight_{{ code }}" data-code="{{ code }}"
                        min="0" max="100" step="5" value="{{ weights[code] }}"
                        aria-label="Вес критерия {{ code }}, %">
-                <b class="mono crit-share" data-share="{{ code }}">—</b>
+                <b class="mono crit-share" data-share="{{ code }}">–</b>
               </span>
             </div>
             {% endfor %}
           </div>
           <p class="hint" style="margin:14px 0 0;">Сканы и экспорт из LaTeX часто дают ложные срабатывания
-            по шрифту и полям — такие критерии можно снять здесь один раз для всех.</p>
-          <p class="hint" style="margin:8px 0 0;">Второе поле — процент использования критерия в
+            по шрифту и полям – такие критерии можно снять здесь один раз для всех.</p>
+          <p class="hint" style="margin:8px 0 0;">Второе поле – процент использования критерия в
             рекомендуемой оценке, от 0 до 100. Веса отмеченных критериев приводятся к сумме 100,
-            справа показана итоговая доля. Вес 0 — критерий проверяется и попадает в отзыв студенту,
+            справа показана итоговая доля. Вес 0 – критерий проверяется и попадает в отзыв студенту,
             но оценку не меняет. Преподаватель может изменить веса при запуске проверки.</p>
           <div style="display:flex;gap:8px;margin-top:12px;">
             <button class="btn sm" type="button" id="w-equal">Сделать равными</button>
@@ -94,13 +94,13 @@
             <div class="field">
               <label for="pw_expire_days">Срок действия, дней</label>
               <input type="number" id="pw_expire_days" name="pw_expire_days" min="0" max="1095" value="{{ conf.pw_expire_days }}">
-              <span class="hint">0 — не требовать периодической смены. Иначе при
+              <span class="hint">0 – не требовать периодической смены. Иначе при
                 входе после этого срока система попросит задать новый пароль.</span>
             </div>
             <div class="field">
               <label for="lock_after_fails">Неудачных попыток до блокировки</label>
               <input type="number" id="lock_after_fails" name="lock_after_fails" min="0" max="20" value="{{ conf.lock_after_fails }}">
-              <span class="hint">0 — не закрывать вход.</span>
+              <span class="hint">0 – не закрывать вход.</span>
             </div>
             <div class="field">
               <label for="lock_minutes">Вход закрыт, минут</label>
@@ -134,7 +134,7 @@
         <div class="section-head"><h2>Выгрузка базы</h2></div>
         <div class="section-body">
           <p class="hint" style="margin:0 0 12px;">Выгружаются отпечатки всех преподавателей.
-            Преподаватель выгружает только свою базу — кнопки есть и на странице «База отчётов».</p>
+            Преподаватель выгружает только свою базу – кнопки есть и на странице «База отчётов».</p>
           <div style="display:flex;gap:8px;flex-wrap:wrap;">
             <a class="btn" href="{{ url_for('base_export', format='csv') }}">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M12 3v12M7.5 10.5L12 15l4.5-4.5"/><path d="M4 20h16"/></svg>
@@ -145,8 +145,8 @@
               Полная выгрузка (JSON)
             </a>
           </div>
-          <p class="hint" style="margin:12px 0 0;">CSV — список работ: студент, группа, файл, версия,
-            дата. JSON — полная копия с отпечатками текста и хешами изображений, годится
+          <p class="hint" style="margin:12px 0 0;">CSV – список работ: студент, группа, файл, версия,
+            дата. JSON – полная копия с отпечатками текста и хешами изображений, годится
             для переноса базы на другой сервер.</p>
         </div>
       </div>
@@ -167,8 +167,7 @@
             {% endfor %}
           </ul>
           <p class="hint" style="margin:14px 0 0;">
-            <b>{{ brand.TEAM }}</b><br>
-            {{ brand.REGISTRY_NOTE }}.
+            <b>{{ brand.TEAM }}</b>
           </p>
         </div>
       </div>

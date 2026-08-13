@@ -14,13 +14,13 @@
           <span>Логин: <b class="mono">{{ user.login }}</b></span>
           <span>Роль: <b>{{ ROLES.get(user.role, user.role) }}</b></span>
           {% if user.email %}<span>Почта: <b>{{ user.email }}</b></span>{% endif %}
-          <span>Создана: <b class="mono">{{ user.created_at or '—' }}</b></span>
+          <span>Создана: <b class="mono">{{ user.created_at or '–' }}</b></span>
         </div>
         <p class="hint" style="margin:14px 0 0;">
           {% if can(user, 'see_all') %}
           Вам доступны проверки и база отпечатков всех преподавателей.
           {% else %}
-          Вы видите только свои проверки и свою базу отпечатков — работы других преподавателей
+          Вы видите только свои проверки и свою базу отпечатков – работы других преподавателей
           недоступны, и ваши недоступны им.
           {% endif %}
         </p>
@@ -50,11 +50,11 @@
               {% if e.ok %}
               <span class="chip ok"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12.5l5 5L20 6.5"/></svg>Успешно</span>
               {% else %}
-              <span class="chip crit"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>Отказ{% if e.reason %} — {{ e.reason }}{% endif %}</span>
+              <span class="chip crit"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>Отказ{% if e.reason %} – {{ e.reason }}{% endif %}</span>
               {% endif %}
             </td>
-            <td class="mono">{{ e.ip or '—' }}</td>
-            <td class="sub">{{ e.ua or '—' }}</td>
+            <td class="mono">{{ e.ip or '–' }}</td>
+            <td class="sub">{{ e.ua or '–' }}</td>
           </tr>
           {% else %}
           <tr><td colspan="4" class="empty">Записей пока нет.</td></tr>

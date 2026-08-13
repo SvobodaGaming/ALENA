@@ -60,7 +60,7 @@ SCHEMA = [
         locked_until  TEXT
     )
     """,
-    # Дата последней смены пароля — по ней считается срок его действия
+    # Дата последней смены пароля – по ней считается срок его действия
     # (настройка pw_expire_days). У записей, заведённых раньше, пусто:
     # отсчёт для них идёт от даты создания.
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS pw_changed_at TEXT",
@@ -122,7 +122,7 @@ def _conn():
 def fp_load_all(owners=None) -> dict:
     """All fingerprints, or only those belonging to the given owners.
 
-    `owners` — список логинов: у преподавателя в группе видимая база это его
+    `owners` – список логинов: у преподавателя в группе видимая база это его
     собственные отпечатки плюс отпечатки коллег по группам, а не один владелец.
     """
     store = {}
@@ -221,12 +221,12 @@ def fp_insert_versioned(key_base: str, entry: dict) -> int:
                 )
             return version
         except UniqueViolation:
-            continue    # номер занял сосед — берём следующий
+            continue    # номер занял сосед – берём следующий
     raise RuntimeError('не удалось подобрать свободный номер версии отпечатка')
 
 
 def fp_clear(owner=None) -> int:
-    """Wipe the fingerprint base — all of it, or one owner's slice."""
+    """Wipe the fingerprint base – all of it, or one owner's slice."""
     with _conn() as conn, conn.cursor() as cur:
         if owner is None:
             cur.execute("SELECT count(*) FROM fingerprints")
@@ -260,7 +260,7 @@ def jobs_save(job_id: str, data: dict) -> None:
 
 
 def jobs_load_all(owner=None) -> dict:
-    """Job history — all of it, or only the jobs started by `owner`."""
+    """Job history – all of it, or only the jobs started by `owner`."""
     out = {}
     sql = "SELECT job_id, data FROM jobs"
     params = ()

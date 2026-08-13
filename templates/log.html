@@ -21,18 +21,18 @@
         <tr>
           <td class="mono sub">{{ e.ts }}</td>
           <td>
-            {{ e.fio or e.login or '—' }}
+            {{ e.fio or e.login or '–' }}
             {% if e.fio %}<br><span class="sub mono">{{ e.login }}</span>{% endif %}
           </td>
           <td>
             {% if e.ok %}
             <span class="chip ok"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12.5l5 5L20 6.5"/></svg>Успешно</span>
             {% else %}
-            <span class="chip crit"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>Отказ{% if e.reason %} — {{ e.reason }}{% endif %}</span>
+            <span class="chip crit"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>Отказ{% if e.reason %} – {{ e.reason }}{% endif %}</span>
             {% endif %}
           </td>
-          <td class="mono">{{ e.ip or '—' }}</td>
-          <td class="sub">{{ e.ua or '—' }}</td>
+          <td class="mono">{{ e.ip or '–' }}</td>
+          <td class="sub">{{ e.ua or '–' }}</td>
         </tr>
         {% else %}
         <tr><td colspan="5" class="empty">Записей пока нет.</td></tr>

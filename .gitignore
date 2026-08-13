@@ -13,7 +13,7 @@ env/
 reports/*.html
 reports/*.pdf
 
-# Runtime state — not code. users.json holds password hashes and API keys.
+# Runtime state – not code. users.json holds password hashes and API keys.
 memory/store.json
 memory/users.json
 memory/jobs.json
@@ -26,7 +26,7 @@ uploads/
 tmp/
 uploads/*.zip
 
-# Environment (contains passwords — never commit)
+# Environment (contains passwords – never commit)
 .env
 
 # macOS

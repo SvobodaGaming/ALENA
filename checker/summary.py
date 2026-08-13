@@ -27,7 +27,7 @@ def _failed_codes(report: dict) -> list:
 
 def _display_name(report: dict) -> str:
     student = report.get('student', {}) or {}
-    # Когда фамилию из отчёта вытащить не удалось, показываем имя файла — но
+    # Когда фамилию из отчёта вытащить не удалось, показываем имя файла – но
     # только начало: выгрузка Moodle даёт имена в две сотни символов, и таблица
     # от них разъезжается. В отчёте подрезано так же (reporter._display_name).
     return (student.get('name')
@@ -136,7 +136,7 @@ def build(reports: list, historical: list, text_plag: dict, img_plag: dict,
     matches.sort(key=lambda m: (m['pct'] is None, -(m['pct'] or 0)))
     # Полсотни работ с одинаковыми скриншотами дают десятки тысяч совпадений.
     # Дайджест лежит в истории и уходит в браузер при каждом обновлении списка
-    # проверок, поэтому храним самые заметные, а общее число — отдельным полем.
+    # проверок, поэтому храним самые заметные, а общее число – отдельным полем.
     matches_total = len(matches)
     matches = matches[:MAX_MATCHES]
 
@@ -152,7 +152,7 @@ def build(reports: list, historical: list, text_plag: dict, img_plag: dict,
     grade_pct = round(sum(grades) / len(grades)) if grades else None
 
     return {
-        'group':       groups[0] if groups else '—',
+        'group':       groups[0] if groups else '–',
         'groups':      groups,
         'gost':        round(sum(s['gost'] for s in scored) / len(scored)) if scored else 0,
         'plag':        max(plags, default=0),
@@ -166,6 +166,6 @@ def build(reports: list, historical: list, text_plag: dict, img_plag: dict,
         'grade':       grade_pct,
         'grade_score': grading.as_score(grade_pct, scale),
         'scale':       scale,
-        # веса, отличные от равных, меняют смысл оценки — это видно в интерфейсе
+        # веса, отличные от равных, меняют смысл оценки – это видно в интерфейсе
         'weighted':    any(v != grading.DEFAULT_WEIGHT for v in weights.values()),
     }

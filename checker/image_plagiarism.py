@@ -91,7 +91,7 @@ MAX_META_PIXELS = 4_000_000
 def image_meta(pil_img: Image.Image) -> dict:
     """Everything the pipeline needs from one image: hashes, thumbnail,
     UI flag. Computed once at extraction time so the caller can drop the
-    PIL object immediately — keeping big batches within RAM."""
+    PIL object immediately – keeping big batches within RAM."""
     img = pil_img
     if img.width * img.height > MAX_META_PIXELS:
         img = img.copy()

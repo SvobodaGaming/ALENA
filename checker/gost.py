@@ -9,7 +9,7 @@ MARGIN_TOP    = 20
 MARGIN_BOTTOM = 20
 # Допуск на заход текста в поле, мм. Слева и справа замер точный: строка
 # начинается ровно на границе набора, на образце с полями 30/15 измеряется
-# 30.0/15.0. Сверху и снизу мерить нечем, кроме чернил букв — над строкой
+# 30.0/15.0. Сверху и снизу мерить нечем, кроме чернил букв – над строкой
 # остаётся просвет межстрочного интервала, а внизу мешают колонтитулы, поэтому
 # там допуск вдвое шире.
 MARGIN_TOL      = 3
@@ -42,7 +42,7 @@ class Check:
         }
 
 
-# Canonical list of all checks (code, name, group, hint) — single source of
+# Canonical list of all checks (code, name, group, hint) – single source of
 # truth for the UI checkboxes. Keep the codes/names in sync with the Check()
 # instances created below. 'structure' = структурные элементы, 'format' = оформление.
 GOST_CHECKS = [
@@ -53,13 +53,13 @@ GOST_CHECKS = [
     ('S3', 'Реферат', 'structure',
      'Обязателен для отчёта о НИР (ГОСТ 7.32-2017 п.5.3) и для ВКР '
      '(ГОСТ Р 7.0.11-2011). Для отчёта по практике и курсовой работы обычно '
-     'не требуется — снимите критерий, если он не нужен.'),
+     'не требуется – снимите критерий, если он не нужен.'),
     ('S4', 'Содержание', 'structure',
      'Заголовок «СОДЕРЖАНИЕ» и перечень разделов с номерами страниц.'),
     ('S5', 'Введение: актуальность, цель, задачи', 'structure',
      'Во введении должны быть названы актуальность, цель и задачи работы.'),
     ('S6', 'Главы (нумерованные разделы)', 'structure',
-     'Разделы вида «1 Название» — без точки после номера.'),
+     'Разделы вида «1 Название» – без точки после номера.'),
     ('S7', 'Подглавы (подразделы)', 'structure',
      'Подразделы вида «1.1 Название».'),
     ('S8', 'Заключение', 'structure',
@@ -73,7 +73,7 @@ GOST_CHECKS = [
     ('F2', 'Шрифт Times New Roman', 'format',
      'Проверяется по всему документу, включая титульный лист и задание.'),
     ('F3', 'Основной текст 14 пт', 'format',
-     'Ровно 14 пт. Титульный лист и задание не учитываются — на них '
+     'Ровно 14 пт. Титульный лист и задание не учитываются – на них '
      'проверяется только гарнитура.'),
     ('F4', 'Текст рисунков и таблиц не больше 14 пт', 'format',
      'Подписи под рисунками и текст внутри таблиц могут быть мельче основного, '
@@ -81,11 +81,11 @@ GOST_CHECKS = [
     ('F5', 'Шрифт номеров страниц', 'format',
      'Номер страницы тоже набирается Times New Roman.'),
     ('F6', 'Подписи рисунков', 'format',
-     'Формат «Рисунок 1 — Название», без сокращения «Рис.» и без знака №.'),
+     'Формат «Рисунок 1 – Название», без сокращения «Рис.» и без знака №.'),
     ('F7', 'Ссылки на рисунки в тексте', 'format',
      'На каждый рисунок должна быть ссылка в тексте: «на рисунке 1 показано…».'),
     ('F8', 'Подписи таблиц', 'format',
-     'Формат «Таблица 1 — Название», без сокращения «Табл.».'),
+     'Формат «Таблица 1 – Название», без сокращения «Табл.».'),
     ('F9', 'Точки в конце заголовков', 'format',
      'Заголовок разделов и подразделов точкой не завершают.'),
     ('F10', 'Ссылки на источники [N]', 'format',
@@ -113,16 +113,16 @@ FLAW_TEXT = {
     'S8':  'Отсутствует заключение',
     'S9':  'Отсутствует список использованных источников',
     'F1':  'Отсутствует нумерация страниц',
-    'F2':  'Неверный шрифт — требуется Times New Roman',
-    'F3':  'Неверный размер основного текста — требуется 14 пт',
+    'F2':  'Неверный шрифт – требуется Times New Roman',
+    'F3':  'Неверный размер основного текста – требуется 14 пт',
     'F4':  'Текст подписей и таблиц крупнее 14 пт',
     'F5':  'Номера страниц набраны не шрифтом Times New Roman',
-    'F6':  'Неверные подписи рисунков — требуется «Рисунок 1 — Название»',
+    'F6':  'Неверные подписи рисунков – требуется «Рисунок 1 – Название»',
     'F7':  'В тексте нет ссылок на рисунки',
-    'F8':  'Неверные заголовки таблиц — требуется «Таблица 1 — Название»',
+    'F8':  'Неверные заголовки таблиц – требуется «Таблица 1 – Название»',
     'F9':  'Точка в конце заголовка',
-    'F10': 'Нет ссылок на источники в квадратных скобках — [1]',
-    'F11': 'Неверные поля страницы — левое 30, правое 15, верхнее и нижнее 20 мм',
+    'F10': 'Нет ссылок на источники в квадратных скобках – [1]',
+    'F11': 'Неверные поля страницы – левое 30, правое 15, верхнее и нижнее 20 мм',
 }
 
 
@@ -130,7 +130,7 @@ FLAW_TEXT = {
 
 def _ordinary_pages(report: dict) -> list:
     """Page metadata without the title page, the «задание» sheet and the
-    table of contents — the pages whose headings and margins are meaningful."""
+    table of contents – the pages whose headings and margins are meaningful."""
     pages = report.get('pages') or []
     texts = report.get('text_by_page') or []
     out = []
@@ -272,7 +272,7 @@ def _title_page(report: dict) -> Check:
 
 
 def _task_sheet(report: dict) -> Check:
-    """Задание на практику / на курсовую работу — отдельный лист."""
+    """Задание на практику / на курсовую работу – отдельный лист."""
     pages = [m['page'] for m in (report.get('pages') or []) if m.get('is_task')]
     if pages:
         return Check('S2', 'Задание на практику или курсовую', True,
@@ -291,7 +291,7 @@ def _abstract(report: dict) -> Check:
     if not re.search(r'\bРЕФЕРАТ\b', full_text):
         return Check('S3', 'Реферат', False,
                      'Структурный элемент «РЕФЕРАТ» отсутствует (ГОСТ 7.32 п.5.3). '
-                     'Для отчёта по практике он обычно не требуется — критерий '
+                     'Для отчёта по практике он обычно не требуется – критерий '
                      'можно снять', 'warning')
 
     body = _section_text(_body_text(report), 'РЕФЕРАТ')
@@ -346,7 +346,7 @@ def _introduction(report: dict) -> Check:
 
 
 def _chapters(report: dict) -> Check:
-    """п.6.4, Главы — нумерованные разделы «1 Название»."""
+    """п.6.4, Главы – нумерованные разделы «1 Название»."""
     # Без библиографии: её записи «1. ГОСТ 7.32-2017.» неотличимы от заголовка
     # главы с недопустимой точкой после номера.
     text = _before_references(_body_text(report))
@@ -358,7 +358,7 @@ def _chapters(report: dict) -> Check:
     total = len(set(numbered) | set(named))
     if dotted:
         return Check('S6', 'Главы (нумерованные разделы)', False,
-                     f'После номера главы стоит точка ({dotted[0]}.) — '
+                     f'После номера главы стоит точка ({dotted[0]}.) – '
                      f'не допускается (ГОСТ 7.32 п.6.4.1). Найдено: {len(dotted)}',
                      'warning')
     if total == 0:
@@ -368,14 +368,14 @@ def _chapters(report: dict) -> Check:
 
 
 def _subchapters(report: dict) -> Check:
-    """п.6.4, Подглавы — подразделы «1.1 Название»."""
+    """п.6.4, Подглавы – подразделы «1.1 Название»."""
     text = _before_references(_body_text(report))
     subs = re.findall(r'^\s*(\d+\.\d+)\s+[А-ЯЁA-Za-zА-яё][^\n]{2,}$', text, re.MULTILINE)
     dotted = re.findall(r'^\s*(\d+\.\d+)\.\s+[А-ЯЁA-Za-zА-яё]', text, re.MULTILINE)
 
     if dotted and not subs:
         return Check('S7', 'Подглавы (подразделы)', False,
-                     f'После номера подраздела стоит точка ({dotted[0]}.) — '
+                     f'После номера подраздела стоит точка ({dotted[0]}.) – '
                      f'не допускается (ГОСТ 7.32 п.6.4.1)', 'warning')
     if not subs:
         return Check('S7', 'Подглавы (подразделы)', False,
@@ -409,7 +409,7 @@ def _references(report: dict) -> Check:
     if len(entries) < 3:
         return Check('S9', 'Список использованных источников', False,
                      f'Раздел найден, но пронумерованных источников в нём '
-                     f'{len(entries)} — проверьте оформление', 'warning')
+                     f'{len(entries)} – проверьте оформление', 'warning')
     return Check('S9', 'Список использованных источников', True,
                  f'Источников: {len(entries)}')
 
@@ -462,7 +462,7 @@ def _font_family(report: dict) -> Check:
                      f'Times New Roman: {ratio:.0%} символов')
     if ratio >= 0.7:
         return Check('F2', 'Шрифт Times New Roman', False,
-                     f'Times New Roman в {ratio:.0%} символов — часть текста '
+                     f'Times New Roman в {ratio:.0%} символов – часть текста '
                      f'набрана другой гарнитурой (ГОСТ 7.32 п.6.1.1)', 'warning')
 
     totals: dict = {}
@@ -490,7 +490,7 @@ def _body_font_size(report: dict) -> Check:
     if ratio >= 0.9:
         return Check('F3', 'Основной текст 14 пт', True,
                      f'14 пт: {ratio:.0%} основного текста')
-    others = ', '.join(f'{s:g} пт — {n / total:.0%}'
+    others = ', '.join(f'{s:g} пт – {n / total:.0%}'
                        for s, n in sorted(sizes.items(), key=lambda x: -x[1])[:3]
                        if abs(s - BODY_PT) > PT_TOL)
     if ratio >= 0.7:
@@ -520,7 +520,7 @@ def _aux_font_size(report: dict) -> Check:
     share = sum(too_big.values()) / total
     listed = ', '.join(f'{s:g} пт' for s in sorted(too_big, reverse=True)[:3])
     return Check('F4', 'Текст рисунков и таблиц не больше 14 пт', False,
-                 f'Крупнее 14 пт: {listed} — {share:.0%} текста подписей и таблиц',
+                 f'Крупнее 14 пт: {listed} – {share:.0%} текста подписей и таблиц',
                  'warning' if share < 0.3 else 'error')
 
 
@@ -529,7 +529,7 @@ def _pagenum_font(report: dict) -> Check:
     counts = (report.get('font_info') or {}).get('pagenum') or {}
     if not counts:
         return Check('F5', 'Шрифт номеров страниц', False,
-                     'Номера страниц не найдены — гарнитуру проверить нельзя',
+                     'Номера страниц не найдены – гарнитуру проверить нельзя',
                      'warning')
 
     total, tnr = _font_totals(counts)
@@ -567,7 +567,7 @@ def _figure_captions(report: dict) -> Check:
     if issues:
         return Check('F6', 'Подписи рисунков', False,
                      'Неверный формат: ' + '; '.join(issues) +
-                     '. Требуется «Рисунок 1 — Название» (ГОСТ 7.32 п.6.5.1)')
+                     '. Требуется «Рисунок 1 – Название» (ГОСТ 7.32 п.6.5.1)')
     if good:
         return Check('F6', 'Подписи рисунков', True,
                      f'Правильный формат. Подписей: {len(good)}')
@@ -593,7 +593,7 @@ def _figure_mentions(report: dict) -> Check:
 
     if not captions:
         return Check('F7', 'Ссылки на рисунки в тексте', True,
-                     'Подписей к рисункам нет — проверять нечего')
+                     'Подписей к рисункам нет – проверять нечего')
 
     missing = sorted(captions - mentions)
     if not missing:
@@ -691,10 +691,10 @@ def _margins(report: dict) -> Check:
                      'Не удалось определить поля', 'warning')
 
     # A margin is the strip the text never enters, so each side is measured by
-    # the page that comes CLOSEST to that edge — not by an average. Averaging
+    # the page that comes CLOSEST to that edge – not by an average. Averaging
     # breaks on every normal document: a chapter ending after two lines leaves
     # 200 mm of white space at the bottom, which is not a 200 mm bottom margin.
-    # `wide_matters` — можно ли считать нарушением слишком широкое поле.
+    # `wide_matters` – можно ли считать нарушением слишком широкое поле.
     # Снизу нельзя: раздел, кончившийся в середине листа, оставляет пустоту
     # законно, и это не увеличенное нижнее поле.
     sides = [

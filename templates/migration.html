@@ -24,7 +24,7 @@
         </table>
       </div>
       <div class="section-body" style="border-top:1px solid var(--line-soft);">
-        <p class="hint" style="margin:0;">Дамп не включает готовые отчёты — это отдельные
+        <p class="hint" style="margin:0;">Дамп не включает готовые отчёты – это отдельные
           файлы в папке <span class="mono">reports/</span>. Переносите её обычным копированием,
           иначе у старых проверок кнопка «Открыть отчёт» вернёт ошибку 404.</p>
       </div>
@@ -36,7 +36,7 @@
         <p class="hint" style="margin:0 0 12px;">Один файл <span class="mono">.sql</span>:
           схема таблиц, учётные записи, история проверок, база отпечатков, журнал входов
           и системные настройки. Разворачивается и в PostgreSQL через
-          <span class="mono">psql</span>, и обратно сюда — кнопкой ниже.</p>
+          <span class="mono">psql</span>, и обратно сюда – кнопкой ниже.</p>
         <a class="btn primary" href="{{ url_for('migration_export') }}">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M12 3v12M7.5 10.5L12 15l4.5-4.5"/><path d="M4 20h16"/></svg>
           Скачать дамп .sql
@@ -57,7 +57,7 @@
         <form method="post" action="{{ url_for('migration_import') }}"
               enctype="multipart/form-data" class="stack"
               data-confirm="Загрузить дамп в базу?"
-              data-confirm-sub="Записи из файла перезапишут совпадающие по ключу. Отменить нельзя — сделайте выгрузку текущей базы перед загрузкой."
+              data-confirm-sub="Записи из файла перезапишут совпадающие по ключу. Отменить нельзя – сделайте выгрузку текущей базы перед загрузкой."
               data-confirm-ok="Загрузить" data-confirm-danger="yes">
           <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
           <div class="field">
@@ -80,7 +80,7 @@
       <div class="section-body">
         <p class="hint" style="margin:0 0 10px;">Присланный SQL система <b>не выполняет</b>.
           Файл разбирается: берутся только строки <span class="mono">INSERT</span> в известные
-          таблицы — <span class="mono">users</span>, <span class="mono">jobs</span>,
+          таблицы – <span class="mono">users</span>, <span class="mono">jobs</span>,
           <span class="mono">fingerprints</span>, <span class="mono">login_events</span>,
           <span class="mono">settings</span>. Всё остальное пропускается и попадает в счётчик.
           Поэтому доступ к этой странице не превращается в право выполнить в базе

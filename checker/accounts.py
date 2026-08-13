@@ -1,9 +1,9 @@
 """Accounts, permissions, login journal and system settings.
 
 Two roles:
-  admin   — sees every check and the whole fingerprint base, manages accounts,
+  admin   – sees every check and the whole fingerprint base, manages accounts,
             teacher groups and system settings.
-  teacher — isolated by default: own checks, own fingerprint base. Plagiarism
+  teacher – isolated by default: own checks, own fingerprint base. Plagiarism
             is searched only inside that base; группа преподавателей
             (checker/teams.py) расширяет её на коллег по группе.
 
@@ -39,7 +39,7 @@ STATES = {
 
 # Permission flags, in the order the admin UI shows them.
 # Названия описывают ровно то, что проверяется в коде. «run_checks» закрывает
-# запуск новых проверок; уже готовые отчёты владелец открывает и без него —
+# запуск новых проверок; уже готовые отчёты владелец открывает и без него –
 # иначе снятие права отрезало бы преподавателя от собственной истории.
 PERMISSIONS = [
     ('run_checks',  'Запускать новые проверки'),
@@ -195,7 +195,7 @@ def password_expired(user: dict, conf: dict = None) -> bool:
     """Истёк ли срок действия пароля по настройке `pw_expire_days`.
 
     Отсчёт от последней смены пароля; у записей, заведённых до появления
-    отметки, — от даты создания. 0 в настройке означает «не требовать смены».
+    отметки, – от даты создания. 0 в настройке означает «не требовать смены».
     """
     conf = conf if conf is not None else get_settings()
     try:
@@ -246,7 +246,7 @@ def record_event(login: str, ok: bool, ip: str, ua: str, reason: str = '') -> No
 
 
 def add_events(events: list) -> int:
-    """Записать готовые события журнала, как есть — с их собственным временем.
+    """Записать готовые события журнала, как есть – с их собственным временем.
 
     Нужно загрузке дампа: record_event() проставил бы текущую дату и журнал
     перестал бы соответствовать перенесённой истории.
@@ -334,7 +334,7 @@ def authenticate(login: str, password: str, ip: str, ua: str):
     user['fail_count'] = 0
     user['locked_until'] = ''
     user['last_login'] = datetime.now().strftime(_STAMP)
-    # Срок действия пароля вышел — вход разрешён, но следующим экраном будет
+    # Срок действия пароля вышел – вход разрешён, но следующим экраном будет
     # смена пароля (login_required не пускает дальше с must_change).
     expired = password_expired(user, conf)
     if expired:

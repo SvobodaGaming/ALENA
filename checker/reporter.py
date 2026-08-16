@@ -46,7 +46,10 @@ def _cell_inline_style(sim: float, threshold: float) -> str:
     # rgba(180,35,24) – это --danger, rgba(184,134,11) – --attention.
     if sim >= threshold:
         intensity = min(1.0, 0.3 + (sim - threshold) / max(1 - threshold, 0.001) * 0.7)
-        text_color = 'white' if intensity > 0.55 else '#0B0F0C'
+        # Насыщенную заливку белый текст перекрывает в любой теме, а по
+        # бледной цвет текста должен идти за темой – отсюда токен, а не
+        # литеральный тёмный: на тёмном фоне он был бы нечитаем.
+        text_color = '#fff' if intensity > 0.55 else 'var(--ink-strong)'
         return (f'background:rgba(180,35,24,{intensity:.2f});'
                 f'color:{text_color};font-weight:600;')
     if sim >= threshold * 0.55:
@@ -942,13 +945,16 @@ def generate_html_report(reports: list, historical: list,
    Scholaria). Имена токенов совпадают, поэтому правка палитры в одном
    месте переносится сюда копированием блока.
 
-   Отличий от интерфейса два, оба намеренные:
-   1. Тёмной темы нет. Отчёт – документ: его печатают и выгружают в PDF,
-      и палитра должна быть одна на экране и на бумаге.
-   2. Добавлен синий --info. В интерфейсе такого цвета нет, но здесь он
-      несёт смысл, который серым не передать: «не проверено» (текст не
-      извлёкся, пару нужно смотреть руками) – это не то же самое, что
-      «проверено, чисто». */
+   Отличие от интерфейса одно: добавлен синий --info. В интерфейсе такого
+   цвета нет, но здесь он несёт смысл, который серым не передать:
+   «не проверено» (текст не извлёкся, пару нужно смотреть руками) – это не
+   то же самое, что «проверено, чисто».
+
+   Тем две, как в интерфейсе, и переключаются они тем же ключом
+   localStorage ('alena-theme'): отчёт отдаётся с того же домена, поэтому
+   выбранная в интерфейсе тема подхватывается сама. На бумаге и в PDF
+   тема всегда светлая – блок @media print ниже возвращает эти же
+   значения поверх тёмных. */
 :root {
   color-scheme: light;
 
@@ -966,6 +972,13 @@ def generate_html_report(reports: list, historical: list,
   --rule:         #D9DFDB;
   --rule-strong:  #B8C2BC;
 
+  /* Две рабочие поверхности поверх фона страницы: карточка и утопленная
+     подложка (шапки таблиц, плашка оценки, ховер). На белом фоне карточка
+     тоже белая и держится рамкой, в тёмной теме она светлее страницы –
+     иначе отчёт вышел бы плоским пятном. */
+  --card:         #FFFFFF;
+  --sunken:       #f6f8f6;
+
   --success:      #027A48;  --success-soft:   #DFF3E8;
   --attention:    #B8860B;  --attention-soft: #FAF1DC;
   --danger:       #B42318;  --danger-soft:    #FEE4E2;
@@ -979,6 +992,13 @@ def generate_html_report(reports: list, historical: list,
   --rail-rule:    rgba(255,255,255,.12);
 
   --focus-ring:   0 0 0 3px rgba(1,93,30,.35);
+
+  /* Цвет подчёркивания ссылок. Токеном, а не литеральным rgba в правиле:
+     полупрозрачная тёмная зелень на тёмном фоне не видна. color-mix не
+     годится – WeasyPrint функцию не считает и красит текст чёрным. */
+  --uline:           rgba(1,93,30,.4);
+  --uline-danger:    rgba(180,35,24,.4);
+  --uline-attention: rgba(184,134,11,.4);
 
   --radius-sm:    4px;
   --radius:       8px;
@@ -1003,6 +1023,50 @@ def generate_html_report(reports: list, historical: list,
   --leading-tight: 1.2; --leading-snug: 1.35; --leading-base: 1.6;
 }
 
+/* Тёмная тема – палитра интерфейса (static/app.css) плюс тёмный --info.
+   Набор задан дважды: по системной настройке и по явному переключателю,
+   как в app.css. Системный блок ограничен @media screen – WeasyPrint
+   печатает в media print и до него не доходит, а атрибута data-theme в
+   сохранённом файле нет (его ставит JS), так что PDF остаётся светлым. */
+@media screen and (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --brand:#4FB069; --brand-hover:#6CC987; --on-brand:#0B130D;
+    --ink:#E8ECE9; --ink-strong:#FFFFFF; --muted:#9AA59E; --muted-soft:#6F7A73;
+    --surface:#0F1411; --surface-2:#161d18; --surface-3:#1f2822;
+    --card:#161d18; --sunken:#1f2822;
+    --rule:#2A332C; --rule-strong:#3A4640;
+    --success:#3FBF92; --success-soft:#102A22;
+    --attention:#E2B85C; --attention-soft:#2B2415;
+    --danger:#F1746A; --danger-soft:#2E1715;
+    --info:#7FAEE8; --info-soft:#14243A;
+    --rail:#08130d; --rail-ink:#a9c6b4; --rail-strong:#b7d6c2;
+    --rail-muted:#6f9c81; --rail-rule:rgba(255,255,255,.12);
+    --focus-ring:0 0 0 3px rgba(79,176,105,.4);
+    --uline:rgba(79,176,105,.45);
+    --uline-danger:rgba(241,116,106,.45);
+    --uline-attention:rgba(226,184,92,.45);
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --brand:#4FB069; --brand-hover:#6CC987; --on-brand:#0B130D;
+  --ink:#E8ECE9; --ink-strong:#FFFFFF; --muted:#9AA59E; --muted-soft:#6F7A73;
+  --surface:#0F1411; --surface-2:#161d18; --surface-3:#1f2822;
+  --card:#161d18; --sunken:#1f2822;
+  --rule:#2A332C; --rule-strong:#3A4640;
+  --success:#3FBF92; --success-soft:#102A22;
+  --attention:#E2B85C; --attention-soft:#2B2415;
+  --danger:#F1746A; --danger-soft:#2E1715;
+  --info:#7FAEE8; --info-soft:#14243A;
+  --rail:#08130d; --rail-ink:#a9c6b4; --rail-strong:#b7d6c2;
+  --rail-muted:#6f9c81; --rail-rule:rgba(255,255,255,.12);
+  --focus-ring:0 0 0 3px rgba(79,176,105,.4);
+  --uline:rgba(79,176,105,.45);
+  --uline-danger:rgba(241,116,106,.45);
+  --uline-attention:rgba(226,184,92,.45);
+}
+
 /* ──────────────────────────── База ──────────────────────────── */
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -1023,14 +1087,13 @@ h2 { font-size: var(--text-18); margin: 0 0 var(--space-3); }
 h3 { font-size: var(--text-14); margin: 0 0 var(--space-2); }
 .subtitle { color: var(--muted); font-size: var(--text-13); margin: var(--space-1) 0 0; }
 
-/* Подчёркнутые ссылки – как в образце. rgba вместо color-mix: WeasyPrint
-   функцию не считает и красит текст чёрным. */
+/* Подчёркнутые ссылки – как в образце. */
 a {
   color: var(--brand);
   text-decoration-line: underline;
   text-decoration-thickness: 1px;
   text-underline-offset: 3px;
-  text-decoration-color: rgba(1,93,30,.4);
+  text-decoration-color: var(--uline);
   transition: color .15s ease, text-decoration-color .15s ease;
 }
 a:hover { color: var(--brand-hover); text-decoration-color: var(--brand-hover); }
@@ -1065,7 +1128,7 @@ a:focus-visible { border-radius: 2px; }
 .brand-foot {
   display: flex; align-items: center; gap: var(--space-3); flex-wrap: wrap;
   margin-top: var(--space-6); padding: var(--space-3) var(--space-4);
-  background: var(--surface); border: 1px solid var(--rule); border-radius: var(--radius-lg);
+  background: var(--card); border: 1px solid var(--rule); border-radius: var(--radius-lg);
   font-size: var(--text-12); color: var(--muted);
 }
 /* Подложка у метки белая, а страница теперь тоже белая – без рамки метка
@@ -1083,7 +1146,7 @@ a:focus-visible { border-radius: 2px; }
    выглядит грязью, а на печати ещё и съедает тонер. */
 .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: var(--space-3); margin-bottom: var(--space-5); }
 .stat-card {
-  background: var(--surface); border: 1px solid var(--rule);
+  background: var(--card); border: 1px solid var(--rule);
   border-radius: var(--radius-lg); padding: var(--space-4);
 }
 .stat-num {
@@ -1097,7 +1160,7 @@ a:focus-visible { border-radius: 2px; }
 .c-green .stat-num  { color: var(--success); }
 
 .section {
-  background: var(--surface); border: 1px solid var(--rule);
+  background: var(--card); border: 1px solid var(--rule);
   border-radius: var(--radius-lg); padding: var(--space-5); margin-bottom: var(--space-4);
 }
 .section-head { display: flex; align-items: center; gap: var(--space-2); cursor: pointer; }
@@ -1112,7 +1175,7 @@ a:focus-visible { border-radius: 2px; }
 .tbl-wrap { overflow-x: auto; }
 .summary-table { width: 100%; border-collapse: collapse; font-size: var(--text-14); }
 .summary-table th {
-  text-align: left; padding: var(--space-2) var(--space-3); background: var(--surface-2);
+  text-align: left; padding: var(--space-2) var(--space-3); background: var(--sunken);
   color: var(--muted); font-weight: 700; font-size: var(--text-12);
   letter-spacing: .06em; text-transform: uppercase;
   border-bottom: 1px solid var(--rule); white-space: nowrap;
@@ -1136,18 +1199,18 @@ a:focus-visible { border-radius: 2px; }
 .matrix-table { border-collapse: collapse; table-layout: fixed; margin: 0 auto; font-variant-numeric: tabular-nums; }
 .matrix-table th, .matrix-table td { border: 1px solid var(--rule); }
 .matrix-table td.mc { text-align: center; padding: 0; height: 18px; line-height: 1.1; overflow: hidden; }
-.matrix-table thead th.mh { position: relative; background: var(--surface-2); vertical-align: bottom; padding: 0; overflow: hidden; }
+.matrix-table thead th.mh { position: relative; background: var(--sunken); vertical-align: bottom; padding: 0; overflow: hidden; }
 .matrix-table thead th.mh > span { position: absolute; bottom: 4px; left: 50%; transform-origin: left bottom; transform: rotate(-90deg); white-space: nowrap; font-weight: 600; line-height: 1; }
-.matrix-table thead th.corner { background: var(--surface-2); }
-.matrix-table tbody th.rh { text-align: left; font-weight: 500; background: var(--surface-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 2px var(--space-2); }
+.matrix-table thead th.corner { background: var(--sunken); }
+.matrix-table tbody th.rh { text-align: left; font-weight: 500; background: var(--sunken); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 2px var(--space-2); }
 .cell-self { background: var(--surface-3) !important; }
 
 .report-card {
-  background: var(--surface); border: 1px solid var(--rule);
+  background: var(--card); border: 1px solid var(--rule);
   border-radius: var(--radius-lg); margin-bottom: var(--space-3); overflow: hidden;
 }
 .report-header { padding: var(--space-3) var(--space-4); display: flex; align-items: center; gap: var(--space-3); cursor: pointer; }
-.report-header:hover { background: var(--surface-2); }
+.report-header:hover { background: var(--sunken); }
 .report-body { padding: var(--space-5); display: none; border-top: 1px solid var(--rule); }
 .report-body.open { display: block; }
 .toggle-arrow { color: var(--muted-soft); font-size: var(--text-12); transition: transform .2s; margin-left: auto; }
@@ -1161,7 +1224,7 @@ a:focus-visible { border-radius: 2px; }
 
 .checks-table { width: 100%; border-collapse: collapse; font-size: var(--text-13); }
 .checks-table th {
-  text-align: left; padding: var(--space-1) var(--space-2); background: var(--surface-2);
+  text-align: left; padding: var(--space-1) var(--space-2); background: var(--sunken);
   color: var(--muted); font-weight: 700; font-size: var(--text-11);
   letter-spacing: .06em; text-transform: uppercase; border-bottom: 1px solid var(--rule);
 }
@@ -1176,6 +1239,11 @@ a:focus-visible { border-radius: 2px; }
 .score-track { flex: 1; height: 7px; background: var(--surface-3); border-radius: var(--radius-pill); overflow: hidden; }
 .score-fill { height: 100%; border-radius: var(--radius-pill); }
 
+/* Если ФИО не распозналось, работа подписана именем файла – строкой без
+   пробелов длиной под 60 знаков. В узкой колонке карточки она вылезала за
+   край, а на печати – за поле страницы. */
+.plagiarism-alert, .img-info, .report-header, .summary-table td { overflow-wrap: break-word; }
+
 .plagiarism-alert {
   background: var(--danger-soft); border: 1px solid var(--danger);
   border-radius: var(--radius); padding: var(--space-2) var(--space-3);
@@ -1183,9 +1251,9 @@ a:focus-visible { border-radius: 2px; }
 }
 /* Ниже порога и совпадения с базой прошлых сессий – жёлтым. */
 .plagiarism-alert.near, .plagiarism-alert.hist { background: var(--attention-soft); border-color: var(--attention); }
-.plagiarism-alert a { color: var(--danger); text-decoration-color: rgba(180,35,24,.4); }
+.plagiarism-alert a { color: var(--danger); text-decoration-color: var(--uline-danger); }
 .plagiarism-alert a:hover { color: var(--danger); text-decoration-color: var(--danger); }
-.plagiarism-alert.near a, .plagiarism-alert.hist a { color: var(--attention); text-decoration-color: rgba(184,134,11,.4); }
+.plagiarism-alert.near a, .plagiarism-alert.hist a { color: var(--attention); text-decoration-color: var(--uline-attention); }
 .plagiarism-alert.hist { color: var(--attention); }
 .passage {
   background: var(--attention-soft); border-left: 3px solid var(--attention);
@@ -1197,17 +1265,17 @@ a:focus-visible { border-radius: 2px; }
 
 .img-pair {
   display: flex; gap: var(--space-3); align-items: center; flex-wrap: wrap;
-  margin: var(--space-2) 0; padding: var(--space-3); background: var(--surface-2);
+  margin: var(--space-2) 0; padding: var(--space-3); background: var(--sunken);
   border: 1px solid var(--rule); border-radius: var(--radius);
 }
 .img-pair img {
   max-width: 200px; max-height: 150px; object-fit: contain;
-  border: 1px solid var(--rule); border-radius: var(--radius-sm); background: var(--surface);
+  border: 1px solid var(--rule); border-radius: var(--radius-sm); background: var(--card);
 }
 .img-info { font-size: var(--text-12); color: var(--muted); margin-top: var(--space-1); }
 .img-blank {
   width: 120px; height: 80px; display: flex; align-items: center; justify-content: center;
-  background: var(--surface); border: 1px solid var(--rule); border-radius: var(--radius-sm);
+  background: var(--card); border: 1px solid var(--rule); border-radius: var(--radius-sm);
   color: var(--muted-soft); font-size: var(--text-12);
 }
 
@@ -1225,10 +1293,41 @@ a:focus-visible { border-radius: 2px; }
   gap: var(--space-3); margin-bottom: var(--space-5); padding-bottom: var(--space-4);
   border-bottom: 1px solid var(--rule);
 }
+.toolbar-actions { display: flex; align-items: center; gap: var(--space-2); }
+/* Переключатель темы – контурная иконка, как в топбаре интерфейса. */
+.theme-btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 34px; height: 34px; padding: 0;
+  background: var(--card); color: var(--muted);
+  border: 1px solid var(--rule); border-radius: var(--radius); cursor: pointer;
+  transition: background .15s ease, border-color .15s ease, color .15s ease;
+}
+.theme-btn:hover { background: var(--sunken); color: var(--ink); border-color: var(--rule-strong); }
+.theme-btn svg { width: 17px; height: 17px; display: block; }
 
 @media print {
-  body { background: #fff; font-size: 11px; }
-  .print-btn, .toggle-arrow { display: none !important; }
+  /* Бумага и PDF – всегда светлые: отчёт здесь документ, а не экран.
+     Селектор повторяет :root[data-theme="dark"] – иначе тот перебил бы
+     этот блок по специфичности, и печать из тёмной темы шла бы тёмной. */
+  :root, :root[data-theme="dark"] {
+    color-scheme: light;
+    --brand:#015D1E; --brand-hover:#024E19; --on-brand:#FFFFFF;
+    --ink:#1A1F1B; --ink-strong:#0B0F0C; --muted:#5F6B62; --muted-soft:#8C968F;
+    --surface:#FFFFFF; --surface-2:#f6f8f6; --surface-3:#edf1ee;
+    --card:#FFFFFF; --sunken:#f6f8f6;
+    --rule:#D9DFDB; --rule-strong:#B8C2BC;
+    --success:#027A48; --success-soft:#DFF3E8;
+    --attention:#B8860B; --attention-soft:#FAF1DC;
+    --danger:#B42318; --danger-soft:#FEE4E2;
+    --info:#1F5FA8; --info-soft:#E8EFF8;
+    --rail:#04361a; --rail-ink:#cfe3d6; --rail-strong:#b7d6c2;
+    --rail-muted:#6f9c81; --rail-rule:rgba(255,255,255,.12);
+    --uline:rgba(1,93,30,.4);
+    --uline-danger:rgba(180,35,24,.4);
+    --uline-attention:rgba(184,134,11,.4);
+  }
+  body { background: #fff; color: var(--ink); font-size: 11px; }
+  .print-btn, .theme-btn, .toggle-arrow { display: none !important; }
   /* Тёмная плашка шапки на бумаге только съедает тонер. */
   .brand-head { background: #fff; color: var(--ink); border: 1px solid var(--rule); }
   .brand-head h1 { color: var(--ink-strong); }
@@ -1247,10 +1346,44 @@ a:focus-visible { border-radius: 2px; }
   .report-card, .section { break-inside: avoid; }
   .section { padding: 14px 16px; }
   .matrix-scroll { overflow: visible; }
-  .grid-2 { grid-template-columns: 1fr 1fr; gap: 16px; }
+  /* Две колонки карточки – таблицей, а не grid: WeasyPrint не сжимает
+     grid-колонку до её доли, и правая половина уходила за поле страницы.
+     table-layout:fixed делит полосу набора пополам независимо от того,
+     что внутри. */
+  .grid-2 {
+    display: table; width: 100%; table-layout: fixed;
+    border-collapse: separate; border-spacing: 0;
+  }
+  .grid-2 > div { display: table-cell; width: 50%; vertical-align: top; }
+  .grid-2 > div:first-child { padding-right: 16px; }
+  /* Шапка карточки: flex с nowrap-строкой «ГОСТ / Схожесть» на печати
+     тоже вылезала вправо. Обычный блок переносит её по словам. */
+  .report-header { display: block; padding: 8px 12px; }
+  .report-header > span { white-space: normal; }
   .passage { white-space: pre-wrap; }
   a { color: inherit; text-decoration: none; }
-  .container { padding: 12px; }
+  /* Поля страницы задаёт @page; собственный отступ контейнера сверх них
+     сужал полосу набора – матрица считает ширину по чистым 170 мм. */
+  .container { padding: 0; }
+
+  /* Сводная таблица. На экране она прокручивается внутри .tbl-wrap, в PDF
+     прокрутки нет: пять колонок с nowrap-шапкой и длинными ФИО уезжали за
+     правое поле. Ширины задаются явно, содержимое переносится. */
+  .tbl-wrap { overflow: visible; }
+  .section.summary { break-inside: auto; }
+  .summary-table { table-layout: fixed; width: 100%; font-size: 9px; }
+  .summary-table thead { display: table-header-group; }   /* шапка на каждой странице */
+  .summary-table th, .summary-table td {
+    white-space: normal; overflow-wrap: break-word;
+    padding: 4px 6px; vertical-align: top;
+  }
+  .summary-table th { font-size: 7.5px; letter-spacing: .04em; }
+  .summary-table th:nth-child(1), .summary-table td:nth-child(1) { width: 26%; }
+  .summary-table th:nth-child(2), .summary-table td:nth-child(2) { width: 30%; }
+  .summary-table th:nth-child(3), .summary-table td:nth-child(3) { width: 15%; }
+  .summary-table th:nth-child(4), .summary-table td:nth-child(4) { width: 11%; }
+  .summary-table th:nth-child(5), .summary-table td:nth-child(5) { width: 18%; }
+  .summary-table .badge { white-space: normal; padding: 1px 5px; }
   .report-toolbar { border-bottom: 0; padding-bottom: 0; margin-bottom: 14px; }
 }
 
@@ -1258,14 +1391,14 @@ a:focus-visible { border-radius: 2px; }
 .verdict {
   border: 1px solid var(--rule); border-left: 4px solid var(--brand);
   border-radius: var(--radius); padding: var(--space-3) var(--space-4);
-  margin-bottom: var(--space-4); background: var(--surface-2); break-inside: avoid;
+  margin-bottom: var(--space-4); background: var(--sunken); break-inside: avoid;
 }
 .verdict-head { display: flex; align-items: center; gap: var(--space-3); margin-bottom: var(--space-2); }
 .verdict-head h3 { font-size: var(--text-14); }
 .verdict-grade { font-size: var(--text-18); font-weight: 700; font-variant-numeric: tabular-nums; }
 .copy-btn {
   margin-left: auto; font: inherit; font-size: var(--text-12); font-weight: 600; cursor: pointer;
-  border: 1px solid var(--rule); background: var(--surface); color: var(--ink);
+  border: 1px solid var(--rule); background: var(--card); color: var(--ink);
   border-radius: var(--radius); padding: var(--space-1) var(--space-3);
   transition: background .15s ease, border-color .15s ease, color .15s ease;
 }
@@ -1277,6 +1410,23 @@ a:focus-visible { border-radius: 2px; }
 ''' + logo_css
 
     js = '''
+/* Переключатель темы. Выбор пишется в тот же ключ, что и в интерфейсе,
+   поэтому переключение в отчёте переносится на приложение и обратно.
+   Скачанный файл открывают с диска – там свой localStorage, кнопка всё
+   равно работает, просто ни с чем не синхронизируется. */
+(function () {
+  var btn = document.getElementById('theme-btn');
+  if (!btn) return;
+  btn.addEventListener('click', function () {
+    var root = document.documentElement;
+    var dark = root.dataset.theme
+      ? root.dataset.theme === 'dark'
+      : window.matchMedia('(prefers-color-scheme: dark)').matches;
+    root.dataset.theme = dark ? 'light' : 'dark';
+    try { localStorage.setItem('alena-theme', root.dataset.theme); } catch (e) {}
+  });
+})();
+
 document.querySelectorAll('.report-header, .section-head').forEach(function(h) {
   h.addEventListener('click', function() {
     var body = this.nextElementSibling;
@@ -1319,6 +1469,15 @@ document.querySelectorAll('.copy-btn').forEach(function(btn) {
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>{branding.APP_TITLE} – проверка отчётов, {now}</title>
+<script>/* Тема ставится до отрисовки, иначе тёмный отчёт мигал бы белым.
+Ключ тот же, что в интерфейсе: отчёт отдаётся с того же домена, и выбор,
+сделанный в топбаре, действует и здесь. */
+(function () {{
+  try {{
+    var t = localStorage.getItem('alena-theme');
+    if (t === 'dark' || t === 'light') document.documentElement.dataset.theme = t;
+  }} catch (e) {{}}
+}})();</script>
 <style>{css}</style>
 </head>
 <body>
@@ -1342,7 +1501,13 @@ document.querySelectorAll('.copy-btn').forEach(function(btn) {
       Порог заимствования: {thr_pct}%
     </p>
   </div>
-  {dl_btn}
+  <div class="toolbar-actions">
+    <button type="button" class="theme-btn" id="theme-btn"
+            aria-label="Сменить тему" title="Светлая / тёмная тема">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M20 14.5A8.5 8.5 0 0 1 9.5 4a8.5 8.5 0 1 0 10.5 10.5z"/></svg>
+    </button>
+    {dl_btn}
+  </div>
 </div>
 
 <div class="stats">
@@ -1364,7 +1529,7 @@ document.querySelectorAll('.copy-btn').forEach(function(btn) {
   </div>{cross_card}
 </div>
 
-<div class="section">
+<div class="section summary">
   <h2>Сводная таблица</h2>
   <div class="tbl-wrap">{summary_table}</div>
 </div>

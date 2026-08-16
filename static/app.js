@@ -958,6 +958,12 @@
       watched = null;
       aborting = false;
       panel.hidden = false;
+      /* Кнопка запуска – внизу длинной формы, а лист ожидания появляется
+         вверху. Без прокрутки казалось бы, что нажатие ничего не сделало. */
+      window.scrollTo({
+        top: 0,
+        behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth',
+      });
       runTitle.textContent = 'Загрузка файлов';
       cancelBtn.hidden = false;
       openLink.hidden = true;         // уход со страницы оборвал бы передачу

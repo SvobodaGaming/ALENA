@@ -40,6 +40,36 @@ def _esc(s: str) -> str:
     return _html.escape(str(s))
 
 
+def _plural(n: int, one: str, few: str, many: str) -> str:
+    """Русское склонение числительного: 1 работа, 2 работы, 5 работ."""
+    if n % 100 // 10 == 1:
+        return many
+    last = n % 10
+    if last == 1:
+        return one
+    if 2 <= last <= 4:
+        return few
+    return many
+
+
+def _page_title(reports: list, now: str) -> str:
+    """
+    Заголовок вкладки. Одно только время не помогало: у преподавателя открыт
+    десяток отчётов, и различать их надо по группе и объёму партии.
+    """
+    n = len(reports)
+    groups = {g for r in reports if (g := (r.get('student') or {}).get('group', '').strip())}
+
+    parts = [branding.APP_TITLE]
+    if len(groups) == 1:
+        parts.append(next(iter(groups)))
+    elif len(groups) > 1:
+        parts.append(f'{len(groups)} {_plural(len(groups), "группа", "группы", "групп")}')
+    parts.append(f'{n} {_plural(n, "работа", "работы", "работ")}')
+    parts.append(now.split()[0])        # только дата: время во вкладке лишнее
+    return ' · '.join(parts)
+
+
 def _cell_inline_style(sim: float, threshold: float) -> str:
     """Compute inline background for matrix cell, works in PDF (no JS needed)."""
     # Прозрачность считается здесь, поэтому цвет – числом, а не токеном:
@@ -721,6 +751,7 @@ def generate_html_report(reports: list, historical: list,
     now      = datetime.now().strftime('%d.%m.%Y %H:%M')
     n        = len(reports)
     thr_pct  = int(threshold * 100)
+    page_title = _page_title(reports, now)
 
     new_paths  = {r['path'] for r in reports}
     hist_paths = {h['path'] for h in historical}
@@ -1468,7 +1499,7 @@ document.querySelectorAll('.copy-btn').forEach(function(btn) {
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>{branding.APP_TITLE} – проверка отчётов, {now}</title>
+<title>{_esc(page_title)}</title>
 <script>/* Тема ставится до отрисовки, иначе тёмный отчёт мигал бы белым.
 Ключ тот же, что в интерфейсе: отчёт отдаётся с того же домена, и выбор,
 сделанный в топбаре, действует и здесь. */

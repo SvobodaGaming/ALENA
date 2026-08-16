@@ -113,6 +113,10 @@ def build(reports: list, historical: list, text_plag: dict, img_plag: dict,
             'where': _where(b),
         })
 
+    # Одна и та же пара работ может делить сразу несколько страниц-картинок –
+    # это раньше давало по строке на страницу (десяток строк на пару работ
+    # с общим шаблоном). Схлопываем их в одну строку со списком страниц.
+    img_groups = {}
     for pair in img_plag.get('pairs', []) or []:
         if pair.get('ui_review'):
             continue          # screenshots of the same UI are not borrowing
@@ -125,11 +129,25 @@ def build(reports: list, historical: list, text_plag: dict, img_plag: dict,
             page = pair.get('page2')
         else:
             page = pair.get('page1')
+        key = (a.get('path'), b.get('path'))
+        group = img_groups.setdefault(key, {'a': a, 'b': b, 'pages': []})
+        if page:
+            group['pages'].append(page)
+
+    for group in img_groups.values():
+        a, b = group['a'], group['b']
+        pages = sorted(set(group['pages']))
+        if not pages:
+            kind = 'изображение'
+        elif len(pages) == 1:
+            kind = f'изображение, стр. {pages[0]}'
+        else:
+            kind = 'изображения, стр. ' + ', '.join(str(p) for p in pages)
         matches.append({
             'a':     _display_name(a),
             'b':     _display_name(b) + (f' · {_group_of(b)}' if _group_of(b) else ''),
             'pct':   None,     # image duplicates are a yes/no match, not a share
-            'kind':  f'изображение, стр. {page}' if page else 'изображение',
+            'kind':  kind,
             'where': _where(b),
         })
 

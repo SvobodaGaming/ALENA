@@ -1,10 +1,39 @@
 """HTML report generation with support for historical (memory) reports."""
 import re
+import base64
 import html as _html
+from functools import lru_cache
 from pathlib import Path
 from datetime import datetime
 
 from . import branding, grading
+
+
+FONTS_DIR = Path(__file__).resolve().parent.parent / 'static' / 'fonts'
+
+
+@lru_cache(maxsize=1)
+def _font_css() -> str:
+    """@font-face со вшитым Manrope – тем же, что и в интерфейсе.
+
+    Отчёт обязан быть самодостаточным: его открывают файлом с диска, а
+    WeasyPrint печатает PDF с base_url на папке отчётов – ссылка на
+    /static/... не разрешится ни там, ни там.
+
+    Файл здесь один на кириллицу и латиницу, а не четыре сабсета, как в
+    static/app.css. Разложенные по unicode-range сабсеты WeasyPrint рисует
+    верно, но путает таблицу ToUnicode на стыке алфавитов: в готовом PDF
+    «report» копировалось как «reporл». Один шрифт эту склейку убирает и
+    вдобавок весит меньше двух сабсетов. Ось насыщенности сохранена –
+    начертания от 400 до 800 берутся из него же.
+    """
+    f = FONTS_DIR / 'manrope-report.woff2'
+    if not f.exists():
+        return ''
+    b64 = base64.b64encode(f.read_bytes()).decode('ascii')
+    return ("@font-face{font-family:'Manrope';font-style:normal;"
+            "font-weight:200 800;font-display:swap;"
+            f"src:url(data:font/woff2;base64,{b64}) format('woff2');}}")
 
 
 def _esc(s: str) -> str:
@@ -13,14 +42,16 @@ def _esc(s: str) -> str:
 
 def _cell_inline_style(sim: float, threshold: float) -> str:
     """Compute inline background for matrix cell, works in PDF (no JS needed)."""
+    # Прозрачность считается здесь, поэтому цвет – числом, а не токеном:
+    # rgba(180,35,24) – это --danger, rgba(184,134,11) – --attention.
     if sim >= threshold:
         intensity = min(1.0, 0.3 + (sim - threshold) / max(1 - threshold, 0.001) * 0.7)
-        text_color = 'white' if intensity > 0.55 else '#101c14'
-        return (f'background:rgba(179,38,30,{intensity:.2f});'
+        text_color = 'white' if intensity > 0.55 else '#0B0F0C'
+        return (f'background:rgba(180,35,24,{intensity:.2f});'
                 f'color:{text_color};font-weight:600;')
     if sim >= threshold * 0.55:
         intensity = (sim - threshold * 0.55) / (threshold * 0.45 + 0.001) * 0.45
-        return f'background:rgba(208,135,0,{intensity:.2f});'
+        return f'background:rgba(184,134,11,{intensity:.2f});'
     return ''
 
 
@@ -88,7 +119,7 @@ def _render_matrix(new_reports: list, historical_relevant: list,
     no_text = set(text_plagiarism.get('no_text') or ())
     all_reports = new_reports + historical_relevant
     if not matrix or len(all_reports) < 2:
-        return '<p style="color:#8ba394">Недостаточно отчётов для матрицы.</p>'
+        return '<p style="color:var(--muted-soft)">Недостаточно отчётов для матрицы.</p>'
 
     threshold_pct = int(threshold * 100)
     hist_paths = {r['path'] for r in historical_relevant}
@@ -116,7 +147,7 @@ def _render_matrix(new_reports: list, historical_relevant: list,
 
     def _th_style(p):
         if p in hist_paths:
-            return ' style="background:#fbf0d8;color:#7a4a12;"'
+            return ' style="background:var(--attention-soft);color:var(--attention);"'
         return ''
 
     # Column headers: name rotated 90° (reads bottom-to-top), narrow fixed cell.
@@ -130,19 +161,19 @@ def _render_matrix(new_reports: list, historical_relevant: list,
     rows = []
     for p1 in paths:
         is_h1 = p1 in hist_paths
-        row_th_style = ' style="background:#fbf6e6;color:#7a4a12;"' if is_h1 else ''
+        row_th_style = ' style="background:var(--attention-soft);color:var(--attention);"' if is_h1 else ''
         name1 = _esc(_short_name(report_by_path[p1]))
         cells = []
         for p2 in paths:
             if p1 == p2:
                 cells.append('<td class="mc cell-self">·</td>')
             elif p1 in hist_paths and p2 in hist_paths:
-                cells.append('<td class="mc cell-self" style="color:#c2d2c6;">·</td>')
+                cells.append('<td class="mc cell-self" style="color:var(--rule-strong);">·</td>')
             elif p1 in no_text or p2 in no_text:
                 # Пара не сравнивалась: из одной из работ текст не извлёкся.
                 # Ноль здесь означал бы «проверено, чисто» – это неправда.
-                cells.append('<td class="mc" style="background:#eef2f7;'
-                             'color:#245a9c;" title="текст не извлечён">–</td>')
+                cells.append('<td class="mc" style="background:var(--info-soft);'
+                             'color:var(--info);" title="текст не извлечён">–</td>')
             else:
                 sim = matrix.get(p1, {}).get(p2, 0.0)
                 pct = int(sim * 100)
@@ -169,7 +200,7 @@ def _render_matrix(new_reports: list, historical_relevant: list,
     if historical_relevant:
         hist_note = (
             '<span style="display:inline-block;width:14px;height:14px;'
-            'background:#fbf0d8;border:1px solid #e3c169;border-radius:2px;vertical-align:middle;"></span>'
+            'background:var(--attention-soft);border:1px solid var(--attention);border-radius:var(--radius-sm);vertical-align:middle;"></span>'
             ' Строки/столбцы на жёлтом – отчёты из базы предыдущих сессий &nbsp;'
         )
 
@@ -180,10 +211,10 @@ def _render_matrix(new_reports: list, historical_relevant: list,
   <tbody>{"".join(rows)}</tbody>
 </table>
 </div>
-<p style="font-size:0.78rem;color:#8ba394;margin-top:8px;">
-  <span style="display:inline-block;width:14px;height:14px;background:#eab3ae;border-radius:2px;vertical-align:middle;"></span> ≥{threshold_pct}% – заимствование &nbsp;
-  <span style="display:inline-block;width:14px;height:14px;background:#f0dba6;border-radius:2px;vertical-align:middle;"></span> {int(threshold_pct*0.55)}–{threshold_pct}% – близко &nbsp;
-  {'<span style="display:inline-block;width:14px;height:14px;background:#eef2f7;border:1px solid #c3d2e6;border-radius:2px;vertical-align:middle;"></span> «–» – текст не извлечён, сравнение невозможно &nbsp;' if no_text else ''}
+<p style="font-size:var(--text-13);color:var(--muted-soft);margin-top:var(--space-2);">
+  <span style="display:inline-block;width:14px;height:14px;background:var(--danger);border-radius:var(--radius-sm);vertical-align:middle;"></span> ≥{threshold_pct}% – заимствование &nbsp;
+  <span style="display:inline-block;width:14px;height:14px;background:var(--attention);border-radius:var(--radius-sm);vertical-align:middle;"></span> {int(threshold_pct*0.55)}–{threshold_pct}% – близко &nbsp;
+  {'<span style="display:inline-block;width:14px;height:14px;background:var(--info-soft);border:1px solid var(--info);border-radius:var(--radius-sm);vertical-align:middle;"></span> «–» – текст не извлечён, сравнение невозможно &nbsp;' if no_text else ''}
   {hist_note}
 </p>'''
 
@@ -200,7 +231,7 @@ CARD_PAIRS    = 12       # в карточке одной работы
 def _pairs_note(shown: int, total: int, where: str) -> str:
     if shown >= total:
         return ''
-    return (f'<p style="color:#64786a;font-size:0.82rem;margin:4px 0 10px;">'
+    return (f'<p style="color:var(--muted);font-size:var(--text-13);margin:var(--space-1) 0 var(--space-2);">'
             f'Показаны {shown} самых близких пар из {total}. Остальные учтены '
             f'в счётчиках{where}, но не выведены: с полным списком отчёт '
             f'весил бы сотни мегабайт и не открылся бы.</p>')
@@ -227,7 +258,7 @@ def _render_image_summary(image_plagiarism: dict, report_by_path: dict) -> str:
         head_badges.append('<span class="badge badge-green">не найдено</span>')
 
     if not pairs:
-        body = ('<p style="color:#17805a;font-weight:600;">'
+        body = ('<p style="color:var(--success);font-weight:600;">'
                 '✓ Одинаковых изображений между отчётами не найдено.</p>')
         return f'''<div class="section">
   <div class="section-head">
@@ -250,8 +281,7 @@ def _render_image_summary(image_plagiarism: dict, report_by_path: dict) -> str:
             if rep.get('is_historical'):
                 v = rep.get('historical_version', '?')
                 d = rep.get('historical_date', '')
-                return (f'{name} <span style="background:#fbf0d8;color:#7a4a12;'
-                        f'padding:1px 6px;border-radius:3px;font-size:0.73rem;">'
+                return (f'{name} <span class="badge badge-amber">'
                         f'база v{_esc(v)}{f", {_esc(d)}" if d else ""}</span>')
             return name
 
@@ -259,19 +289,19 @@ def _render_image_summary(image_plagiarism: dict, report_by_path: dict) -> str:
         n2_html = _name_with_badge(r2, n2)
 
         if p.get('ui_review'):
-            match_badge = '<span style="background:#dfe9f5;color:#245a9c;padding:2px 8px;border-radius:4px;font-size:0.76rem;font-weight:600;">похожий интерфейс – проверьте вручную</span>'
+            match_badge = '<span class="badge badge-blue">похожий интерфейс – проверьте вручную</span>'
         elif p.get('is_crop'):
-            match_badge = '<span style="background:#fbf0d8;color:#8a5200;padding:2px 8px;border-radius:4px;font-size:0.76rem;font-weight:600;">обрезанная копия</span>'
+            match_badge = '<span class="badge badge-amber">обрезанная копия</span>'
         else:
-            match_badge = '<span style="background:#fae4e2;color:#b3261e;padding:2px 8px;border-radius:4px;font-size:0.76rem;font-weight:600;">точная копия</span>'
+            match_badge = '<span class="badge badge-red">точная копия</span>'
 
         # src экранируется: превью приходит и из базы отпечатков, а та могла
         # быть залита чужим SQL-дампом – своей строке base64 экранирование не
         # мешает, а подставленной кавычке закрывает дорогу.
         img1_html = (f'<img src="{_esc(p["img1"])}" alt="img1">' if p.get('img1')
-                     else '<div style="width:120px;height:80px;background:#f6f9f4;border:1px solid #dbe4dc;border-radius:4px;display:flex;align-items:center;justify-content:center;color:#8ba394;font-size:0.75rem;">нет превью</div>')
+                     else '<div class="img-blank">нет превью</div>')
         img2_html = (f'<img src="{_esc(p["img2"])}" alt="img2">' if p.get('img2')
-                     else '<div style="width:120px;height:80px;background:#f6f9f4;border:1px solid #dbe4dc;border-radius:4px;display:flex;align-items:center;justify-content:center;color:#8ba394;font-size:0.75rem;">нет превью</div>')
+                     else '<div class="img-blank">нет превью</div>')
 
         items.append(f'''
 <div class="img-pair">
@@ -279,20 +309,20 @@ def _render_image_summary(image_plagiarism: dict, report_by_path: dict) -> str:
     {img1_html}
     <div class="img-info">{n1_html}<br>стр. {p["page1"]}</div>
   </div>
-  <div style="align-self:center;font-size:1.5rem;color:#b3261e;">≈</div>
+  <div style="align-self:center;font-size:var(--text-24);color:var(--danger);">≈</div>
   <div>
     {img2_html}
     <div class="img-info">{n2_html}<br>стр. {p["page2"]}</div>
   </div>
   <div class="img-info" style="align-self:center;">
     {match_badge}<br>
-    <span style="color:#8ba394;font-size:0.75rem;">расст. {p["distance"]}/144</span>
+    <span style="color:var(--muted-soft);font-size:var(--text-12);">расст. {p["distance"]}/144</span>
   </div>
 </div>''')
 
     review_note = ''
     if review:
-        review_note = ('<p style="color:#64786a;font-size:0.82rem;margin:4px 0 10px;">'
+        review_note = ('<p style="color:var(--muted);font-size:var(--text-13);margin:var(--space-1) 0 var(--space-2);">'
                        'Пары «похожий интерфейс» – это скриншоты одинаковых программ '
                        '(терминал, Zabbix и т.п.): совпадение оформления ожидаемо, '
                        'в статистику заимствований они не входят.</p>')
@@ -311,18 +341,26 @@ def _render_image_summary(image_plagiarism: dict, report_by_path: dict) -> str:
 
 
 def _render_gost_table(gost_results: list) -> str:
+    """Таблица критериев ГОСТ: знак, название, подробности.
+
+    Знаки – круг, треугольник и косой крест, а не «✓ ✗ ⚠». Последних нет
+    ни в Manrope, ни в шрифтах, которые находит WeasyPrint на сервере без
+    установленного набора символов: в выгруженном PDF колонка выходила
+    пустой, и таблица переставала что-либо значить. Взятые знаки есть в
+    любом шрифте и различаются формой, а не только цветом.
+    """
     rows = []
     for c in gost_results:
         if c['passed']:
-            icon = '<span class="check-pass">✓</span>'
+            icon = '<span class="check-pass" title="соответствует">&#9679;</span>'
         elif c['severity'] == 'warning':
-            icon = '<span class="check-warn">⚠</span>'
+            icon = '<span class="check-warn" title="проверьте вручную">&#9650;</span>'
         else:
-            icon = '<span class="check-fail">✗</span>'
-        details = (f'<span style="color:#64786a;font-size:0.82rem;">{_esc(c["details"])}</span>'
+            icon = '<span class="check-fail" title="нарушение">&#215;</span>'
+        details = (f'<span style="color:var(--muted);font-size:var(--text-13);">{_esc(c["details"])}</span>'
                    if c['details'] else '')
         rows.append(
-            f'<tr><td>{icon}</td><td><b>{_esc(c["name"])}</b></td>'
+            f'<tr><td class="check-cell">{icon}</td><td><b>{_esc(c["name"])}</b></td>'
             f'<td>{details}</td></tr>'
         )
     return (
@@ -333,7 +371,7 @@ def _render_gost_table(gost_results: list) -> str:
 
 
 NO_TEXT_NOTE = (
-    '<div class="plagiarism-alert" style="background:#eef2f7;border-color:#c3d2e6;">'
+    '<div class="plagiarism-alert" style="background:var(--info-soft);border-color:var(--info);">'
     '<span class="badge badge-blue">ТЕКСТ НЕ ИЗВЛЕЧЁН</span> '
     'Из файла удалось прочитать слишком мало текста – обычно это скан или '
     'нестандартные шрифты. Сравнение с другими работами не проводилось: '
@@ -356,13 +394,13 @@ def _render_text_plag_for_report(path: str, text_plagiarism: dict, threshold: fl
     sims.sort(key=lambda x: -x[1])
 
     if not sims:
-        return '<p style="color:#8ba394;font-size:0.85rem;">Нет данных.</p>'
+        return '<p style="color:var(--muted-soft);font-size:var(--text-14);">Нет данных.</p>'
 
     max_other, max_sim = sims[0]
 
     if max_sim < threshold * 0.3:
         return (
-            '<p style="color:#17805a;font-weight:600;font-size:0.9rem;">'
+            '<p style="color:var(--success);font-weight:600;font-size:var(--text-14);">'
             f'✓ Заимствования не обнаружено (макс. схожесть {max_sim:.0%})</p>'
         )
 
@@ -374,23 +412,28 @@ def _render_text_plag_for_report(path: str, text_plagiarism: dict, threshold: fl
         other_name  = _esc(_display_name(other_rep))
         is_hist     = other_rep.get('is_historical', False)
 
+        # Цвет плашки идёт за значком: красная – выше порога, жёлтая – ниже
+        # и всё, что пришло из базы прошлых сессий (её же цветом помечены
+        # строки матрицы). Раньше плашка всегда была красной, и «Близко» с
+        # жёлтым значком лежало на красном фоне.
+        near = sim < threshold
         if is_hist:
             hist_ver  = other_rep.get('historical_version', '?')
             hist_date = other_rep.get('historical_date', '')
             badge_cls = 'badge-red' if sim >= threshold else 'badge-amber'
             label     = 'ИЗ БАЗЫ' if sim >= threshold else 'База (близко)'
             ref_html  = (
-                f'<span style="color:#7a4a12;">{other_name}</span> '
-                f'<span style="color:#8a5200;font-size:0.78rem;">'
+                f'{other_name} '
+                f'<span style="font-size:var(--text-13);">'
                 f'(база v{hist_ver}, {hist_date})</span>'
             )
-            alert_style = 'background:#fdf8ea;border-color:#f0dba6;'
+            alert_cls = ' hist'
         else:
             anchor    = _anchor(other_rep)
             badge_cls = 'badge-red' if sim >= threshold else 'badge-amber'
             label     = 'ЗАИМСТВОВАНИЕ' if sim >= threshold else 'Близко'
-            ref_html  = f'<a href="#{anchor}" style="color:#8f1d17;">{other_name}</a>'
-            alert_style = ''
+            ref_html  = f'<a href="#{anchor}">{other_name}</a>'
+            alert_cls = ' near' if near else ''
 
         passages_html = ''
         for pair in pairs:
@@ -400,11 +443,11 @@ def _render_text_plag_for_report(path: str, text_plagiarism: dict, threshold: fl
                         f'<div class="passage">{_esc(p[:280])}…</div>'
                         for p in pair['passages'][:3]
                     )
-                    passages_html = f'<div style="margin-top:8px;">{items}</div>'
+                    passages_html = f'<div style="margin-top:var(--space-2);">{items}</div>'
                 break
 
         parts.append(
-            f'<div class="plagiarism-alert" style="margin-bottom:8px;{alert_style}">'
+            f'<div class="plagiarism-alert{alert_cls}" style="margin-bottom:var(--space-2);">'
             f'<span class="badge {badge_cls}">{label}</span> '
             f'<strong>{sim:.0%}</strong> совпадений с '
             f'{ref_html}'
@@ -412,7 +455,7 @@ def _render_text_plag_for_report(path: str, text_plagiarism: dict, threshold: fl
         )
 
     return ''.join(parts) if parts else (
-        '<p style="color:#d08700;font-size:0.85rem;">'
+        '<p style="color:var(--attention);font-size:var(--text-14);">'
         f'Схожесть до {max_sim:.0%}, ниже порога {threshold:.0%}</p>'
     )
 
@@ -424,7 +467,7 @@ def _render_img_plag_for_report(path: str, image_plagiarism: dict,
         if p['report1'] == path or p['report2'] == path
     ]
     if not my_pairs:
-        return '<p style="color:#17805a;font-weight:600;font-size:0.9rem;">✓ Дублей изображений нет</p>'
+        return '<p style="color:var(--success);font-weight:600;font-size:var(--text-14);">✓ Дублей изображений нет</p>'
 
     confirmed = [p for p in my_pairs if not p.get('ui_review')]
     review    = [p for p in my_pairs if p.get('ui_review')]
@@ -448,8 +491,7 @@ def _render_img_plag_for_report(path: str, image_plagiarism: dict,
             d = other_rep.get('historical_date', '')
             other_label = (
                 f'{other_name} '
-                f'<span style="background:#fbf0d8;color:#7a4a12;'
-                f'padding:1px 5px;border-radius:3px;font-size:0.72rem;">'
+                f'<span class="badge badge-amber">'
                 f'база v{_esc(v)}{f", {_esc(d)}" if d else ""}</span>'
                 f'<br>стр.{other_page}'
             )
@@ -459,8 +501,7 @@ def _render_img_plag_for_report(path: str, image_plagiarism: dict,
         other_img_html = (
             f'<img src="{_esc(other_img)}" alt="other" style="max-height:100px;">'
             if other_img else
-            '<div style="width:100px;height:70px;background:#f6f9f4;border:1px solid #dbe4dc;'
-            'display:flex;align-items:center;justify-content:center;color:#8ba394;font-size:0.72rem;">нет превью</div>'
+            '<div class="img-blank" style="width:100px;height:70px;">нет превью</div>'
         )
 
         review_badge = ''
@@ -472,10 +513,10 @@ def _render_img_plag_for_report(path: str, image_plagiarism: dict,
             )
 
         items.append(
-            f'<div class="img-pair" style="margin:6px 0;">'
+            f'<div class="img-pair" style="margin:var(--space-2) 0;">'
             f'<div><img src="{_esc(my_img)}" alt="my" style="max-height:100px;">'
             f'<div class="img-info">Эта работа, стр.{my_page}</div></div>'
-            f'<div style="align-self:center;color:#b3261e;font-size:1.3rem;">≈</div>'
+            f'<div style="align-self:center;color:var(--danger);font-size:var(--text-20);">≈</div>'
             f'<div>{other_img_html}'
             f'<div class="img-info">{other_label}</div></div>'
             f'{review_badge}'
@@ -509,12 +550,12 @@ def _render_feedback(report: dict, gost_results: list, max_sim: float,
     plain = grading.feedback_text(student, thr_pct)
 
     if mark['pct'] is None:
-        pct_text, color = '–', '#245a9c'
+        pct_text, color = '–', 'var(--info)'
     else:
         pct = mark['pct']
         pct_text = f'{pct}%'
-        color = '#17805a' if pct >= 85 else '#d08700' if pct >= 60 else '#b3261e'
-    in_points = (f' &nbsp;<span style="font-size:0.8rem;color:#64786a;">'
+        color = 'var(--success)' if pct >= 85 else 'var(--attention)' if pct >= 60 else 'var(--danger)'
+    in_points = (f' &nbsp;<span style="font-size:var(--text-13);color:var(--muted);">'
                  f'{mark["score"]:g} из {mark["scale"]}</span>'
                  if mark['score'] is not None else '')
 
@@ -522,7 +563,7 @@ def _render_feedback(report: dict, gost_results: list, max_sim: float,
         items = ''.join(f'<li>{_esc(l)}</li>' for l in lines)
         body = f'<ul class="flaw-list">{items}</ul>'
     else:
-        body = ('<p style="color:#17805a;font-size:0.85rem;margin:0;">'
+        body = ('<p style="color:var(--success);font-size:var(--text-14);margin:0;">'
                 'Замечаний по оформлению нет.</p>')
 
     costly = ''
@@ -563,23 +604,23 @@ def _render_card(report: dict, text_plagiarism: dict, image_plagiarism: dict,
 
     if has_text_plag or has_img_plag:
         badge = '<span class="badge badge-red">Заимствование</span>'
-        header_border = 'border-left:4px solid #b3261e;'
+        header_border = 'border-left:4px solid var(--danger);'
     elif no_text:
         badge = '<span class="badge badge-blue">Текст не извлечён</span>'
-        header_border = 'border-left:4px solid #245a9c;'
+        header_border = 'border-left:4px solid var(--info);'
     elif total and passed < total * 0.7:
         badge = '<span class="badge badge-amber">Нарушения ГОСТ</span>'
-        header_border = 'border-left:4px solid #d08700;'
+        header_border = 'border-left:4px solid var(--attention);'
     elif not total:
         # Критерии сняты все до единого – сказать «OK» не о чем.
         badge = '<span class="badge badge-blue">ГОСТ не проверялся</span>'
-        header_border = 'border-left:4px solid #245a9c;'
+        header_border = 'border-left:4px solid var(--info);'
     else:
         badge = '<span class="badge badge-green">OK</span>'
-        header_border = 'border-left:4px solid #17805a;'
+        header_border = 'border-left:4px solid var(--success);'
 
-    score_color = ('#17805a' if score_pct >= 85 else
-                   '#d08700' if score_pct >= 60 else '#b3261e')
+    score_color = ('var(--success)' if score_pct >= 85 else
+                   'var(--attention)' if score_pct >= 60 else 'var(--danger)')
 
     s = report.get('student', {})
     meta_parts = []
@@ -590,7 +631,7 @@ def _render_card(report: dict, text_plagiarism: dict, image_plagiarism: dict,
 
     scan_warn = ''
     if report.get('is_scanned'):
-        scan_warn = ('<div class="badge badge-amber" style="margin-bottom:12px;">'
+        scan_warn = ('<div class="badge badge-amber" style="margin-bottom:var(--space-3);">'
                      '⚠ Возможно, отсканированный PDF, текст не извлечён</div>')
 
     fname = report.get('filename', '') or Path(path).name
@@ -600,12 +641,12 @@ def _render_card(report: dict, text_plagiarism: dict, image_plagiarism: dict,
         return f'''
 <div class="report-card" id="{_anchor(report)}">
   <div class="report-header" style="{header_border}">
-    <span style="font-size:1rem;font-weight:600;flex:1;">{_esc(_display_name(report))}</span>
+    <span style="font-size:var(--text-16);font-weight:600;flex:1;">{_esc(_display_name(report))}</span>
     <span class="badge badge-red">Ошибка чтения</span>
   </div>
   <div class="report-body">
-    <p style="color:#b3261e;">{_esc(report["error"])}</p>
-    <p style="color:#64786a;font-size:0.8rem;">{fname_disp}</p>
+    <p style="color:var(--danger);">{_esc(report["error"])}</p>
+    <p style="color:var(--muted);font-size:var(--text-13);">{fname_disp}</p>
   </div>
 </div>'''
 
@@ -616,17 +657,17 @@ def _render_card(report: dict, text_plagiarism: dict, image_plagiarism: dict,
     return f'''
 <div class="report-card" id="{_anchor(report)}">
   <div class="report-header" style="{header_border}">
-    <span style="font-size:1rem;font-weight:600;flex:1;">{_esc(_display_name(report))}</span>
+    <span style="font-size:var(--text-16);font-weight:600;flex:1;">{_esc(_display_name(report))}</span>
     {badge}
-    <span style="font-size:0.82rem;color:#64786a;white-space:nowrap;">
+    <span style="font-size:var(--text-13);color:var(--muted);white-space:nowrap;">
       ГОСТ: {passed}/{total} &nbsp;|&nbsp; Схожесть: {'–' if no_text else f'{max_sim:.0%}'}
     </span>
     <span class="toggle-arrow">▼</span>
   </div>
   <div class="report-body">
     {scan_warn}
-    {f'<p style="color:#64786a;font-size:0.84rem;margin-bottom:10px;">{meta}</p>' if meta else ''}
-    <p style="font-size:0.76rem;color:#8ba394;margin-bottom:16px;">📄 {fname_disp}</p>
+    {f'<p style="color:var(--muted);font-size:var(--text-13);margin-bottom:var(--space-2);">{meta}</p>' if meta else ''}
+    <p style="font-size:var(--text-12);color:var(--muted-soft);margin-bottom:var(--space-4);">📄 {fname_disp}</p>
 
     {_render_feedback(report, gost_results, max_sim, threshold, weights, scale, no_text)}
 
@@ -634,12 +675,12 @@ def _render_card(report: dict, text_plagiarism: dict, image_plagiarism: dict,
       <!-- GOST -->
       <div>
         <h3>ГОСТ 7.32-2017</h3>
-        <div class="score-bar" style="margin-bottom:10px;">
-          <span style="font-size:0.82rem;color:#64786a;width:32px;">{score_pct}%</span>
+        <div class="score-bar" style="margin-bottom:var(--space-2);">
+          <span style="font-size:var(--text-13);color:var(--muted);width:32px;">{score_pct}%</span>
           <div class="score-track">
             <div class="score-fill" style="width:{score_pct}%;background:{score_color};"></div>
           </div>
-          <span style="font-size:0.82rem;color:#64786a;">{passed}/{total}</span>
+          <span style="font-size:var(--text-13);color:var(--muted);">{passed}/{total}</span>
         </div>
         {gost_table}
       </div>
@@ -648,7 +689,7 @@ def _render_card(report: dict, text_plagiarism: dict, image_plagiarism: dict,
       <div>
         <h3>Заимствование текста</h3>
         {text_plag}
-        <div style="margin-top:18px;">
+        <div style="margin-top:var(--space-5);">
           <h3>Заимствование изображений</h3>
           {img_plag}
         </div>
@@ -774,7 +815,7 @@ def generate_html_report(reports: list, historical: list,
             d = other_rep.get('historical_date', '')
             other_name_html = (
                 f'{_esc(_display_name(other_rep))} '
-                f'<span style="color:#b26a00;font-size:0.75rem;">(база v{v}, {d})</span>'
+                f'<span style="color:var(--attention);font-size:var(--text-12);">(база v{v}, {d})</span>'
             )
         elif other_rep:
             anc = _anchor(other_rep)
@@ -798,7 +839,7 @@ def generate_html_report(reports: list, historical: list,
         elif sim >= threshold:
             plag_badge = f'<span class="badge badge-red">{sim:.0%}</span>'
         else:
-            plag_badge = f'<span style="color:#64786a;">{sim:.0%}</span>'
+            plag_badge = f'<span style="color:var(--muted);">{sim:.0%}</span>'
         if not t:
             gost_badge = '<span class="badge badge-blue">не проверялся</span>'
         elif p == t:
@@ -811,7 +852,7 @@ def generate_html_report(reports: list, historical: list,
         elif review_count:
             img_badge = f'<span class="badge badge-blue">{review_count} на проверку</span>'
         else:
-            img_badge = '<span style="color:#17805a;">–</span>'
+            img_badge = '<span style="color:var(--success);">–</span>'
         mark = grading.grade(r.get('gost_results', []), weights, scale)
         if mark['pct'] is None:
             # Ни одного критерия – оценивать нечего; «0 %» читалось бы как двойка.
@@ -877,142 +918,323 @@ def generate_html_report(reports: list, historical: list,
     page_rule = f'''@page {{
   size: A4 portrait;
   margin: 15mm 20mm 24mm 20mm;
+  /* Колонтитулы – литеральные цвета: поля страницы наследуются от контекста
+     печати, и полагаться на то, что до них дойдут токены :root, не стоит.
+     #8C968F – это --muted-soft. */
   @bottom-left {{
     content: "{branding.TEAM} · {branding.APP_TITLE} – {branding.APP_FULL_NAME}";
     font-size: 7.5pt;
-    color: #8ba394;
-    font-family: Arial, sans-serif;
+    color: #8C968F;
+    font-family: 'Manrope', Arial, sans-serif;
   }}
   @bottom-right {{
     content: "Сформировано: {now}  ·  стр. " counter(page) " / " counter(pages);
     font-size: 7.5pt;
-    color: #8ba394;
-    font-family: Arial, sans-serif;
+    color: #8C968F;
+    font-family: 'Manrope', Arial, sans-serif;
   }}
 }}'''
 
-    css = page_rule + '''
+    css = _font_css() + page_rule + '''
+/* ─────────────────────────── Токены ───────────────────────────
+   Тот же дизайн-код, что в интерфейсе (static/app.css): палитра, шкала
+   размеров и отступов, радиусы и тени сняты с uralolimp.website (тема
+   Scholaria). Имена токенов совпадают, поэтому правка палитры в одном
+   месте переносится сюда копированием блока.
+
+   Отличий от интерфейса два, оба намеренные:
+   1. Тёмной темы нет. Отчёт – документ: его печатают и выгружают в PDF,
+      и палитра должна быть одна на экране и на бумаге.
+   2. Добавлен синий --info. В интерфейсе такого цвета нет, но здесь он
+      несёт смысл, который серым не передать: «не проверено» (текст не
+      извлёкся, пару нужно смотреть руками) – это не то же самое, что
+      «проверено, чисто». */
+:root {
+  color-scheme: light;
+
+  --brand:        #015D1E;
+  --brand-hover:  #024E19;
+  --on-brand:     #FFFFFF;
+
+  --ink:          #1A1F1B;
+  --ink-strong:   #0B0F0C;
+  --muted:        #5F6B62;
+  --muted-soft:   #8C968F;
+  --surface:      #FFFFFF;
+  --surface-2:    #f6f8f6;
+  --surface-3:    #edf1ee;
+  --rule:         #D9DFDB;
+  --rule-strong:  #B8C2BC;
+
+  --success:      #027A48;  --success-soft:   #DFF3E8;
+  --attention:    #B8860B;  --attention-soft: #FAF1DC;
+  --danger:       #B42318;  --danger-soft:    #FEE4E2;
+  --info:         #1F5FA8;  --info-soft:      #E8EFF8;
+
+  /* Тёмная плашка шапки – тот же рельс, что и в боковом меню. */
+  --rail:         #04361a;
+  --rail-ink:     #cfe3d6;
+  --rail-strong:  #b7d6c2;
+  --rail-muted:   #6f9c81;
+  --rail-rule:    rgba(255,255,255,.12);
+
+  --focus-ring:   0 0 0 3px rgba(1,93,30,.35);
+
+  --radius-sm:    4px;
+  --radius:       8px;
+  --radius-lg:    16px;
+  --radius-pill:  999px;
+
+  --space-1: 4px;  --space-2: 8px;  --space-3: 12px;
+  --space-4: 16px; --space-5: 24px; --space-6: 32px;
+  --space-7: 48px;
+
+  /* Manrope вшит выше. Моноширинный – системный: он нужен только для
+     цитат из работ, а вшивать ради них второй файл по 40 КБ в каждый
+     отчёт не стоит. Цифры выравниваются через tabular-nums Manrope. */
+  --font-sans: 'Manrope', system-ui, -apple-system, 'Segoe UI', Roboto, Arial, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, 'SF Mono', Consolas, 'Liberation Mono', Menlo, monospace;
+
+  --text-11: .6875rem; --text-12: .75rem;  --text-13: .8125rem;
+  --text-14: .875rem;  --text-15: .9375rem; --text-16: 1rem;
+  --text-18: 1.125rem; --text-20: 1.25rem;  --text-24: 1.5rem;
+  --text-30: 1.875rem;
+
+  --leading-tight: 1.2; --leading-snug: 1.35; --leading-base: 1.6;
+}
+
+/* ──────────────────────────── База ──────────────────────────── */
+
 * { box-sizing: border-box; margin: 0; padding: 0; }
-body { font-family: 'Segoe UI', Arial, sans-serif; background: #eef2ec; color: #101c14; line-height: 1.5; font-size: 14px; }
-.container { max-width: 1400px; margin: 0 auto; padding: 24px; }
-h1 { font-size: 1.5rem; font-weight: 700; letter-spacing: -.01em; }
-h2 { font-size: 1.15rem; font-weight: 600; margin: 0 0 12px; }
-h3 { font-size: 0.95rem; font-weight: 600; margin-bottom: 8px; }
-.subtitle { color: #64786a; font-size: 0.88rem; margin: 6px 0 0; }
-a { color: #0a7333; text-decoration: none; }
-a:hover { text-decoration: underline; }
+body {
+  font-family: var(--font-sans);
+  font-size: var(--text-15);
+  line-height: var(--leading-base);
+  background: var(--surface);
+  color: var(--ink);
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+}
+.container { max-width: 1200px; margin: 0 auto; padding: var(--space-6) var(--space-5) var(--space-7); }
+
+h1, h2, h3 { font-weight: 700; color: var(--ink-strong); line-height: var(--leading-tight); letter-spacing: -.01em; }
+h1 { font-size: var(--text-24); }
+h2 { font-size: var(--text-18); margin: 0 0 var(--space-3); }
+h3 { font-size: var(--text-14); margin: 0 0 var(--space-2); }
+.subtitle { color: var(--muted); font-size: var(--text-13); margin: var(--space-1) 0 0; }
+
+/* Подчёркнутые ссылки – как в образце. rgba вместо color-mix: WeasyPrint
+   функцию не считает и красит текст чёрным. */
+a {
+  color: var(--brand);
+  text-decoration-line: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+  text-decoration-color: rgba(1,93,30,.4);
+  transition: color .15s ease, text-decoration-color .15s ease;
+}
+a:hover { color: var(--brand-hover); text-decoration-color: var(--brand-hover); }
+a.print-btn { text-decoration: none; }
+::selection { background: var(--brand); color: var(--on-brand); }
+:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+a:focus-visible { border-radius: 2px; }
 
 /* Шапка и подвал: та же марка, что и в интерфейсе – логотип #au_team,
    название и расшифровка по буквам. */
 .brand-head {
-  display: flex; align-items: flex-start; gap: 16px; flex-wrap: wrap;
-  background: #04361a; color: #cfe3d6; border-radius: 12px;
-  padding: 18px 22px; margin-bottom: 18px;
+  display: flex; align-items: flex-start; gap: var(--space-4); flex-wrap: wrap;
+  background: var(--rail); color: var(--rail-ink); border-radius: var(--radius-lg);
+  padding: var(--space-4) var(--space-5); margin-bottom: var(--space-4);
 }
 .logo-mark {
   background-color: #fff; background-repeat: no-repeat; background-position: center;
   background-size: contain; background-origin: content-box; display: inline-block;
 }
-.brand-logo { width: 54px; height: 54px; flex: none; border-radius: 10px; padding: 4px; }
+.brand-logo { width: 54px; height: 54px; flex: none; border-radius: var(--radius); padding: var(--space-1); }
 .brand-head h1 { color: #fff; }
-.brand-head .subtitle { color: #8fb69f; }
-.brand-acronym { list-style: none; margin: 0 0 0 auto; padding: 0 0 0 18px; font-size: 0.76rem; line-height: 1.5; color: #8fb69f; border-left: 1px solid rgba(255,255,255,.12); }
-.brand-acronym b { color: #d8ebdf; font-weight: 800; }
-.brand-team { font-size: 0.78rem; color: #8fb69f; margin-top: 8px; }
-.brand-team b { color: #d8ebdf; }
+.brand-head .subtitle { color: var(--rail-muted); }
+.brand-acronym {
+  list-style: none; margin: 0 0 0 auto; padding: 0 0 0 var(--space-4);
+  font-size: var(--text-11); line-height: var(--leading-snug);
+  color: var(--rail-muted); border-left: 1px solid var(--rail-rule);
+}
+.brand-acronym b { color: var(--rail-strong); font-weight: 800; }
+.brand-team { font-size: var(--text-12); color: var(--rail-muted); margin-top: var(--space-2); }
+.brand-team b { color: var(--rail-strong); }
 
 .brand-foot {
-  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
-  margin-top: 26px; padding: 14px 18px; background: white;
-  border: 1px solid #dbe4dc; border-radius: 12px;
-  font-size: 0.78rem; color: #64786a;
+  display: flex; align-items: center; gap: var(--space-3); flex-wrap: wrap;
+  margin-top: var(--space-6); padding: var(--space-3) var(--space-4);
+  background: var(--surface); border: 1px solid var(--rule); border-radius: var(--radius-lg);
+  font-size: var(--text-12); color: var(--muted);
 }
-.brand-foot .logo-mark { width: 32px; height: 32px; flex: none; border-radius: 7px; padding: 2px; }
-.brand-foot b { color: #101c14; }
+/* Подложка у метки белая, а страница теперь тоже белая – без рамки метка
+   растворяется. */
+.brand-foot .logo-mark {
+  width: 32px; height: 32px; flex: none; padding: 2px;
+  border: 1px solid var(--rule); border-radius: var(--radius-sm);
+}
+.brand-foot b { color: var(--ink-strong); }
 .brand-foot .right { margin-left: auto; text-align: right; }
 
-.stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 14px; margin-bottom: 28px; }
-.stat-card { background: white; border-radius: 12px; padding: 18px 20px; box-shadow: 0 1px 3px rgba(0,0,0,.08); }
-.stat-num { font-size: 2.2rem; font-weight: 700; line-height: 1; }
-.stat-lbl { color: #64786a; font-size: 0.82rem; margin-top: 4px; }
-.c-blue .stat-num   { color: #0a7333; }
-.c-red .stat-num    { color: #b3261e; }
-.c-amber .stat-num  { color: #d08700; }
-.c-green .stat-num  { color: #17805a; }
+/* ───────────────────────── Компоненты ───────────────────────── */
 
-.section { background: white; border-radius: 12px; padding: 22px 24px; box-shadow: 0 1px 3px rgba(0,0,0,.08); margin-bottom: 22px; }
-.section-head { display: flex; align-items: center; gap: 10px; cursor: pointer; }
-.section-head h2 { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+/* Карточки держатся на рамке, а не на тени: страница белая, тень на ней
+   выглядит грязью, а на печати ещё и съедает тонер. */
+.stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: var(--space-3); margin-bottom: var(--space-5); }
+.stat-card {
+  background: var(--surface); border: 1px solid var(--rule);
+  border-radius: var(--radius-lg); padding: var(--space-4);
+}
+.stat-num {
+  font-size: var(--text-30); font-weight: 700; line-height: var(--leading-tight);
+  letter-spacing: -.03em; font-variant-numeric: tabular-nums;
+}
+.stat-lbl { color: var(--muted); font-size: var(--text-12); margin-top: var(--space-1); line-height: var(--leading-snug); }
+.c-blue .stat-num   { color: var(--brand); }
+.c-red .stat-num    { color: var(--danger); }
+.c-amber .stat-num  { color: var(--attention); }
+.c-green .stat-num  { color: var(--success); }
+
+.section {
+  background: var(--surface); border: 1px solid var(--rule);
+  border-radius: var(--radius-lg); padding: var(--space-5); margin-bottom: var(--space-4);
+}
+.section-head { display: flex; align-items: center; gap: var(--space-2); cursor: pointer; }
+.section-head h2 { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; margin: 0; }
 .section-head .toggle-arrow { margin-left: auto; }
-.section-body { display: none; margin-top: 14px; }
+.section-body { display: none; margin-top: var(--space-3); }
 .section-body.open { display: block; }
 
-.summary-table { width: 100%; border-collapse: collapse; font-size: 0.86rem; }
-.summary-table th { text-align: left; padding: 8px 12px; background: #f6f9f4; color: #64786a; font-weight: 600; border-bottom: 2px solid #dbe4dc; }
-.summary-table td { padding: 8px 12px; border-bottom: 1px solid #eef2ec; vertical-align: middle; }
-.tr-red   td:first-child { border-left: 3px solid #b3261e; }
-.tr-amber td:first-child { border-left: 3px solid #d08700; }
-.tr-green td:first-child { border-left: 3px solid #17805a; }
+/* Таблицы – шапка как в интерфейсе: капитель, разрядка, приглушённый цвет. */
+/* Пять колонок на узкий экран не встают – таблица уезжает вбок внутри
+   карточки, а не режется по её краю. */
+.tbl-wrap { overflow-x: auto; }
+.summary-table { width: 100%; border-collapse: collapse; font-size: var(--text-14); }
+.summary-table th {
+  text-align: left; padding: var(--space-2) var(--space-3); background: var(--surface-2);
+  color: var(--muted); font-weight: 700; font-size: var(--text-12);
+  letter-spacing: .06em; text-transform: uppercase;
+  border-bottom: 1px solid var(--rule); white-space: nowrap;
+}
+.summary-table td { padding: var(--space-2) var(--space-3); border-bottom: 1px solid var(--surface-3); vertical-align: middle; }
+.summary-table tbody tr:last-child td { border-bottom: 0; }
+.tr-red   td:first-child { border-left: 3px solid var(--danger); }
+.tr-amber td:first-child { border-left: 3px solid var(--attention); }
+.tr-green td:first-child { border-left: 3px solid var(--success); }
 
-.badge { display: inline-block; padding: 2px 9px; border-radius: 999px; font-size: 0.76rem; font-weight: 600; }
-.badge-red   { background: #fae4e2; color: #b3261e; }
-.badge-amber { background: #fbf0d8; color: #b26a00; }
-.badge-green { background: #e3f2ec; color: #17805a; }
-.badge-blue  { background: #dfe9f5; color: #245a9c; }
+.badge {
+  display: inline-block; padding: 2px var(--space-2); border-radius: var(--radius-pill);
+  font-size: var(--text-12); font-weight: 600; line-height: var(--leading-snug);
+}
+.badge-red   { background: var(--danger-soft);    color: var(--danger); }
+.badge-amber { background: var(--attention-soft); color: var(--attention); }
+.badge-green { background: var(--success-soft);   color: var(--success); }
+.badge-blue  { background: var(--info-soft);      color: var(--info); }
 
 .matrix-scroll { overflow-x: auto; }
-.matrix-table { border-collapse: collapse; table-layout: fixed; margin: 0 auto; }
-.matrix-table th, .matrix-table td { border: 1px solid #dbe4dc; }
+.matrix-table { border-collapse: collapse; table-layout: fixed; margin: 0 auto; font-variant-numeric: tabular-nums; }
+.matrix-table th, .matrix-table td { border: 1px solid var(--rule); }
 .matrix-table td.mc { text-align: center; padding: 0; height: 18px; line-height: 1.1; overflow: hidden; }
-.matrix-table thead th.mh { position: relative; background: #f6f9f4; vertical-align: bottom; padding: 0; overflow: hidden; }
+.matrix-table thead th.mh { position: relative; background: var(--surface-2); vertical-align: bottom; padding: 0; overflow: hidden; }
 .matrix-table thead th.mh > span { position: absolute; bottom: 4px; left: 50%; transform-origin: left bottom; transform: rotate(-90deg); white-space: nowrap; font-weight: 600; line-height: 1; }
-.matrix-table thead th.corner { background: #f6f9f4; }
-.matrix-table tbody th.rh { text-align: left; font-weight: 500; background: #f6f9f4; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 2px 6px; }
-.cell-self { background: #dbe4dc !important; }
-.matrix-cell { }
+.matrix-table thead th.corner { background: var(--surface-2); }
+.matrix-table tbody th.rh { text-align: left; font-weight: 500; background: var(--surface-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 2px var(--space-2); }
+.cell-self { background: var(--surface-3) !important; }
 
-.report-card { background: white; border-radius: 12px; box-shadow: 0 1px 3px rgba(0,0,0,.08); margin-bottom: 14px; overflow: hidden; }
-.report-header { padding: 14px 18px; display: flex; align-items: center; gap: 10px; cursor: pointer; }
-.report-header:hover { background: #f6f9f4; }
-.report-body { padding: 20px; display: none; border-top: 1px solid #eef2ec; }
+.report-card {
+  background: var(--surface); border: 1px solid var(--rule);
+  border-radius: var(--radius-lg); margin-bottom: var(--space-3); overflow: hidden;
+}
+.report-header { padding: var(--space-3) var(--space-4); display: flex; align-items: center; gap: var(--space-3); cursor: pointer; }
+.report-header:hover { background: var(--surface-2); }
+.report-body { padding: var(--space-5); display: none; border-top: 1px solid var(--rule); }
 .report-body.open { display: block; }
-.toggle-arrow { color: #8ba394; font-size: 0.8rem; transition: transform .2s; margin-left: auto; }
+.toggle-arrow { color: var(--muted-soft); font-size: var(--text-12); transition: transform .2s; margin-left: auto; }
 .toggle-arrow.open { transform: rotate(180deg); }
 
-.grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
-@media (max-width: 860px) { .grid-2 { grid-template-columns: 1fr; } }
+.grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-5); }
+@media (max-width: 860px) {
+  .grid-2 { grid-template-columns: 1fr; }
+  .container { padding: var(--space-4) var(--space-3) var(--space-6); }
+}
 
-.checks-table { width: 100%; border-collapse: collapse; font-size: 0.83rem; }
-.checks-table th { text-align: left; padding: 6px 10px; background: #f6f9f4; color: #64786a; font-weight: 600; border-bottom: 1px solid #dbe4dc; }
-.checks-table td { padding: 6px 10px; border-bottom: 1px solid #f6f9f4; vertical-align: top; }
-.check-pass { color: #17805a; font-weight: 700; }
-.check-fail { color: #b3261e; font-weight: 700; }
-.check-warn { color: #b26a00; font-weight: 700; }
+.checks-table { width: 100%; border-collapse: collapse; font-size: var(--text-13); }
+.checks-table th {
+  text-align: left; padding: var(--space-1) var(--space-2); background: var(--surface-2);
+  color: var(--muted); font-weight: 700; font-size: var(--text-11);
+  letter-spacing: .06em; text-transform: uppercase; border-bottom: 1px solid var(--rule);
+}
+.checks-table td { padding: var(--space-1) var(--space-2); border-bottom: 1px solid var(--surface-3); vertical-align: top; }
+.checks-table tbody tr:last-child td { border-bottom: 0; }
+.check-cell { text-align: center; line-height: 1.4; }
+.check-pass { color: var(--success);   font-weight: 700; }
+.check-fail { color: var(--danger);    font-weight: 700; font-size: var(--text-16); }
+.check-warn { color: var(--attention); font-weight: 700; font-size: var(--text-12); }
 
-.score-bar { display: flex; align-items: center; gap: 8px; }
-.score-track { flex: 1; height: 5px; background: #dbe4dc; border-radius: 3px; overflow: hidden; }
-.score-fill { height: 100%; border-radius: 3px; }
+.score-bar { display: flex; align-items: center; gap: var(--space-2); }
+.score-track { flex: 1; height: 7px; background: var(--surface-3); border-radius: var(--radius-pill); overflow: hidden; }
+.score-fill { height: 100%; border-radius: var(--radius-pill); }
 
-.plagiarism-alert { background: #fdf1f0; border: 1px solid #f0cdc9; border-radius: 7px; padding: 10px 14px; margin-bottom: 8px; font-size: 0.86rem; }
-.passage { background: #fbf4d4; border-left: 3px solid #d9a521; padding: 8px 12px; margin: 6px 0; border-radius: 0 5px 5px 0; font-size: 0.8rem; font-family: 'Consolas', monospace; white-space: pre-wrap; word-break: break-word; }
+.plagiarism-alert {
+  background: var(--danger-soft); border: 1px solid var(--danger);
+  border-radius: var(--radius); padding: var(--space-2) var(--space-3);
+  margin-bottom: var(--space-2); font-size: var(--text-14);
+}
+/* Ниже порога и совпадения с базой прошлых сессий – жёлтым. */
+.plagiarism-alert.near, .plagiarism-alert.hist { background: var(--attention-soft); border-color: var(--attention); }
+.plagiarism-alert a { color: var(--danger); text-decoration-color: rgba(180,35,24,.4); }
+.plagiarism-alert a:hover { color: var(--danger); text-decoration-color: var(--danger); }
+.plagiarism-alert.near a, .plagiarism-alert.hist a { color: var(--attention); text-decoration-color: rgba(184,134,11,.4); }
+.plagiarism-alert.hist { color: var(--attention); }
+.passage {
+  background: var(--attention-soft); border-left: 3px solid var(--attention);
+  padding: var(--space-2) var(--space-3); margin: var(--space-1) 0;
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  font-size: var(--text-12); font-family: var(--font-mono);
+  white-space: pre-wrap; word-break: break-word;
+}
 
-.img-pair { display: flex; gap: 14px; align-items: center; flex-wrap: wrap; margin: 10px 0; padding: 12px; background: #fdf6ec; border-radius: 8px; border: 1px solid #ecd7b4; }
-.img-pair img { max-width: 200px; max-height: 150px; object-fit: contain; border: 1px solid #dbe4dc; border-radius: 4px; background: white; }
-.img-info { font-size: 0.8rem; color: #64786a; margin-top: 4px; }
+.img-pair {
+  display: flex; gap: var(--space-3); align-items: center; flex-wrap: wrap;
+  margin: var(--space-2) 0; padding: var(--space-3); background: var(--surface-2);
+  border: 1px solid var(--rule); border-radius: var(--radius);
+}
+.img-pair img {
+  max-width: 200px; max-height: 150px; object-fit: contain;
+  border: 1px solid var(--rule); border-radius: var(--radius-sm); background: var(--surface);
+}
+.img-info { font-size: var(--text-12); color: var(--muted); margin-top: var(--space-1); }
+.img-blank {
+  width: 120px; height: 80px; display: flex; align-items: center; justify-content: center;
+  background: var(--surface); border: 1px solid var(--rule); border-radius: var(--radius-sm);
+  color: var(--muted-soft); font-size: var(--text-12);
+}
 
-.print-btn { display:inline-flex; align-items:center; gap:6px; padding:8px 18px; background:#015D1E; color:white; border:none; border-radius:7px; font-size:0.84rem; font-weight:700; cursor:pointer; text-decoration:none; }
-.print-btn:hover { background:#014818; }
-.report-toolbar { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:12px; margin-bottom:20px; }
+/* Кнопки повторяют интерфейс: заливка брендом и контурная. */
+.print-btn {
+  display: inline-flex; align-items: center; gap: var(--space-2);
+  padding: var(--space-2) var(--space-4); background: var(--brand); color: var(--on-brand);
+  border: 1px solid var(--brand); border-radius: var(--radius);
+  font-size: var(--text-13); font-weight: 700; cursor: pointer;
+  transition: background .15s ease, border-color .15s ease;
+}
+.print-btn:hover { background: var(--brand-hover); border-color: var(--brand-hover); color: var(--on-brand); }
+.report-toolbar {
+  display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap;
+  gap: var(--space-3); margin-bottom: var(--space-5); padding-bottom: var(--space-4);
+  border-bottom: 1px solid var(--rule);
+}
 
 @media print {
-  body { background: white; font-size: 11px; }
+  body { background: #fff; font-size: 11px; }
   .print-btn, .toggle-arrow { display: none !important; }
   /* Тёмная плашка шапки на бумаге только съедает тонер. */
-  .brand-head { background: white; color: #101c14; border: 1px solid #dbe4dc; }
-  .brand-head h1 { color: #101c14; }
-  .brand-head .subtitle, .brand-acronym, .brand-team { color: #64786a; }
-  .brand-acronym { border-left-color: #dbe4dc; }
-  .brand-acronym b, .brand-team b { color: #101c14; }
+  .brand-head { background: #fff; color: var(--ink); border: 1px solid var(--rule); }
+  .brand-head h1 { color: var(--ink-strong); }
+  .brand-head .subtitle, .brand-acronym, .brand-team { color: var(--muted); }
+  .brand-acronym { border-left-color: var(--rule); }
+  .brand-acronym b, .brand-team b { color: var(--ink-strong); }
   .brand-head, .brand-foot { break-inside: avoid; }
   /* На печати grid раскладывается в столбик и съедает страницу – плитки
      ставим потоком. */
@@ -1022,32 +1244,35 @@ a:hover { text-decoration: underline; }
   .report-body, .section-body { display: block !important; }
   .section-head { cursor: default; }
   .report-header { cursor: default; }
-  .report-card, .section { break-inside: avoid; box-shadow: none; border: 1px solid #dbe4dc; }
+  .report-card, .section { break-inside: avoid; }
+  .section { padding: 14px 16px; }
   .matrix-scroll { overflow: visible; }
-  .grid-2 { grid-template-columns: 1fr 1fr; }
+  .grid-2 { grid-template-columns: 1fr 1fr; gap: 16px; }
   .passage { white-space: pre-wrap; }
   a { color: inherit; text-decoration: none; }
   .container { padding: 12px; }
+  .report-toolbar { border-bottom: 0; padding-bottom: 0; margin-bottom: 14px; }
 }
 
 /* Рекомендуемая оценка и готовый отзыв */
 .verdict {
-  border: 1px solid #dbe4dc; border-left: 4px solid #015D1E;
-  border-radius: 8px; padding: 12px 14px; margin-bottom: 16px;
-  background: #f6f9f4; break-inside: avoid;
+  border: 1px solid var(--rule); border-left: 4px solid var(--brand);
+  border-radius: var(--radius); padding: var(--space-3) var(--space-4);
+  margin-bottom: var(--space-4); background: var(--surface-2); break-inside: avoid;
 }
-.verdict-head { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
-.verdict-head h3 { font-size: 0.86rem; }
-.verdict-grade { font-size: 1.1rem; font-weight: 700; }
+.verdict-head { display: flex; align-items: center; gap: var(--space-3); margin-bottom: var(--space-2); }
+.verdict-head h3 { font-size: var(--text-14); }
+.verdict-grade { font-size: var(--text-18); font-weight: 700; font-variant-numeric: tabular-nums; }
 .copy-btn {
-  margin-left: auto; font: inherit; font-size: 0.78rem; cursor: pointer;
-  border: 1px solid #c2d2c6; background: #fff; color: #101c14;
-  border-radius: 6px; padding: 5px 10px;
+  margin-left: auto; font: inherit; font-size: var(--text-12); font-weight: 600; cursor: pointer;
+  border: 1px solid var(--rule); background: var(--surface); color: var(--ink);
+  border-radius: var(--radius); padding: var(--space-1) var(--space-3);
+  transition: background .15s ease, border-color .15s ease, color .15s ease;
 }
-.copy-btn:hover { background: #015D1E; border-color: #015D1E; color: #fff; }
-.flaw-list { margin: 0; padding-left: 20px; font-size: 0.85rem; line-height: 1.55; }
+.copy-btn:hover { background: var(--brand); border-color: var(--brand); color: var(--on-brand); }
+.flaw-list { margin: 0; padding-left: var(--space-5); font-size: var(--text-14); line-height: var(--leading-base); }
 .flaw-list li { margin-bottom: 2px; }
-.flaw-note { margin: 8px 0 0; font-size: 0.78rem; color: #64786a; }
+.flaw-note { margin: var(--space-2) 0 0; font-size: var(--text-12); color: var(--muted); }
 @media print { .copy-btn { display: none; } }
 ''' + logo_css
 
@@ -1141,20 +1366,20 @@ document.querySelectorAll('.copy-btn').forEach(function(btn) {
 
 <div class="section">
   <h2>Сводная таблица</h2>
-  {summary_table}
+  <div class="tbl-wrap">{summary_table}</div>
 </div>
 
 <div class="section">
   <h2>Матрица схожести текстов</h2>
-  <p style="color:#64786a;font-size:0.83rem;margin-bottom:14px;">
+  <p class="subtitle" style="margin-bottom:var(--space-3);">
     Жаккар по 5-граммам слов. Красный – выше порога {thr_pct}%, жёлтый – {int(thr_pct*0.55)}–{thr_pct}%.
     {'Включены совпадения с предыдущими сессиями (выделены желтоватым фоном).' if historical_relevant else ''}
   </p>
   {matrix_html}
 </div>
 
-<h2 style="margin-bottom:12px;">Детальный анализ по каждому отчёту</h2>
-<p style="color:#64786a;font-size:0.83rem;margin-bottom:14px;">
+<h2 style="margin-bottom:var(--space-2);">Детальный анализ по каждому отчёту</h2>
+<p class="subtitle" style="margin-bottom:var(--space-3);">
   Нажмите на карточку, чтобы раскрыть подробности.
 </p>
 {cards}

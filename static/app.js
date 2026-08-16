@@ -959,8 +959,9 @@
       aborting = false;
       panel.hidden = false;
       /* Кнопка запуска – внизу длинной формы, а лист ожидания появляется
-         вверху. Без прокрутки казалось бы, что нажатие ничего не сделало. */
-      window.scrollTo({
+         вверху. Без прокрутки казалось бы, что нажатие ничего не сделало.
+         Прокручивается не окно, а .scroll: у .app высота в экран. */
+      (panel.closest('.scroll') || document.scrollingElement).scrollTo({
         top: 0,
         behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth',
       });

@@ -717,6 +717,15 @@ details.violations[open] > summary::before { transform: rotate(90deg); }
 .fold-body > div { overflow: hidden; }
 .fold-head[aria-expanded="true"] + .fold-body { grid-template-rows: 1fr; }
 
+/* Совпадения: список работ, у каждой – раскрывающийся список тех, с кем она
+   совпала. Строк тут десятки, поэтому шрифт заголовка тише, чем у одиночного
+   блока «Отчёты студентов». */
+.match-list .fold:first-child { border-top: 0; }   /* под линией section-head */
+.match-list .fold-head { font-weight: 600; }
+.match-list .fold-head .chip { flex: none; }
+.match-list .fold-body table { border-top: 1px solid var(--rule); }
+.match-list .fold-body td:first-child, .match-list .fold-body th:first-child { padding-left: var(--space-7); }
+
 /* Своя раскадровка: общий pop заканчивается на transform:none и сбил бы
    центрирование по translateX(-50%). */
 @keyframes toast-in {

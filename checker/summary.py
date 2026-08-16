@@ -106,11 +106,18 @@ def build(reports: list, historical: list, text_plag: dict, img_plag: dict,
         if a.get('is_historical') and not b.get('is_historical'):
             a, b = b, a
         matches.append({
-            'a':     _display_name(a),
-            'b':     _display_name(b) + (f' · {_group_of(b)}' if _group_of(b) else ''),
-            'pct':   round(pair.get('similarity', 0) * 100),
-            'kind':  'текст',
-            'where': _where(b),
+            'a':       _display_name(a),
+            'b':       _display_name(b) + (f' · {_group_of(b)}' if _group_of(b) else ''),
+            'pct':     round(pair.get('similarity', 0) * 100),
+            'kind':    'текст',
+            'where':   _where(b),
+            # Интерфейс собирает совпадения по работам, а не по парам, поэтому
+            # ему нужны части имени отдельно, а не склеенная строка.
+            'a_fio':   _display_name(a),
+            'a_group': _group_of(a),
+            'b_fio':   _display_name(b),
+            'b_group': _group_of(b),
+            'b_new':   not b.get('is_historical'),
         })
 
     # Одна и та же пара работ может делить сразу несколько страниц-картинок –
@@ -144,11 +151,17 @@ def build(reports: list, historical: list, text_plag: dict, img_plag: dict,
         else:
             kind = 'изображения, стр. ' + ', '.join(str(p) for p in pages)
         matches.append({
-            'a':     _display_name(a),
-            'b':     _display_name(b) + (f' · {_group_of(b)}' if _group_of(b) else ''),
-            'pct':   None,     # image duplicates are a yes/no match, not a share
-            'kind':  kind,
-            'where': _where(b),
+            'a':       _display_name(a),
+            'b':       _display_name(b) + (f' · {_group_of(b)}' if _group_of(b) else ''),
+            'pct':     None,   # image duplicates are a yes/no match, not a share
+            'kind':    kind,
+            'where':   _where(b),
+            'a_fio':   _display_name(a),
+            'a_group': _group_of(a),
+            'b_fio':   _display_name(b),
+            'b_group': _group_of(b),
+            'b_new':   not b.get('is_historical'),
+            'pages':   pages,
         })
 
     matches.sort(key=lambda m: (m['pct'] is None, -(m['pct'] or 0)))

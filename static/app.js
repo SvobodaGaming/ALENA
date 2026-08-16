@@ -162,6 +162,31 @@
   const plagTone = (v, threshold) => v >= threshold ? 'crit' : v >= threshold * 0.6 ? 'warn' : 'ok';
   const toneVar = t => `var(--${t})`;
 
+  const plural = (n, forms) => {
+    const a = Math.abs(n) % 100, b = a % 10;
+    return forms[a > 10 && a < 20 ? 2 : b > 1 && b < 5 ? 1 : b === 1 ? 0 : 2];
+  };
+
+  /* ── Дата проверки ── */
+
+  /* Дата хранится строкой «дд.мм.гггг чч:мм»: сравнивать её как текст нельзя –
+     порядок получался бы по числу месяца, а не по дате. */
+  const STAMP_RE = /^(\d{2})\.(\d{2})\.(\d{4})(?:[ T](\d{2}):(\d{2}))?/;
+
+  const stampKey = s => {
+    const m = STAMP_RE.exec(String(s || ''));
+    return m ? m[3] + m[2] + m[1] + (m[4] || '00') + (m[5] || '00') : '';
+  };
+
+  /* Поиск по дате: «14.08», «14.08.2026», «08.2026», «2026-08-14» и «12:34»
+     должны находить проверку, поэтому дату приводим сразу к двум видам –
+     как она показана и в порядке «год.месяц.день». */
+  const stampForms = s => {
+    const raw = String(s || '').toLowerCase();
+    const m = STAMP_RE.exec(raw);
+    return m ? [raw, `${m[3]}.${m[2]}.${m[1]}`] : [raw];
+  };
+
   /* ── Текст отзыва (тот же, что складывает checker/grading.py) ── */
 
   const FLAW_TEXT = (() => {
@@ -205,6 +230,83 @@
     return `${head}\n\n${body}${tail}`;
   }
 
+  /* ── Совпадения: свод по работам ── */
+
+  /* Пара «Иванов ↔ Петров» занимала в таблице столько строк, сколько нашлось
+     совпадений: текст отдельной строкой, картинки отдельной. Преподавателю
+     нужен другой разрез – работы по алфавиту, а внутри каждой одна строка на
+     человека, где текст и изображения идут вместе. Работа из этой же пачки
+     видна с обеих сторон: и у Иванова, и у Петрова. */
+  function groupMatches(matches, students) {
+    const groupOf = new Map((students || []).map(st => [st.fio, st.group || '']));
+    const people = new Map();
+
+    const person = (fio, group) => {
+      let p = people.get(fio);
+      if (!p) people.set(fio, p = { fio, group: group || groupOf.get(fio) || '', links: new Map() });
+      if (!p.group && group) p.group = group;
+      return p;
+    };
+    const link = (p, fio, group, where) => {
+      const key = fio + '|' + group;
+      let l = p.links.get(key);
+      if (!l) p.links.set(key, l = { fio, group, where, pct: null, img: false, pages: [] });
+      return l;
+    };
+
+    for (const m of (matches || [])) {
+      const aFio = m.a_fio || m.a;
+      const aGroup = m.a_group != null ? m.a_group : (groupOf.get(aFio) || '');
+      /* Дайджесты, собранные до появления отдельных полей, хранят вторую
+         работу одной строкой вида «Петров П.П. · ИС-21». */
+      let bFio = m.b_fio, bGroup = m.b_group;
+      if (bFio == null) {
+        const s = String(m.b || ''), i = s.lastIndexOf(' · ');
+        bFio = i < 0 ? s : s.slice(0, i);
+        bGroup = i < 0 ? '' : s.slice(i + 3);
+      }
+      const bNew = m.b_new != null ? m.b_new : m.where === 'в этой пачке';
+      const img = m.pct == null;
+      const pages = m.pages
+        || (img ? (String(m.kind || '').match(/\d+/g) || []).map(Number) : []);
+
+      const fill = l => {
+        if (img) { l.img = true; l.pages.push(...pages); }
+        else if (l.pct == null || m.pct > l.pct) l.pct = m.pct;
+      };
+      fill(link(person(aFio, aGroup), bFio, bGroup, m.where));
+      if (bNew) fill(link(person(bFio, bGroup), aFio, aGroup, 'в этой пачке'));
+    }
+
+    const list = [...people.values()].map(p => {
+      const links = [...p.links.values()];
+      links.forEach(l => { l.pages = [...new Set(l.pages)].sort((x, y) => x - y); });
+      // Доля неизвестна только у дублей картинок – они уходят вниз списка.
+      links.sort((x, y) => (y.pct == null ? -1 : y.pct) - (x.pct == null ? -1 : x.pct)
+                        || x.fio.localeCompare(y.fio, 'ru'));
+      const pcts = links.map(l => l.pct).filter(v => v != null);
+      return { fio: p.fio, group: p.group, links, top: pcts.length ? Math.max(...pcts) : null };
+    });
+    list.sort((a, b) => a.fio.localeCompare(b.fio, 'ru'));
+    return list;
+  }
+
+  function matchRows(p, thr) {
+    return p.links.map(l => {
+      const what = [];
+      if (l.pct != null) what.push(`текст ${l.pct}%`);
+      if (l.img) what.push(l.pages.length ? `изобр. стр. ${l.pages.join(', ')}` : 'изображения');
+      return `<tr>
+        <td>${esc(l.fio)}${l.group ? `<br><span class="sub mono">${esc(l.group)}</span>` : ''}</td>
+        <td>${esc(what.join(' · '))}</td>
+        <td class="sub">${esc(l.where)}</td>
+        <td class="num">${l.pct == null
+          ? chip('crit', 'дубликат')
+          : chip(plagTone(l.pct, thr), l.pct + '%')}</td>
+      </tr>`;
+    }).join('');
+  }
+
   /* ── Экран «Проверки» ── */
 
   const checksRoot = $('#checks-screen');
@@ -218,15 +320,20 @@
     let query = '';
     let timer = null;
     let foldOpen = false;
+    let matchOpen = new Set();   // раскрытые ФИО в «Совпадениях»
 
     const visible = () => {
       const list = Object.entries(records).map(([id, d]) => ({ id, ...d }));
-      list.sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)));
+      // Новые сверху; проверки с нечитаемой датой уходят в конец списка.
+      list.sort((a, b) => stampKey(b.created_at).localeCompare(stampKey(a.created_at)));
       if (!query) return list;
       const q = query.toLowerCase();
+      // «2026-08-14» и «14/08» – тот же запрос, что и «14.08.2026».
+      const qd = q.replace(/[/-]/g, '.');
       return list.filter(j =>
         j.id.includes(q) ||
         String((j.summary && j.summary.group) || '').toLowerCase().includes(q) ||
+        stampForms(j.created_at).some(f => f.includes(qd)) ||
         ((j.summary && j.summary.students) || []).some(s => s.fio.toLowerCase().includes(q)));
     };
 
@@ -286,6 +393,7 @@
         if (b.dataset.job === selected) return;
         selected = b.dataset.job;
         foldOpen = false;
+        matchOpen = new Set();
         const pane = $('#detail-pane');
         pane.classList.remove('swap');
         void pane.offsetWidth;          // перезапуск анимации появления
@@ -449,16 +557,30 @@
       const shownMatches = (s.matches || []).length;
       const totalMatches = s.matches_total != null ? s.matches_total : shownMatches;
       const moreMatches = totalMatches > shownMatches
-        ? `<tr><td colspan="5" class="sub" style="padding:12px;">Показаны ${shownMatches}
-             самых заметных совпадений из ${totalMatches}. Полный список – в отчёте.</td></tr>`
+        ? `<p class="sub" style="padding:12px var(--space-5);margin:0;">Показаны ${shownMatches}
+             самых заметных совпадений из ${totalMatches}. Полный список – в отчёте.</p>`
         : '';
-      const matches = shownMatches ? s.matches.map(m => `
-        <tr>
-          <td>${esc(m.a)}</td><td>${esc(m.b)}</td><td>${esc(m.kind)}</td>
-          <td class="sub">${esc(m.where)}</td>
-          <td class="num">${m.pct == null ? chip('crit', 'дубликат') : chip(plagTone(m.pct, thr), m.pct + '%')}</td>
-        </tr>`).join('') + moreMatches
-        : '<tr><td colspan="5" class="empty" style="padding:22px;">Совпадений выше порога не найдено.</td></tr>';
+      const people = groupMatches(s.matches, s.students);
+      const matches = people.length ? people.map(p => `
+        <div class="fold">
+          <button class="fold-head" type="button" data-mfold="${esc(p.fio)}"
+                  aria-expanded="${matchOpen.has(p.fio)}">
+            <span class="fold-arrow">▸</span>
+            <span>${esc(p.fio)}${p.group ? ` <span class="sub mono">${esc(p.group)}</span>` : ''}</span>
+            <span class="spacer"></span>
+            <span class="eyebrow">${p.links.length}
+              ${plural(p.links.length, ['совпадение', 'совпадения', 'совпадений'])}</span>
+            ${p.top == null ? chip('crit', 'дубликат') : chip(plagTone(p.top, thr), p.top + '%')}
+          </button>
+          <div class="fold-body"><div>
+            <div class="tbl-wrap"><table>
+              <thead><tr><th>Совпала с</th><th>Что совпало</th><th>Где найдено</th>
+                <th class="num">Доля</th></tr></thead>
+              <tbody>${matchRows(p, thr)}</tbody>
+            </table></div>
+          </div></div>
+        </div>`).join('')
+        : '<div class="empty">Совпадений выше порога не найдено.</div>';
 
       const fails = (s.fail_counts || []);
       const withIssues = (s.students || []).filter(st => st.error || st.fails.length).length;
@@ -478,18 +600,31 @@
             </table></div>
           </div></div>
         </div>
-        <div class="section-head"><h2>Совпадения</h2></div>
-        <div class="tbl-wrap"><table>
-          <thead><tr><th>Работа</th><th>Совпала с</th><th>Что совпало</th><th>Где найдено</th><th class="num">Доля</th></tr></thead>
-          <tbody>${matches}</tbody>
-        </table></div>
+        <div class="section-head"><h2>Совпадения</h2><span class="spacer"></span>
+          ${people.length ? `<span class="eyebrow">${people.length}
+            ${plural(people.length, ['работа', 'работы', 'работ'])} с совпадениями</span>` : ''}</div>
+        <div class="match-list">${matches}</div>
+        ${moreMatches}
         ${fails.length ? `<details class="violations">
           <summary>Какие критерии ГОСТ чаще всего не пройдены в этой пачке</summary>
           <div class="viol-body">${fails.map(([code, n]) => `<span class="code">${esc(code)} · ${n}</span>`).join('')}</div>
         </details>` : ''}`;
       wireDelete();
       wireFold();
+      wireMatchFolds();
       wireFeedback(s, thr);
+    }
+
+    /* Раскрытые ФИО переживают перерисовку: список обновляется каждые две
+       секунды, пока проверка идёт. */
+    function wireMatchFolds() {
+      $$('#detail-pane [data-mfold]').forEach(b => {
+        b.onclick = () => {
+          const open = b.getAttribute('aria-expanded') !== 'true';
+          if (open) matchOpen.add(b.dataset.mfold); else matchOpen.delete(b.dataset.mfold);
+          b.setAttribute('aria-expanded', open);
+        };
+      });
     }
 
     /* Готовый отзыв: то же, что видно в таблице, но словами и одним куском –

@@ -42,7 +42,7 @@
 |---|---|---|
 | 📝 | **Заимствование текста** | Шинглы из 5-грамм слов, мера Жаккара, настраиваемый порог. В отчёте – матрица совпадений и дословные общие фрагменты |
 | 🖼 | **Дублирование изображений** | Перцептуальный хеш pHash 12×12 (144 бита) в трёх масштабах кадрирования – обрезанный по краям скриншот всё равно опознаётся |
-| 📐 | **ГОСТ 7.32-2017** | 21 критерий: 9 структурных и 12 по оформлению – от полей страницы до подписей рисунков |
+| 📐 | **ГОСТ 7.32-2017** | 22 критерия: 10 структурных и 12 по оформлению – от полей страницы до подписей рисунков |
 | 🎓 | **Рекомендуемая оценка** | Веса критериев нормируются к 100; готовый отзыв студенту формулируется словами замечания, а не пунктами стандарта |
 | 🗂 | **База отпечатков** | Отпечатки живут между проверками и изолированы по преподавателям |
 | 👥 | **Учётные записи** | Роли, гранулярные права, журнал действий, политика паролей |
@@ -68,7 +68,7 @@
 flowchart LR
     A[ZIP / папка<br/>PDF · DOCX · ODT · DOC] --> B[LibreOffice<br/>всё → PDF]
     B --> C[Извлечение<br/>текст · шрифты · поля · изображения]
-    C --> D[ГОСТ<br/>21 критерий]
+    C --> D[ГОСТ<br/>22 критерия]
     C --> E[Текст<br/>шинглы 5-грамм]
     C --> F[Изображения<br/>pHash multi-crop]
     G[(База<br/>отпечатков)] --> E
@@ -232,7 +232,7 @@ python check_reports.py ./архив.zip
 ## Критерии ГОСТ 7.32-2017
 
 <details>
-<summary><b>Структурные элементы (S1–S9)</b></summary>
+<summary><b>Структурные элементы (S1–S9, S5A)</b></summary>
 
 | Код | Критерий |
 |---|---|
@@ -240,7 +240,8 @@ python check_reports.py ./архив.zip
 | `S2` | Задание на практику или курсовую |
 | `S3` | Реферат |
 | `S4` | Содержание |
-| `S5` | Введение: актуальность, цель, задачи |
+| `S5` | Введение и актуальность |
+| `S5A` | Цель, задачи, ход работы |
 | `S6` | Главы (нумерованные разделы) |
 | `S7` | Подглавы (подразделы) |
 | `S8` | Заключение |
@@ -419,7 +420,7 @@ submitted in September is recognised in December.
 |---|---|---|
 | 📝 | **Text borrowing** | 5-gram word shingles, Jaccard similarity, configurable threshold. The report shows a match matrix and the verbatim shared passages |
 | 🖼 | **Duplicated images** | 12×12 perceptual hash (144-bit) at three crop scales – a screenshot trimmed at the edges is still recognised |
-| 📐 | **GOST 7.32-2017** | 21 criteria: 9 structural and 12 formatting – from page margins to figure captions |
+| 📐 | **GOST 7.32-2017** | 22 criteria: 10 structural and 12 formatting – from page margins to figure captions |
 | 🎓 | **Recommended grade** | Per-criterion weights normalised to 100; the student-facing feedback is phrased as a remark, not as a clause number |
 | 🗂 | **Fingerprint base** | Fingerprints persist between checks and are isolated per teacher |
 | 👥 | **Accounts** | Roles, granular permissions, audit log, password policy |
@@ -445,7 +446,7 @@ batch of scans would accuse itself of wholesale plagiarism.
 flowchart LR
     A[ZIP / folder<br/>PDF · DOCX · ODT · DOC] --> B[LibreOffice<br/>everything → PDF]
     B --> C[Extraction<br/>text · fonts · margins · images]
-    C --> D[GOST<br/>21 criteria]
+    C --> D[GOST<br/>22 criteria]
     C --> E[Text<br/>5-gram shingles]
     C --> F[Images<br/>multi-crop pHash]
     G[(Fingerprint<br/>base)] --> E
@@ -610,7 +611,7 @@ anonymous works are still compared with one another.
 ## GOST 7.32-2017 criteria
 
 <details>
-<summary><b>Structural elements (S1–S9)</b></summary>
+<summary><b>Structural elements (S1–S9, S5A)</b></summary>
 
 | Code | Criterion |
 |---|---|
@@ -618,7 +619,8 @@ anonymous works are still compared with one another.
 | `S2` | Internship / coursework assignment sheet |
 | `S3` | Abstract (реферат) |
 | `S4` | Table of contents |
-| `S5` | Introduction: relevance, aim, objectives |
+| `S5` | Introduction and relevance |
+| `S5A` | Aim, objectives, course of work |
 | `S6` | Numbered chapters |
 | `S7` | Subsections |
 | `S8` | Conclusion |

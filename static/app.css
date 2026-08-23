@@ -567,14 +567,18 @@ input[type="range"] { width: 100%; accent-color: var(--brand); }
 .progress-step { display: flex; align-items: baseline; gap: var(--space-3); font-size: var(--text-14); }
 .progress-step .mono { margin-left: auto; font-weight: 700; }
 .stat-row { display: flex; flex-wrap: wrap; gap: var(--space-2); margin-top: var(--space-3); }
+/* Подпись и значение – прямые дети flex-контейнера, а пробел между flex-
+   элементами не отрисовывается: без gap выходило «Файлов:1 / 2». */
 .stat-chip {
-  display: inline-flex; align-items: center; font-size: var(--text-12); color: var(--ink);
+  display: inline-flex; align-items: center; gap: var(--space-1);
+  font-size: var(--text-12); color: var(--ink);
   background: var(--surface-2); border: 1px solid var(--rule); border-radius: var(--radius-pill);
   padding: 3px var(--space-3);
 }
 .stat-chip b { font-family: var(--font-mono); }
-/* Крестик «убрать файл» внутри плашки выбранного файла */
-.chip-x { border: 0; background: none; color: var(--muted); cursor: pointer; font-size: var(--text-16); line-height: 1; padding: 0 0 0 var(--space-2); margin: 0 -2px 0 0; }
+/* Крестик «убрать файл» внутри плашки выбранного файла. Отступ слева на
+   ширину gap меньше – остальное добирает сам контейнер. */
+.chip-x { border: 0; background: none; color: var(--muted); cursor: pointer; font-size: var(--text-16); line-height: 1; padding: 0 0 0 var(--space-1); margin: 0 -2px 0 0; }
 .chip-x:disabled { opacity: .35; cursor: not-allowed; }
 .chip-x:hover { color: var(--danger); }
 

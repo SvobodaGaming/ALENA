@@ -301,7 +301,7 @@ def _migrate_legacy_ownership():
             job_store.save(jid, data)
 
 
-GOST_SCHEMA = 3   # bumped whenever the meaning of the check codes changes
+GOST_SCHEMA = 4   # bumped whenever the meaning of the check codes changes
 
 
 def _migrate_settings():

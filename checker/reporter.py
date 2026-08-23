@@ -125,10 +125,17 @@ def _short_name(report: dict) -> str:
     return base
 
 
-def _anchor(report: dict) -> str:
+def _report_anchors(reports: list, job_id: str = '') -> dict:
+    """Card ids unique by construction within one generated report."""
+    prefix = re.sub(r'[^a-zA-Z0-9_-]', '_', str(job_id)) if job_id else 'report'
+    return {id(report): f'r_{prefix}_{i}'
+            for i, report in enumerate(reports, 1)}
+
+
+def _anchor(report: dict, anchors: dict) -> str:
     if report.get('is_historical'):
         return ''   # historical reports have no card
-    return 'r_' + re.sub(r'[^a-zA-Z0-9]', '_', Path(report['path']).stem)[:30]
+    return anchors.get(id(report), '')
 
 
 def _gost_score(gost_results: list) -> tuple:
@@ -412,7 +419,7 @@ NO_TEXT_NOTE = (
 
 
 def _render_text_plag_for_report(path: str, text_plagiarism: dict, threshold: float,
-                                  report_by_path: dict) -> str:
+                                  report_by_path: dict, anchors: dict) -> str:
     if path in set(text_plagiarism.get('no_text') or ()):
         return NO_TEXT_NOTE
 
@@ -462,10 +469,11 @@ def _render_text_plag_for_report(path: str, text_plagiarism: dict, threshold: fl
             )
             alert_cls = ' hist'
         else:
-            anchor    = _anchor(other_rep)
+            anchor    = _anchor(other_rep, anchors)
             badge_cls = 'badge-red' if sim >= threshold else 'badge-amber'
             label     = 'ЗАИМСТВОВАНИЕ' if sim >= threshold else 'Близко'
-            ref_html  = f'<a href="#{anchor}">{other_name}</a>'
+            ref_html  = (f'<a href="#{anchor}">{other_name}</a>'
+                         if anchor else other_name)
             alert_cls = ' near' if near else ''
 
         passages_html = ''
@@ -619,6 +627,7 @@ def _render_feedback(report: dict, gost_results: list, max_sim: float,
 
 def _render_card(report: dict, text_plagiarism: dict, image_plagiarism: dict,
                  threshold: float, report_by_path: dict,
+                 anchors: dict,
                  weights: dict = None, scale: int = grading.DEFAULT_SCALE) -> str:
     path = report['path']
     gost_results = report.get('gost_results', [])
@@ -672,7 +681,7 @@ def _render_card(report: dict, text_plagiarism: dict, image_plagiarism: dict,
 
     if report.get('error'):
         return f'''
-<div class="report-card" id="{_anchor(report)}">
+<div class="report-card" id="{_anchor(report, anchors)}">
   <div class="report-header" style="{header_border}">
     <span style="font-size:var(--text-16);font-weight:600;flex:1;">{_esc(_display_name(report))}</span>
     <span class="badge badge-red">Ошибка чтения</span>
@@ -684,11 +693,12 @@ def _render_card(report: dict, text_plagiarism: dict, image_plagiarism: dict,
 </div>'''
 
     gost_table = _render_gost_table(gost_results)
-    text_plag  = _render_text_plag_for_report(path, text_plagiarism, threshold, report_by_path)
+    text_plag  = _render_text_plag_for_report(
+        path, text_plagiarism, threshold, report_by_path, anchors)
     img_plag   = _render_img_plag_for_report(path, image_plagiarism, report_by_path)
 
     return f'''
-<div class="report-card" id="{_anchor(report)}">
+<div class="report-card" id="{_anchor(report, anchors)}">
   <div class="report-header" style="{header_border}">
     <span style="font-size:var(--text-16);font-weight:600;flex:1;">{_esc(_display_name(report))}</span>
     {badge}
@@ -747,11 +757,13 @@ def generate_html_report(reports: list, historical: list,
         threshold: similarity threshold (0-1)
         weights: «процент использования» критериев для рекомендуемой оценки
         scale: шкала оценки (100 – проценты)
+        job_id: идентификатор проверки для уникальных якорей и ссылки экспорта
     """
     now      = datetime.now().strftime('%d.%m.%Y %H:%M')
     n        = len(reports)
     thr_pct  = int(threshold * 100)
     page_title = _page_title(reports, now)
+    anchors = _report_anchors(reports, job_id)
 
     new_paths  = {r['path'] for r in reports}
     hist_paths = {h['path'] for h in historical}
@@ -765,7 +777,8 @@ def generate_html_report(reports: list, historical: list,
 
     def _hist_has_match(h):
         hp = h['path']
-        if any(matrix.get(hp, {}).get(np, 0.0) > threshold * 0.25 for np in new_paths):
+        row = matrix.get(hp, {})
+        if any(np in row and row[np] >= threshold * 0.25 for np in new_paths):
             return True
         if any((p['report1'] == hp and p['report2'] in new_paths) or
                (p['report2'] == hp and p['report1'] in new_paths)
@@ -819,7 +832,7 @@ def generate_html_report(reports: list, historical: list,
 
     cards = ''.join(
         _render_card(r, text_plagiarism, image_plagiarism, threshold,
-                     report_by_path, weights, scale)
+                     report_by_path, anchors, weights, scale)
         for r in reports
     )
 
@@ -852,8 +865,10 @@ def generate_html_report(reports: list, historical: list,
                 f'<span style="color:var(--attention);font-size:var(--text-12);">(база v{v}, {d})</span>'
             )
         elif other_rep:
-            anc = _anchor(other_rep)
-            other_name_html = f'<a href="#{anc}">{_esc(_display_name(other_rep))}</a>'
+            anc = _anchor(other_rep, anchors)
+            escaped_name = _esc(_display_name(other_rep))
+            other_name_html = (f'<a href="#{anc}">{escaped_name}</a>'
+                               if anc else escaped_name)
         else:
             other_name_html = '–'
 
@@ -900,7 +915,7 @@ def generate_html_report(reports: list, historical: list,
                 f'<span class="badge {"badge-amber" if mark_pct >= 60 else "badge-red"}">'
                 f'{mark_text}</span>'
             )
-        anchor = _anchor(r)
+        anchor = _anchor(r, anchors)
         summary_rows.append(
             f'<tr class="{_row_class(r)}">'
             f'<td><a href="#{anchor}">{_esc(_display_name(r))}</a></td>'

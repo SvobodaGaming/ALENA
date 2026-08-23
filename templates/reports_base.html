@@ -61,9 +61,9 @@
           <td class="mono sub">{{ e.added_at }}</td>
           {% if can(user, 'manage_base') %}
           <td class="act">
-            {# Чужую запись по общей базе группы видно, но удалять её нечего:
-               она нужна её владельцу для его же проверок. #}
-            {% if sees_all or e.owner == user.login %}
+            {# Общая группа и see_all дают чтение; чужую запись удаляет только
+               администратор с отдельным глобальным правом. #}
+            {% if e.owner == user.login or (user.role == 'admin' and can(user, 'delete_all')) %}
             <button class="btn sm danger" type="button"
                     data-forget="{{ e.key }}"
                     data-who="{{ e.student.name or e.filename }}{% if e.student.group %} · {{ e.student.group }}{% endif %}">

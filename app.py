@@ -173,7 +173,7 @@ def inject_globals():
     }
 
 
-def _mark_if_stale(job_id: str, data: dict) -> dict:
+def _mark_if_stale(job_id: str, data: dict, _locked: bool = False) -> dict:
     """Пометить ошибкой проверку, которую никто не ведёт.
 
     Признак – не факт перезапуска, а молчание: поток проверки отмечается в
@@ -192,8 +192,9 @@ def _mark_if_stale(job_id: str, data: dict) -> dict:
     if quiet < JOB_STALE_AFTER:
         return data
 
+    original = data
     data = dict(
-        data,
+        original,
         status='error',
         step=('Проверка оборвалась: процесс проверки остановлен. Чаще всего '
               'серверу не хватило памяти на большой партии – попробуйте '
@@ -202,7 +203,18 @@ def _mark_if_stale(job_id: str, data: dict) -> dict:
         error='job thread gone: no heartbeat',
     )
     try:
-        job_store.save(job_id, data)
+        if _locked:
+            job_store.save(job_id, data)
+        else:
+            # Bulk clear uses the same lock around delete. A delayed stale-job
+            # save must not recreate a record after that delete completes.
+            with jobs_lock:
+                latest = job_store.get(job_id)
+                if latest is None:
+                    return data
+                if latest != original:
+                    return latest
+                job_store.save(job_id, data)
     except Exception:
         pass
     return data
@@ -335,8 +347,13 @@ def _csrf_protect():
     """
     if request.method in SAFE_METHODS:
         return None
-    if request.headers.get('X-API-Key') and request.path.startswith('/api/'):
-        return None
+    if request.path.startswith('/api/'):
+        if request.headers.get('X-API-Key'):
+            return None
+        # With no browser session there is nothing for CSRF to protect; let the
+        # API authentication layer return its documented JSON 401.
+        if not session.get('login'):
+            return None
     if _csrf_ok():
         return None
     if _wants_json():
@@ -537,13 +554,16 @@ def change_password():
 
 def _api_user():
     """The account behind an /api/v1 call: session cookie or X-API-Key."""
-    if g.user is not None and not g.user.get('must_change'):
-        return g.user
     key = request.headers.get('X-API-Key', '')
     if key:
         user = accounts.user_by_api_key(key)
         if user and user.get('state') != 'blocked' and accounts.can(user, 'use_api'):
             return user
+        # An explicit key never falls back to an ambient browser session: the
+        # request must act as the account whose credential it supplied.
+        return None
+    if g.user is not None and not g.user.get('must_change'):
+        return g.user
     return None
 
 
@@ -612,8 +632,41 @@ def _base_scope(user):
     return None if _sees_all(user) else teams.visible_owners(user['login'])
 
 
-def _may_touch(job: dict, user) -> bool:
+def _may_view(job: dict, user) -> bool:
     return _sees_all(user) or job.get('owner', '') == user['login']
+
+
+def _owns_job(job: dict, user) -> bool:
+    return job.get('owner', '') == user['login']
+
+
+def _may_delete(job: dict, user) -> bool:
+    if _owns_job(job, user):
+        return accounts.can(user, 'delete_own')
+    return (user.get('role') == 'admin'
+            and accounts.can(user, 'delete_all'))
+
+
+def _login_confirmation_matches(user: dict, raw) -> bool:
+    confirmed = str(raw or '').strip().encode('utf-8')
+    expected = str(user.get('login') or '').encode('utf-8')
+    return bool(confirmed and expected
+                and secrets.compare_digest(confirmed, expected))
+
+
+def _processing_job_ids_locked(owner=None) -> list:
+    """Processing checks targeted by a bulk operation; jobs_lock is held."""
+    processing = set()
+    for jid, data in job_store.load_all(owner).items():
+        current = _mark_if_stale(jid, data, _locked=True)
+        if current.get('status') == 'processing':
+            processing.add(jid)
+    processing.update(
+        jid for jid, data in jobs.items()
+        if data.get('status') == 'processing'
+        and (owner is None or data.get('owner', '') == owner)
+    )
+    return sorted(processing)
 
 
 def _public_job(job: dict) -> dict:
@@ -871,6 +924,15 @@ def migration_export():
 def migration_import():
     """Загрузка дампа. Файл разбирается, а не выполняется: в базу попадают
     только строки известных таблиц (см. checker/sqlmigrate.py)."""
+    replace = request.form.get('replace') == 'on'
+    if replace:
+        if not accounts.can(g.user, 'delete_all'):
+            flash('Полная замена требует права удалять данные всех преподавателей')
+            return redirect(url_for('admin_migration'))
+        if not _login_confirmation_matches(
+                g.user, request.form.get('confirm_login')):
+            flash('Для полной замены введите свой логин точно как в профиле')
+            return redirect(url_for('admin_migration'))
     upload = request.files.get('dump')
     if upload is None or not upload.filename:
         flash('Выберите файл .sql')
@@ -887,9 +949,22 @@ def migration_import():
 
     try:
         rows = sqlmigrate.parse(text)
-        stats = sqlmigrate.restore(rows,
-                                   replace=request.form.get('replace') == 'on',
-                                   keep_login=g.user['login'])
+        if replace:
+            # One lock covers the final active-job check and the replacement:
+            # a concurrent upload cannot register a new job between them.
+            with jobs_lock:
+                if _processing_job_ids_locked():
+                    flash('Полная замена невозможна, пока выполняются проверки')
+                    return redirect(url_for('admin_migration'))
+                stats = sqlmigrate.restore(rows, replace=True,
+                                           keep_login=g.user['login'])
+                # Persisted rows are now authoritative. Completed jobs cached
+                # by this process must not override the replacement until a
+                # restart.
+                jobs.clear()
+        else:
+            stats = sqlmigrate.restore(rows, replace=False,
+                                       keep_login=g.user['login'])
     except Exception as exc:
         flash(f'Дамп не загружен: {exc}')
         return redirect(url_for('admin_migration'))
@@ -934,14 +1009,17 @@ def _overview_stats(user) -> dict:
 
     by_day: dict = {}
     for d in records.values():
-        day = (d.get('created_at', '') or '')[:10]
-        if day:
+        created = job_store.parse_created_at(d.get('created_at'))
+        if created is not None:
+            day = created.strftime('%d.%m.%Y')
             by_day[day] = by_day.get(day, 0) + 1
-    series = sorted(by_day.items(), key=lambda kv: datetime.strptime(kv[0], '%d.%m.%Y')
-                    if len(kv[0]) == 10 else datetime.min)[-30:]
+    series = sorted(by_day.items(),
+                    key=lambda kv: datetime.strptime(kv[0], '%d.%m.%Y'))[-30:]
 
     recent = sorted(records.items(),
-                    key=lambda kv: kv[1].get('created_at', ''), reverse=True)[:8]
+                    key=lambda kv: (job_store.parse_created_at(
+                        kv[1].get('created_at')) or datetime.min),
+                    reverse=True)[:8]
     return {
         'total_checks':   len(records),
         'total_files':    files,
@@ -1267,7 +1345,7 @@ def _job_status(job_id: str):
     job = _find_job(job_id)
     if job is None:
         abort(404)
-    if not _may_touch(job, g.user):
+    if not _may_view(job, g.user):
         return _deny('Эта проверка принадлежит другому преподавателю.')
     return jsonify(job)
 
@@ -1276,7 +1354,7 @@ def _job_report(job_id: str):
     job = _find_job(job_id)
     if job is None:
         abort(404)
-    if not _may_touch(job, g.user):
+    if not _may_view(job, g.user):
         return _deny('Эта проверка принадлежит другому преподавателю.')
     # Serve directly from disk, works across worker restarts and multi-tab use.
     report_path = REPORTS_DIR / f'{job_id}.html'
@@ -1290,7 +1368,7 @@ def _job_export(job_id: str):
     job = _find_job(job_id)
     if job is None:
         abort(404)
-    if not _may_touch(job, g.user):
+    if not _may_view(job, g.user):
         return _deny('Эта проверка принадлежит другому преподавателю.')
 
     report_path = REPORTS_DIR / f'{job_id}.html'
@@ -1314,19 +1392,53 @@ def _job_export(job_id: str):
     )
 
 
-def _clear_all():
-    """Wipe the caller's history and fingerprint base (everyone's, for an
-    account allowed to see all)."""
+def _clear_jobs(owner, scope: str):
+    """Delete one owner's data, or all data after separate authorization."""
     from checker.memory_store import clear_store
-    scope = _scope(g.user)
-    ids = job_store.clear(scope)
+    # Keep launches and worker updates outside the whole destructive window.
+    # `_launch()` registers a job under the same lock, so a new check either
+    # exists before this check and blocks clearing, or starts after it finishes.
     with jobs_lock:
+        processing = _processing_job_ids_locked(owner)
+        if processing:
+            return jsonify({
+                'error': 'Нельзя очистить данные, пока выполняются проверки. '
+                         'Дождитесь завершения или остановите их.',
+                'processing': len(processing),
+            }), 409
+        ids = job_store.clear(owner)
         for jid in ids:
             jobs.pop(jid, None)
-    for jid in ids:
-        (REPORTS_DIR / f'{jid}.html').unlink(missing_ok=True)
-    cleared_store = clear_store(scope)
-    return jsonify({'ok': True, 'cleared': len(ids), 'cleared_store': cleared_store})
+        for jid in ids:
+            if JOB_ID_RE.fullmatch(jid or ''):
+                (REPORTS_DIR / f'{jid}.html').unlink(missing_ok=True)
+        cleared_store = clear_store(owner)
+    return jsonify({'ok': True, 'scope': scope, 'cleared': len(ids),
+                    'cleared_store': cleared_store})
+
+
+def _clear_own():
+    if not accounts.can(g.user, 'delete_own'):
+        return _deny('Нет права удалять свои проверки.')
+    return _clear_jobs(g.user['login'], 'own')
+
+
+def _clear_everything(confirm_login: str):
+    if (g.user.get('role') != 'admin'
+            or not accounts.can(g.user, 'delete_all')):
+        return _deny('Глобальная очистка доступна только администратору '
+                     'с правом удалять данные всех преподавателей.')
+    if not _login_confirmation_matches(g.user, confirm_login):
+        return jsonify({'error': 'Для глобальной очистки введите свой логин '
+                                 'точно так, как он указан в профиле.'}), 400
+    return _clear_jobs(None, 'all')
+
+
+def _confirmation_login() -> str:
+    data = request.get_json(silent=True)
+    if isinstance(data, dict) and 'confirm_login' in data:
+        return data.get('confirm_login', '')
+    return request.form.get('confirm_login', '')
 
 
 def _cancel_job(job_id: str):
@@ -1340,7 +1452,7 @@ def _cancel_job(job_id: str):
     job = _find_job(job_id)
     if job is None:
         abort(404)
-    if not _may_touch(job, g.user):
+    if not _owns_job(job, g.user):
         return _deny('Эта проверка принадлежит другому преподавателю.')
     if job.get('status') != 'processing':
         return jsonify({'error': 'Проверка уже завершена – прерывать нечего.'}), 409
@@ -1366,10 +1478,8 @@ def _delete_job(job_id: str):
     job = _find_job(job_id)
     if job is None:
         abort(404)
-    if not _may_touch(job, g.user):
-        return _deny('Эта проверка принадлежит другому преподавателю.')
-    if not accounts.can(g.user, 'delete_own'):
-        return _deny('Нет права удалять проверки.')
+    if not _may_delete(job, g.user):
+        return _deny('Нет права удалять эту проверку.')
     if job.get('status') == 'processing':
         return jsonify({'error': 'Проверка ещё выполняется – дождитесь '
                                  'завершения или ошибки.'}), 409
@@ -1394,11 +1504,12 @@ def _memory_delete(key: str):
     entry = load_store().get(key)
     if entry is None:
         abort(404)
-    # Видеть чужую запись по общей базе группы можно, удалять – нет: коллега
-    # лишился бы отпечатка, по которому ищет заимствования, и не узнал бы об
-    # этом. Свою базу чистит каждый сам.
-    if not _sees_all(g.user) and entry.get('owner', '') != g.user['login']:
-        return _deny('Эта запись принадлежит другому преподавателю.')
+    # Общая группа и see_all дают чтение, но не изменение. Чужую запись может
+    # удалить только администратор с отдельным глобальным правом.
+    if entry.get('owner', '') != g.user['login']:
+        if (g.user.get('role') != 'admin'
+                or not accounts.can(g.user, 'delete_all')):
+            return _deny('Эта запись принадлежит другому преподавателю.')
     if not delete_entry(key):
         abort(404)
     return jsonify({'ok': True})
@@ -1559,7 +1670,13 @@ def export_pdf(job_id):
 @app.route('/jobs/clear', methods=['POST'])
 @permission_required('delete_own')
 def clear_jobs():
-    return _clear_all()
+    return _clear_own()
+
+
+@app.route('/jobs/clear/all', methods=['POST'])
+@admin_required
+def clear_all_jobs():
+    return _clear_everything(_confirmation_login())
 
 
 @app.route('/jobs/<job_id>/delete', methods=['POST'])
@@ -1603,17 +1720,12 @@ def list_active_jobs():
     а не пустую форму. Чужие сюда не попадают даже у записи с правом видеть
     всё: это «мои идущие», а не «все идущие».
     """
-    def when(data: dict):
-        try:
-            return datetime.strptime(data.get('created_at', ''), '%d.%m.%Y %H:%M')
-        except ValueError:
-            return datetime.min
-
     mine = [dict(job_id=jid, **data)
             for jid, data in _all_jobs(g.user).items()
             if data.get('status') == 'processing'
             and data.get('owner', '') == g.user['login']]
-    mine.sort(key=when, reverse=True)
+    mine.sort(key=lambda data: (job_store.parse_created_at(
+        data.get('created_at')) or datetime.min), reverse=True)
     return jsonify(mine)
 
 
@@ -1674,6 +1786,8 @@ def user_perms(login_name):
     user['role'] = role
     user['perms'] = {flag: request.form.get(f'perm_{flag}') == 'on'
                      for flag, _ in accounts.PERMISSIONS}
+    if role != 'admin':
+        user['perms']['delete_all'] = False
     accounts.save_user(user)
     flash(f'Права обновлены: {user["fio"]}')
     return redirect(url_for('admin_users'))
@@ -1849,7 +1963,6 @@ def _update(job_id: str, _force: bool = False, **kwargs):
     самой проверки. Смена статуса сохраняется немедленно – по ней восстанавливают
     историю после перезапуска.
     """
-    snapshot = None
     with jobs_lock:
         job = jobs.get(job_id)
         if job is not None:
@@ -1861,9 +1974,10 @@ def _update(job_id: str, _force: bool = False, **kwargs):
                 # Отметка «проверка жива»: по ней отличают идущую проверку от
                 # брошенной вместе с умершим процессом (см. _mark_if_stale).
                 job['beat'] = time.time()
-                snapshot = _public_job(job)
-    if snapshot is not None:
-        job_store.save(job_id, snapshot)
+                # Save under the same lock used by bulk clear. Otherwise a
+                # delayed snapshot could be written after clear and resurrect
+                # a job that the operation had just removed.
+                job_store.save(job_id, _public_job(job))
 
 
 def _stop_point(job_id: str):
@@ -1959,8 +2073,8 @@ def _collect_docs(job_id: str, tmp_dir: str) -> tuple:
 
     failures = []
     # Имя результата разводим заранее: «Иванов.docx» и «Иванов.pdf» из одной
-    # партии дали бы две работы с одинаковым именем, а по нему в отчёте
-    # строятся ссылки на карточки.
+    # партии иначе дали бы одинаковый путь после конвертации, а путь служит
+    # ключом работы в матрицах сравнения и сводке отчёта.
     used = {p.stem for p in ready}
     for i, src in enumerate(sources):
         _tick(job_id, 2, 4, i, len(sources),
@@ -2054,14 +2168,17 @@ def _process_job(job_id: str, tmp_dir: str, threshold: float,
                   f'Проверка ГОСТ 7.32-2017: {i+1} из {n}…')
             r['gost_results'] = check_gost(r, enabled_checks)
 
-        # 4. Build historical list, excluding students present in this batch.
+        # 4. Build historical list, excluding recognized students in this batch.
         #    Without this, a student's new report would match their own stored
         #    fingerprint from a previous session (false "self-plagiarism").
         #    Отбор идёт по «фио|группа», а не по ключу записи: в общей базе
         #    группы преподавателей ту же работу мог сохранить коллега, под
         #    своим владельцем, и по ключу она бы не отсеялась – пересдача у
         #    другого преподавателя показывалась бы как стопроцентное
-        #    заимствование у самого себя.
+        #    заимствование у самого себя. Для работы без ФИО и группы точечное
+        #    исключение той же версии делается сравнителями по имени файла и
+        #    отпечатку нормализованного текста: остальные анонимные работы
+        #    должны остаться в сравнении.
         new_students = {sid for r in reports
                         if (sid := student_id(r.get('student', {}))) != NO_STUDENT}
         if use_memory:
@@ -2210,9 +2327,12 @@ def api_list_jobs():
 @api.route('/jobs', methods=['DELETE'])
 @api_auth_required
 def api_clear_jobs():
-    if not accounts.can(g.user, 'delete_own'):
-        return jsonify({'error': 'Нет права удалять проверки'}), 403
-    return _clear_all()
+    scope = request.args.get('scope')
+    if scope not in ('own', 'all'):
+        return jsonify({'error': 'Укажите обязательный параметр scope=own|all'}), 400
+    if scope == 'own':
+        return _clear_own()
+    return _clear_everything(request.args.get('confirm_login', ''))
 
 
 @api.route('/jobs/<job_id>', methods=['GET'])

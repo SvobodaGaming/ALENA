@@ -65,11 +65,22 @@
             <input type="file" id="dump-file" name="dump" accept=".sql" required>
           </div>
           <label class="check">
-            <input type="checkbox" name="replace">
+            <input type="checkbox" name="replace"
+                   {% if not can(user, 'delete_all') %}disabled{% endif %}>
             <span><b>Полная замена</b><br>
               <span class="hint">Сначала очистить проверки и отпечатки и удалить учётные записи,
-                которых нет в файле. Ваша собственная запись не удаляется никогда.</span></span>
+                которых нет в файле. Ваша собственная запись не удаляется никогда.
+                Требуется отдельное право глобального удаления.</span></span>
           </label>
+          {% if can(user, 'delete_all') %}
+          <div class="field">
+            <label for="migration-confirm-login">Подтверждение полной замены</label>
+            <input type="text" id="migration-confirm-login" name="confirm_login"
+                   autocomplete="off" spellcheck="false"
+                   placeholder="Введите свой логин: {{ user.login }}">
+            <span class="hint">Проверяется только при включённой полной замене.</span>
+          </div>
+          {% endif %}
           <div><button class="btn danger" type="submit">Загрузить в базу</button></div>
         </form>
       </div>

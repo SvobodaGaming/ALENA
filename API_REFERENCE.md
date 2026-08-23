@@ -26,6 +26,9 @@ Two interchangeable methods are accepted:
   Calls authorized by `X-API-Key` are exempt: a browser never attaches that
   header to a cross-site request, so there is nothing to forge.
 
+If both a session cookie and `X-API-Key` are present, the explicit API key wins;
+the request never falls back to the session when that key is invalid.
+
 On a missing, wrong or unauthorized key the API responds `401`:
 
 ```json
@@ -49,14 +52,18 @@ Teacher groups (managed by an admin in the web UI, `/admin/teams`) widen the
 fingerprint base only – never the job history. An account in no group behaves
 exactly as before: its base is its own.
 
-Reading or deleting another teacher's check answers `403`:
+Reading another teacher's check requires `see_all`. Changing it is a separate
+decision: a teacher may never change another teacher's data, regardless of
+`see_all`; an administrator additionally needs `delete_all` to delete it.
+Otherwise the call answers `403`:
 
 ```json
 { "error": "Эта проверка принадлежит другому преподавателю.", "status": 403 }
 ```
 
 Actions also honour per-account permissions: `run_checks` for `POST /jobs`,
-`delete_own` for the delete endpoints, `manage_base` for `DELETE /memory/<key>`.
+`delete_own` for the caller's data, `delete_all` plus the `admin` role for other
+teachers' data, and `manage_base` for `DELETE /memory/<key>`.
 Reading a check the account already owns (`GET /jobs`, `/jobs/<id>`, its report
 and export) needs no extra permission beyond authentication – revoking
 `run_checks` stops new checks, it does not hide the account's own history.
@@ -217,19 +224,36 @@ report is missing, `501` if WeasyPrint is not installed on the server.
 ### DELETE `/jobs/<job_id>`
 Delete a single job: its history entry (memory + DB) and the saved HTML report.
 Stored student fingerprints are kept – remove them via `DELETE /memory/<key>`.
-`409` while the job is still processing, `404` if nothing was found.
+The owner needs `delete_own`; deleting another teacher's visible job requires
+both the `admin` role and `delete_all`. `409` while the job is still processing,
+`404` if nothing was found.
 
 ```json
 { "ok": true }
 ```
 
-### DELETE `/jobs`
-Delete the caller's jobs, their report files, and the caller's own fingerprint
-base. Colleagues' entries visible through a teacher group are **not** touched.
-An account with `see_all` wipes everyone's.
+### DELETE `/jobs?scope=own|all`
+The `scope` query parameter is mandatory. Omitting it or using any other value
+returns `400` without deleting anything.
+
+- `scope=own` deletes only the caller's jobs, report files and fingerprints and
+  requires `delete_own`. `see_all` never widens this scope; colleagues' entries
+  visible through a teacher group are not touched.
+- `scope=all` deletes all jobs, report files and fingerprints. It requires the
+  `admin` role, the separate `delete_all` permission, and `confirm_login` equal
+  to the current administrator's login.
+
+Either scope returns `409` without deleting anything while a targeted check is
+still processing. Stop it or wait for it to finish first.
+
+```bash
+curl -X DELETE -H "X-API-Key: $KEY" "$BASE/jobs?scope=own"
+curl -X DELETE -H "X-API-Key: $KEY" \
+  "$BASE/jobs?scope=all&confirm_login=admin"
+```
 
 ```json
-{ "ok": true, "cleared": 4, "cleared_store": 21 }
+{ "ok": true, "scope": "own", "cleared": 4, "cleared_store": 21 }
 ```
 
 ### GET `/memory`
@@ -259,10 +283,11 @@ teachers' bases apart when they have a namesake in the same group.
 ### DELETE `/memory/<key>`
 Delete one fingerprint entry. Requires the `manage_base` permission. The `key`
 is the value from `GET /memory` and must be URL-encoded (it contains `|` and
-spaces). `403` for another teacher's entry, `404` if the key does not exist.
+spaces). Another teacher's entry additionally requires the `admin` role and
+`delete_all`; otherwise the result is `403`. A missing key returns `404`.
 
 Being in the same group grants no delete rights: a colleague's entry is visible
-in `GET /memory` but `DELETE` on it still answers `403`.
+in `GET /memory`, but a teacher's `DELETE` on it still answers `403`.
 
 ```
 DELETE /api/v1/memory/sokolova%7C%D0%B8%D0%B2%D0%B0%D0%BD%D0%BE%D0%B2%20%D0%B8%D0%B2%D0%B0%D0%BD%7C%D0%BF%D1%80-21-1%7Cv1

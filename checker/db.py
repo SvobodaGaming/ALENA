@@ -25,6 +25,7 @@ SCHEMA = [
         filename        TEXT,
         student         JSONB,
         normalized_text TEXT,
+        text_hash       TEXT,
         image_data      JSONB,
         pages_count     INTEGER,
         job_id          TEXT,
@@ -32,6 +33,7 @@ SCHEMA = [
     )
     """,
     "CREATE INDEX IF NOT EXISTS fingerprints_key_base_idx ON fingerprints (key_base)",
+    "ALTER TABLE fingerprints ADD COLUMN IF NOT EXISTS text_hash TEXT",
     # Fingerprints and jobs belong to the teacher who ran the check: every
     # teacher has an isolated base and an isolated history.
     "ALTER TABLE fingerprints ADD COLUMN IF NOT EXISTS owner TEXT",
@@ -127,7 +129,7 @@ def fp_load_all(owners=None) -> dict:
     """
     store = {}
     sql = ("SELECT entry_key, key_base, version, filename, student, "
-           "normalized_text, image_data, pages_count, job_id, added_at, owner "
+           "normalized_text, text_hash, image_data, pages_count, job_id, added_at, owner "
            "FROM fingerprints")
     params: tuple = ()
     if owners is not None:
@@ -138,13 +140,15 @@ def fp_load_all(owners=None) -> dict:
     with _conn() as conn, conn.cursor() as cur:
         cur.execute(sql, params)
         for (entry_key, key_base, version, filename, student, normalized_text,
-             image_data, pages_count, job_id, added_at, row_owner) in cur.fetchall():
+             text_hash, image_data, pages_count, job_id, added_at,
+             row_owner) in cur.fetchall():
             store[entry_key] = {
                 'key_base':        key_base,
                 'version':         version,
                 'filename':        filename or '',
                 'student':         student or {},
                 'normalized_text': normalized_text or '',
+                'text_hash':       text_hash or '',
                 'image_data':      image_data or [],
                 'pages_count':     pages_count or 0,
                 'job_id':          job_id or '',
@@ -164,15 +168,16 @@ def fp_upsert_many(store: dict) -> None:
                 """
                 INSERT INTO fingerprints
                   (entry_key, key_base, version, filename, student,
-                   normalized_text, image_data, pages_count, job_id, added_at,
-                   owner)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                   normalized_text, text_hash, image_data, pages_count, job_id,
+                   added_at, owner)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 ON CONFLICT (entry_key) DO UPDATE SET
                   key_base        = EXCLUDED.key_base,
                   version         = EXCLUDED.version,
                   filename        = EXCLUDED.filename,
                   student         = EXCLUDED.student,
                   normalized_text = EXCLUDED.normalized_text,
+                  text_hash       = EXCLUDED.text_hash,
                   image_data      = EXCLUDED.image_data,
                   pages_count     = EXCLUDED.pages_count,
                   job_id          = EXCLUDED.job_id,
@@ -181,7 +186,8 @@ def fp_upsert_many(store: dict) -> None:
                 """,
                 (entry_key, v.get('key_base', ''), v.get('version', 1),
                  v.get('filename', ''), Json(v.get('student', {})),
-                 v.get('normalized_text', ''), Json(v.get('image_data', [])),
+                  v.get('normalized_text', ''), v.get('text_hash', ''),
+                  Json(v.get('image_data', [])),
                  v.get('pages_count', 0), v.get('job_id', ''),
                  v.get('added_at', ''), v.get('owner', '')),
             )
@@ -208,14 +214,15 @@ def fp_insert_versioned(key_base: str, entry: dict) -> int:
                     """
                     INSERT INTO fingerprints
                       (entry_key, key_base, version, filename, student,
-                       normalized_text, image_data, pages_count, job_id,
-                       added_at, owner)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                       normalized_text, text_hash, image_data, pages_count,
+                       job_id, added_at, owner)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                     """,
                     (f'{key_base}|v{version}', key_base, version,
                      entry.get('filename', ''), Json(entry.get('student', {})),
-                     entry.get('normalized_text', ''),
-                     Json(entry.get('image_data', [])),
+                      entry.get('normalized_text', ''),
+                      entry.get('text_hash', ''),
+                      Json(entry.get('image_data', [])),
                      entry.get('pages_count', 0), entry.get('job_id', ''),
                      entry.get('added_at', ''), entry.get('owner', '')),
                 )

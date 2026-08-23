@@ -115,6 +115,9 @@ def get_summary(store: dict) -> list:
     return result
 
 
+NO_STUDENT = '|'
+
+
 def student_id(student: dict) -> str:
     """Личность студента без владельца: «фио|группа» в нижнем регистре.
 
@@ -122,13 +125,14 @@ def student_id(student: dict) -> str:
     Ключ записи для этого не годится: в общей базе группы преподавателей ту же
     работу мог сохранить коллега, под своим владельцем и своим ключом, – и
     студента обвинило бы в списывании у самого себя.
+
+    Одна группа без имени не идентифицирует человека: все работы группы иначе
+    считались бы работами одного студента и не сравнивались между собой.
     """
     s = student or {}
-    return (f"{s.get('name', '').strip().lower()}"
-            f"|{s.get('group', '').strip().lower()}")
-
-
-NO_STUDENT = '|'      # student_id() у работы, где не распознаны ни ФИО, ни группа
+    name = str(s.get('name') or '').strip().lower()
+    group = str(s.get('group') or '').strip().lower()
+    return f'{name}|{group}' if name else NO_STUDENT
 
 
 def _student_key(report: dict, owner: str = '') -> str:
@@ -160,7 +164,7 @@ def _shrink_thumb(data_uri: str) -> str:
 
 def _entry_for(report: dict, job_id: str, owner: str) -> tuple:
     """(key_base, запись без номера версии) для одной проверенной работы."""
-    from checker.text_plagiarism import normalize_text
+    from checker.text_plagiarism import normalize_text, text_fingerprint
 
     image_data = []
     for img_info in report.get('images', []):
@@ -175,11 +179,13 @@ def _entry_for(report: dict, job_id: str, owner: str) -> tuple:
         })
 
     key_base = _student_key(report, owner)
+    normalized_text = normalize_text(report.get('full_text', ''))
     return key_base, {
         'key_base':        key_base,
         'filename':        report.get('filename', ''),
         'student':         report.get('student', {}),
-        'normalized_text': normalize_text(report.get('full_text', '')),
+        'normalized_text': normalized_text,
+        'text_hash':       text_fingerprint(normalized_text),
         'image_data':      image_data,
         'pages_count':     report.get('pages_count', 0),
         'added_at':        datetime.now().strftime('%d.%m.%Y %H:%M'),
@@ -217,6 +223,7 @@ def to_virtual_report(entry_key: str, entry: dict) -> dict:
     The 'path' is a virtual memory:// URI used as a stable unique key.
     """
     import imagehash as ih
+    from checker.text_plagiarism import text_fingerprint
 
     precomputed_images = []
     for item in entry.get('image_data', []):
@@ -231,12 +238,15 @@ def to_virtual_report(entry_key: str, entry: dict) -> dict:
         except Exception:
             pass
 
+    normalized_text = entry.get('normalized_text', '')
     return {
         'path':               f'memory://{entry_key}',
         'filename':           entry.get('filename', ''),
         'student':            entry.get('student', {}),
         'full_text':          '',
-        'normalized_text':    entry.get('normalized_text', ''),
+        'normalized_text':    normalized_text,
+        'text_hash':          (entry.get('text_hash')
+                               or text_fingerprint(normalized_text)),
         'images':             [],
         'precomputed_images': precomputed_images,
         'is_historical':      True,

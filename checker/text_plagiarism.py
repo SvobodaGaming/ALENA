@@ -1,4 +1,5 @@
 """Text plagiarism detection via word n-gram (shingle) Jaccard similarity."""
+import hashlib
 import re
 from collections import defaultdict
 
@@ -19,6 +20,50 @@ def normalize_text(text: str) -> str:
     text = re.sub(r'\b\d{1,3}\b', ' ', text)   # strip page numbers etc.
     text = re.sub(r'\s+', ' ', text).strip()
     return text
+
+
+def text_fingerprint(normalized_text: str) -> str:
+    """Stable digest used to recognize the same anonymous stored work."""
+    if not normalized_text:
+        return ''
+    return hashlib.sha256(normalized_text.encode('utf-8')).hexdigest()
+
+
+def report_text_fingerprint(report: dict) -> str:
+    stored = report.get('text_hash', '')
+    if stored:
+        return str(stored)
+    normalized = report.get('normalized_text')
+    if normalized is None:
+        normalized = normalize_text(report.get('full_text', ''))
+    return text_fingerprint(normalized)
+
+
+def _image_fingerprint(report: dict) -> str:
+    images = (report.get('precomputed_images', [])
+              if report.get('is_historical') else report.get('images', []))
+    parts = []
+    for image in images:
+        hashes = image.get('hashes') or []
+        if hashes:
+            parts.append(f"{image.get('page', 0)}:"
+                         + ','.join(str(value) for value in hashes))
+    return text_fingerprint('|'.join(parts))
+
+
+def anonymous_work_key(report: dict):
+    """Filename + exact content digest for a work without a student name."""
+    student = report.get('student') or {}
+    if str(student.get('name') or '').strip():
+        return None
+    filename = str(report.get('filename') or '').strip().casefold()
+    fingerprint = report_text_fingerprint(report)
+    kind = 'text'
+    if not fingerprint:
+        fingerprint = _image_fingerprint(report)
+        kind = 'images'
+    return ((filename, kind, fingerprint)
+            if filename and fingerprint else None)
 
 
 def _shingles(text: str, n: int = SHINGLE_SIZE) -> set:
@@ -112,6 +157,7 @@ def check_text_plagiarism(reports: list, threshold: float = 0.6,
     shingles_map: dict  = {}
     is_historical: dict = {}
     student_key: dict   = {}
+    anonymous_key: dict = {}
     no_text: set        = set()
 
     for r in reports:
@@ -120,11 +166,13 @@ def check_text_plagiarism(reports: list, threshold: float = 0.6,
         norm_texts[path]    = norm
         shingles_map[path]  = _shingles(norm)
         is_historical[path] = r.get('is_historical', False)
+        anonymous_key[path] = anonymous_work_key(r)
         if len(norm.split()) < MIN_COMPARE_WORDS:
             no_text.add(path)
         s = r.get('student', {})
-        sk = f"{s.get('name','').strip().lower()}|{s.get('group','').strip().lower()}"
-        student_key[path] = sk if sk != '|' else ''
+        name = str(s.get('name') or '').strip().lower()
+        group = str(s.get('group') or '').strip().lower()
+        student_key[path] = f'{name}|{group}' if name else ''
 
     paths = list(shingles_map.keys())
     matrix = {p: {p: 1.0} for p in paths}
@@ -152,6 +200,13 @@ def check_text_plagiarism(reports: list, threshold: float = 0.6,
 
             # Skip: both historical (compared in prior sessions)
             if is_historical[p1] and is_historical[p2]:
+                continue
+
+            # The same unidentified file from an earlier session is not a
+            # source of plagiarism. Other anonymous pairs remain comparable.
+            if (is_historical[p1] != is_historical[p2]
+                    and anonymous_key[p1]
+                    and anonymous_key[p1] == anonymous_key[p2]):
                 continue
 
             # Skip: same student (same name + group → comparing with themselves)

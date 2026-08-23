@@ -44,16 +44,17 @@ STATES = {
 PERMISSIONS = [
     ('run_checks',  'Запускать новые проверки'),
     ('delete_own',  'Удалять свои проверки'),
+    ('delete_all',  'Удалять данные всех преподавателей'),
     ('manage_base', 'Удалять записи из базы отпечатков'),
     ('see_all',     'Видеть проверки других преподавателей'),
     ('use_api',     'Пользоваться API по ключу'),
 ]
 
 _DEFAULT_PERMS = {
-    'admin':   {'run_checks': True, 'delete_own': True, 'manage_base': True,
-                'see_all': True,  'use_api': True},
-    'teacher': {'run_checks': True, 'delete_own': True, 'manage_base': False,
-                'see_all': False, 'use_api': False},
+    'admin':   {'run_checks': True, 'delete_own': True, 'delete_all': True,
+                'manage_base': True, 'see_all': True, 'use_api': True},
+    'teacher': {'run_checks': True, 'delete_own': True, 'delete_all': False,
+                'manage_base': False, 'see_all': False, 'use_api': False},
 }
 
 DEFAULT_SETTINGS = {

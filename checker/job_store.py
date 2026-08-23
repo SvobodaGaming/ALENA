@@ -6,6 +6,7 @@ deployments. Ownership matters: a report is served only to its owner (or to an
 account allowed to see everything), and that decision needs the record.
 """
 
+import re
 import threading
 from datetime import datetime
 from pathlib import Path
@@ -16,6 +17,17 @@ STORE_PATH = Path(__file__).parent.parent / 'memory' / 'jobs.json'
 _lock = threading.Lock()
 
 _STAMP = '%d.%m.%Y %H:%M'
+_STAMP_RE = re.compile(r'^\d{2}\.\d{2}\.\d{4} \d{2}:\d{2}$')
+
+
+def parse_created_at(value):
+    """Parse a persisted job timestamp, or return None for legacy bad data."""
+    if not isinstance(value, str) or not _STAMP_RE.fullmatch(value):
+        return None
+    try:
+        return datetime.strptime(value, _STAMP)
+    except ValueError:
+        return None
 
 
 def _read_all() -> dict:
@@ -85,10 +97,10 @@ def expired(days: int) -> list:
     now = datetime.now()
     stale = []
     for jid, data in load_all().items():
-        try:
-            age = now - datetime.strptime(data.get('created_at', ''), _STAMP)
-        except ValueError:
+        created = parse_created_at(data.get('created_at'))
+        if created is None:
             continue
+        age = now - created
         if age.days > days:
             stale.append(jid)
     return stale

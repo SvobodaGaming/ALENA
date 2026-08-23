@@ -6,7 +6,9 @@
 {% block content %}
 <div id="checks-screen"
      data-sees-all="{{ '1' if can(user, 'see_all') else '0' }}"
-     data-can-delete="{{ '1' if can(user, 'delete_own') else '0' }}">
+     data-can-delete="{{ '1' if can(user, 'delete_own') else '0' }}"
+     data-can-delete-all="{{ '1' if user.role == 'admin' and can(user, 'delete_all') else '0' }}"
+     data-login="{{ user.login }}">
 
   {# Формулировки замечаний нужны на клиенте: у проверок, сделанных до
      появления отзывов, в сводке есть только коды критериев. #}
@@ -43,7 +45,10 @@
           <input type="text" id="job-search" placeholder="Группа, номер, ФИО, дата" aria-label="Поиск по проверкам: группа, номер проверки, ФИО, дата">
         </div>
         {% if can(user, 'delete_own') %}
-        <button class="btn sm danger" id="clear-all" title="Удалить все проверки и отпечатки">Очистить</button>
+        <button class="btn sm danger" id="clear-own" title="Удалить свои проверки и отпечатки">Очистить мои</button>
+        {% endif %}
+        {% if user.role == 'admin' and can(user, 'delete_all') %}
+        <button class="btn sm danger" id="clear-global" title="Удалить данные всех преподавателей">Очистить всё</button>
         {% endif %}
       </div>
       <ul class="job-list" id="job-list" role="listbox" aria-label="Список проверок">

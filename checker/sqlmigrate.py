@@ -22,7 +22,7 @@ TABLES = ('users', 'jobs', 'fingerprints', 'login_events', 'settings', 'teams')
 
 _JOB_COLS = ('job_id', 'data')
 _FP_COLS = ('entry_key', 'key_base', 'version', 'filename', 'student',
-            'normalized_text', 'image_data', 'pages_count', 'job_id',
+            'normalized_text', 'text_hash', 'image_data', 'pages_count', 'job_id',
             'added_at', 'owner')
 _EVENT_COLS = ('ts', 'login', 'ok', 'ip', 'ua', 'reason')
 
@@ -311,7 +311,13 @@ def restore(rows: dict, replace: bool = False, keep_login: str = '') -> dict:
         user = {c: rec.get(c) for c in db.USER_COLS}
         if not user.get('login') or not user.get('password_hash'):
             continue
-        user['perms'] = user.get('perms') or accounts.default_perms(user.get('role', 'teacher'))
+        if user.get('perms'):
+            user['perms'] = dict(user['perms'])
+        else:
+            user['perms'] = accounts.default_perms(user.get('role', 'teacher'))
+            # Old dumps had no dedicated global-delete permission. Importing
+            # one must not silently grant a newly introduced destructive right.
+            user['perms']['delete_all'] = False
         user['must_change'] = bool(user.get('must_change'))
         user['fail_count'] = int(user.get('fail_count') or 0)
         accounts.save_user(user)
@@ -337,16 +343,20 @@ def restore(rows: dict, replace: bool = False, keep_login: str = '') -> dict:
             stats['jobs'] += 1
 
     store = {}
+    from checker.text_plagiarism import text_fingerprint
     for rec in rows.get('fingerprints', []):
         key = rec.get('entry_key')
         if not key:
             continue
+        normalized_text = rec.get('normalized_text') or ''
         store[key] = {
             'key_base':        rec.get('key_base') or '',
             'version':         int(rec.get('version') or 1),
             'filename':        rec.get('filename') or '',
             'student':         rec.get('student') or {},
-            'normalized_text': rec.get('normalized_text') or '',
+            'normalized_text': normalized_text,
+            'text_hash':       (rec.get('text_hash')
+                                or text_fingerprint(normalized_text)),
             'image_data':      rec.get('image_data') or [],
             'pages_count':     int(rec.get('pages_count') or 0),
             'job_id':          rec.get('job_id') or '',

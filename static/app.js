@@ -171,11 +171,27 @@
 
   /* Дата хранится строкой «дд.мм.гггг чч:мм»: сравнивать её как текст нельзя –
      порядок получался бы по числу месяца, а не по дате. */
-  const STAMP_RE = /^(\d{2})\.(\d{2})\.(\d{4})(?:[ T](\d{2}):(\d{2}))?/;
+  const STAMP_RE = /^(\d{2})\.(\d{2})\.(\d{4}) (\d{2}):(\d{2})$/;
+
+  const stampParts = s => {
+    const m = STAMP_RE.exec(String(s || ''));
+    if (!m) return null;
+    const day = +m[1], month = +m[2], year = +m[3];
+    const hour = +m[4], minute = +m[5];
+    if (year < 1) return null;
+    const date = new Date(0);
+    date.setUTCFullYear(year, month - 1, day);
+    date.setUTCHours(hour, minute, 0, 0);
+    return date.getUTCFullYear() === year
+      && date.getUTCMonth() === month - 1
+      && date.getUTCDate() === day
+      && date.getUTCHours() === hour
+      && date.getUTCMinutes() === minute ? m : null;
+  };
 
   const stampKey = s => {
-    const m = STAMP_RE.exec(String(s || ''));
-    return m ? m[3] + m[2] + m[1] + (m[4] || '00') + (m[5] || '00') : '';
+    const m = stampParts(s);
+    return m ? m[3] + m[2] + m[1] + m[4] + m[5] : '';
   };
 
   /* Поиск по дате: «14.08», «14.08.2026», «08.2026», «2026-08-14» и «12:34»
@@ -183,7 +199,7 @@
      как она показана и в порядке «год.месяц.день». */
   const stampForms = s => {
     const raw = String(s || '').toLowerCase();
-    const m = STAMP_RE.exec(raw);
+    const m = stampParts(raw);
     return m ? [raw, `${m[3]}.${m[2]}.${m[1]}`] : [raw];
   };
 
@@ -315,6 +331,8 @@
   function initChecks() {
     const seesAll = checksRoot.dataset.seesAll === '1';
     const canDelete = checksRoot.dataset.canDelete === '1';
+    const canDeleteAll = checksRoot.dataset.canDeleteAll === '1';
+    const login = checksRoot.dataset.login || '';
     let records = {};
     let selected = null;
     let query = '';
@@ -423,6 +441,8 @@
       if (!j) { pane.innerHTML = '<div class="empty">Выберите проверку.</div>'; return; }
       const s = j.summary || {};
       const thr = j.threshold || 60;
+      const ownsJob = j.owner === login;
+      const mayDeleteJob = (ownsJob && canDelete) || (!ownsJob && canDeleteAll);
 
       const head = `
         <div class="detail-head">
@@ -444,9 +464,9 @@
               <a class="btn primary" href="/report/${esc(j.id)}" target="_blank" rel="noopener">Открыть отчёт</a>
               <a class="btn" href="/export/${esc(j.id)}">Скачать PDF</a>
               <button class="btn" id="fb-all">Отзывы студентам</button>` : ''}
-            ${j.status === 'processing'
+            ${j.status === 'processing' && ownsJob
               ? `<button class="btn danger" data-stop="${esc(j.id)}">Прервать проверку</button>` : ''}
-            ${canDelete ? `<button class="btn danger" data-del="${esc(j.id)}"
+            ${mayDeleteJob ? `<button class="btn danger" data-del="${esc(j.id)}"
               ${j.status === 'processing' ? 'disabled title="Дождитесь завершения"' : ''}>Удалить</button>` : ''}
           </div>
         </div>`;
@@ -720,19 +740,37 @@
     const search = $('#job-search');
     if (search) search.oninput = e => { query = e.target.value.trim(); render(); };
 
-    const clearBtn = $('#clear-all');
-    /* У записи, которая видит чужие проверки, «очистить» стирает данные всех
-       преподавателей, а не только свои, – предупреждение должно это говорить. */
-    if (clearBtn) clearBtn.onclick = () => confirmAction({
-      title: 'Очистить историю и базу отпечатков?',
-      sub: seesAll
-        ? 'Будут удалены проверки, отчёты и отпечатки ВСЕХ преподавателей – не только ваши. Отменить нельзя.'
-        : 'Будут удалены все ваши проверки, их отчёты и все сохранённые отпечатки. Отменить нельзя.',
-      okText: 'Очистить всё', danger: true,
+    const clearOwnBtn = $('#clear-own');
+    if (clearOwnBtn) clearOwnBtn.onclick = () => confirmAction({
+      title: 'Очистить мои историю и базу отпечатков?',
+      sub: 'Будут удалены только ваши проверки, их отчёты и сохранённые вами отпечатки. Отменить нельзя.',
+      okText: 'Очистить мои данные', danger: true,
       onOk: async () => {
         const res = await post('/jobs/clear');
-        if (res.ok) { toast('История и база очищены'); load(); }
-        else toast('Не удалось очистить');
+        const data = await res.json().catch(() => ({}));
+        if (res.ok) { toast('Ваши история и база очищены'); load(); }
+        else toast(data.error || 'Не удалось очистить');
+      },
+    });
+
+    const clearGlobalBtn = $('#clear-global');
+    if (clearGlobalBtn) clearGlobalBtn.onclick = () => confirmAction({
+      title: 'Удалить данные ВСЕХ преподавателей?',
+      sub: 'Будут безвозвратно удалены все проверки, HTML-отчёты и отпечатки всей установки.',
+      body: `<div class="field">
+        <label for="clear-confirm-login">Для подтверждения введите свой логин <b class="mono">${esc(login)}</b></label>
+        <input id="clear-confirm-login" type="text" autocomplete="off" spellcheck="false">
+      </div>`,
+      okText: 'Удалить всё', danger: true,
+      onOk: async () => {
+        const input = $('#clear-confirm-login');
+        const res = await post('/jobs/clear/all', {
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ confirm_login: input ? input.value : '' }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (res.ok) { toast('Данные всех преподавателей удалены'); selected = null; load(); }
+        else toast(data.error || 'Не удалось выполнить глобальную очистку');
       },
     });
 

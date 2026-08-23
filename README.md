@@ -189,12 +189,17 @@ python check_reports.py ./архив.zip
 |---|---|
 | `run_checks` | Запускать новые проверки |
 | `delete_own` | Удалять свои проверки |
+| `delete_all` | Удалять данные всех преподавателей; действует только вместе с ролью `admin` |
 | `manage_base` | Удалять записи из базы отпечатков |
 | `see_all` | Видеть проверки других преподавателей |
 | `use_api` | Пользоваться API по ключу |
 
 Снятие `run_checks` останавливает новые проверки, но не прячет собственную
-историю учётной записи.
+историю учётной записи. `see_all` даёт только чтение и никогда не расширяет
+область удаления. Глобальная очистка вынесена в отдельное действие, требует
+`delete_all` и подтверждения логином текущего администратора.
+У учётных записей, созданных до появления `delete_all`, это право выключено:
+администратор включает его явно в разделе **Пользователи**.
 
 ### Группы преподавателей
 
@@ -214,6 +219,10 @@ python check_reports.py ./архив.zip
 Тот же студент, сдавший работу другому преподавателю группы, за плагиат не
 считается: в истории он отсеивается по ФИО и группе, а не по владельцу
 записи, – иначе пересдача выглядела бы как стопроцентное списывание у себя.
+Если имя не распознано (даже когда известна только группа), из сравнения
+исключается лишь точное совпадение с прошлой версией по имени файла и SHA-256
+нормализованного текста; для скана без текста используются точные pHash его
+изображений. Остальные обезличенные работы продолжают сравниваться между собой.
 
 ---
 
@@ -293,9 +302,12 @@ curl -H "X-API-Key: $AU_API_KEY" http://localhost:5000/api/v1/jobs/<job_id>/expo
 | `GET` | `/jobs` · `/jobs/<id>` | Список проверок · состояние одной |
 | `POST` | `/jobs/<id>/cancel` | Остановить идущую проверку |
 | `GET` | `/jobs/<id>/report` · `/export` | HTML-отчёт · PDF |
-| `DELETE` | `/jobs/<id>` · `/jobs` | Удалить проверку · очистить историю |
+| `DELETE` | `/jobs/<id>` · `/jobs?scope=own\|all` | Удалить проверку · очистить свои или все данные |
 | `GET` | `/memory` | Содержимое базы отпечатков |
 | `DELETE` | `/memory/<key>` | Удалить запись из базы |
+
+Для `DELETE /jobs` параметр `scope` обязателен. `scope=all` доступен только
+администратору с `delete_all` и требует `confirm_login=<логин администратора>`.
 
 Авторизация – заголовок `X-API-Key` либо сессия браузера (тогда изменяющие
 вызовы дополнительно требуют `X-CSRF-Token`). Каждый вызов действует **от имени
@@ -312,6 +324,8 @@ curl -H "X-API-Key: $AU_API_KEY" http://localhost:5000/api/v1/jobs/<job_id>/expo
 
 Импортёр разбирает дамп собственным парсером и **никогда его не исполняет** –
 «восстановить базу» не означает «выполнить произвольный SQL».
+Режим **Полная замена** удаляет текущие данные, поэтому требует `delete_all`,
+ввода логина администратора и отсутствия выполняющихся проверок.
 
 Каталоги `memory/`, `reports/` и файл `.env` – это состояние времени
 выполнения, а не код; они исключены из репозитория.
@@ -334,10 +348,10 @@ curl -H "X-API-Key: $AU_API_KEY" http://localhost:5000/api/v1/jobs/<job_id>/expo
 
 ## Разработка
 
-Тестов, линтера и шага сборки в проекте нет. Изменения проверяются
-непосредственно: импортом модуля и вызовом функции на построенных входных
-данных либо прогоном `check_reports.py` по папке с PDF. Синтаксис ловит
-`python -m py_compile`.
+Регрессионные тесты запускаются без дополнительных зависимостей:
+`python -m unittest discover -s tests -v`. Для сквозной проверки реальных PDF
+используется `check_reports.py`; синтаксис отдельно ловит `python -m py_compile`.
+Конфигурации линтера и отдельного шага сборки в проекте нет.
 
 Комментарии в коде объясняют **почему**, а не что делает строка, и часто
 называют ошибку, ради которой код написан. Новый критерий ГОСТ – это строка в
@@ -545,12 +559,17 @@ Permissions are read **per account**, not per role:
 |---|---|
 | `run_checks` | Start new checks |
 | `delete_own` | Delete own checks |
+| `delete_all` | Delete every teacher's data; effective only with the `admin` role |
 | `manage_base` | Delete fingerprint-base records |
 | `see_all` | See other teachers' checks |
 | `use_api` | Use the API with a key |
 
 Revoking `run_checks` stops new checks; it does not hide the account's own
-history.
+history. `see_all` is read-only and never widens deletion scope. Global cleanup
+is a separate action that requires `delete_all` and confirmation with the
+current administrator's login.
+Accounts created before `delete_all` was introduced do not receive it
+implicitly; enable it explicitly under **Пользователи** (Users).
 
 ### Teacher groups
 
@@ -570,6 +589,10 @@ and the base simply becomes personal again.
 A student who resubmits to another teacher in the group is not accused of
 plagiarism: the batch's own students are excluded from the historical list by
 name and student group rather than by record owner.
+When no student name is recognized (even if only the group is known), only the
+exact previous version with the same filename and SHA-256 of normalized text is
+skipped. A textless scan uses the exact pHashes of its images instead. Other
+anonymous works are still compared with one another.
 
 ---
 
@@ -651,9 +674,13 @@ curl -H "X-API-Key: $AU_API_KEY" http://localhost:5000/api/v1/jobs/<job_id>/expo
 | `GET` | `/jobs` · `/jobs/<id>` | List checks · one check's state |
 | `POST` | `/jobs/<id>/cancel` | Stop a running check |
 | `GET` | `/jobs/<id>/report` · `/export` | HTML report · PDF |
-| `DELETE` | `/jobs/<id>` · `/jobs` | Delete a check · clear history |
+| `DELETE` | `/jobs/<id>` · `/jobs?scope=own\|all` | Delete a check · clear own or all data |
 | `GET` | `/memory` | Fingerprint-base contents |
 | `DELETE` | `/memory/<key>` | Delete a base record |
+
+`DELETE /jobs` requires an explicit `scope`. `scope=all` is restricted to an
+administrator with `delete_all` and also requires
+`confirm_login=<administrator login>`.
 
 Authorization is the `X-API-Key` header or a browser session (state-changing
 calls then also need `X-CSRF-Token`). Every call acts **on behalf of an account**
@@ -669,6 +696,8 @@ moving data either way is done in **Администрирование → Ми�
 
 The importer parses the dump with its own parser and **never executes it** –
 "restore the base" is not "run arbitrary SQL".
+**Полная замена** (full replacement) is destructive and therefore requires
+`delete_all`, the administrator's typed login, and no processing checks.
 
 `memory/`, `reports/` and `.env` are runtime state, not code, and are excluded
 from the repository.
@@ -691,10 +720,10 @@ All of it is already assembled in the [`Dockerfile`](Dockerfile).
 
 ## Development
 
-There is no test suite, linter config or build step. Verify changes directly –
-import the module and run the function against constructed inputs, or run
-`check_reports.py` over a folder of PDFs. `python -m py_compile` catches syntax
-errors.
+Run the dependency-free regression suite with
+`python -m unittest discover -s tests -v`. Use `check_reports.py` over a folder
+of PDFs for an end-to-end document check; `python -m py_compile` catches syntax
+errors separately. There is no linter config or separate build step.
 
 Comments explain **why**, not what the line does, and often name the bug the code
 exists to prevent. A new GOST criterion is one row in the `GOST_CHECKS` table, a

@@ -119,16 +119,20 @@ def check_image_plagiarism(reports: list, on_progress=None) -> dict:
     Returns:
         pairs, list of dicts with thumbnail data URIs and match info
     """
+    from checker.text_plagiarism import anonymous_work_key
+
     all_imgs = []
 
     def _sk(r: dict) -> str:
         s = r.get('student', {})
-        k = f"{s.get('name','').strip().lower()}|{s.get('group','').strip().lower()}"
-        return k if k != '|' else ''
+        name = str(s.get('name') or '').strip().lower()
+        group = str(s.get('group') or '').strip().lower()
+        return f'{name}|{group}' if name else ''
 
     for r in reports:
         is_hist   = r.get('is_historical', False)
         sk        = _sk(r)
+        anonymous = anonymous_work_key(r)
 
         if is_hist:
             for img_info in r.get('precomputed_images', []):
@@ -140,6 +144,7 @@ def check_image_plagiarism(reports: list, on_progress=None) -> dict:
                     'is_hist':     True,
                     'is_ui':       img_info.get('is_ui', False),
                     'student_key': sk,
+                    'anonymous':   anonymous,
                 })
         else:
             for img_info in r.get('images', []):
@@ -153,6 +158,7 @@ def check_image_plagiarism(reports: list, on_progress=None) -> dict:
                     'is_hist':     False,
                     'is_ui':       img_info.get('is_ui', False),
                     'student_key': sk,
+                    'anonymous':   anonymous,
                 })
 
     pairs = []
@@ -173,6 +179,11 @@ def check_image_plagiarism(reports: list, on_progress=None) -> dict:
                 continue
 
             if a['is_hist'] and b['is_hist']:
+                continue
+
+            if (a['is_hist'] != b['is_hist']
+                    and a['anonymous']
+                    and a['anonymous'] == b['anonymous']):
                 continue
 
             # Skip: same student (same name + group)

@@ -132,7 +132,8 @@ def feedback_lines(student: dict, threshold_pct: int = None,
     if student.get('no_text'):
         lines.append('Текст из файла не извлекается – скорее всего это скан или '
                      'нестандартные шрифты. Заимствование автоматически не '
-                     'проверено, нужна ручная проверка')
+                     'проверено, рекомендуемая оценка за оформление не '
+                     'выводится; нужна ручная проверка')
 
     plag = student.get('plag')
     if plag is not None and threshold_pct is not None and plag >= threshold_pct:
@@ -154,7 +155,7 @@ def feedback_text(student: dict, threshold_pct: int = None,
     else:
         body = 'Замечания по оформлению:\n' + '\n'.join(bullet + l for l in lines)
 
-    g = student.get('grade') or {}
+    g = {} if student.get('no_text') else (student.get('grade') or {})
     tail = ''
     if g.get('pct') is not None:
         tail = f'\n\nРекомендуемая оценка за оформление: {g["pct"]}%'

@@ -1,0 +1,31 @@
+.git
+.gitignore
+.dockerignore
+.env
+.env.*
+
+# Runtime state and uploaded reports
+memory/
+reports/
+uploads/
+tmp/
+
+# Python caches and local environments
+__pycache__/
+**/__pycache__/
+*.pyc
+**/*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+.venv/
+venv/
+env/
+
+# Editor and OS metadata
+.idea/
+.vscode/
+**/*.swp
+.DS_Store

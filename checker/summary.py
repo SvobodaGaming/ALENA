@@ -92,7 +92,8 @@ def build(reports: list, historical: list, text_plag: dict, img_plag: dict,
             'no_text': unreadable,
             'fails':   _failed_codes(r),
             'flaws':   grading.flaws(results),
-            'grade':   grading.grade(results, weights, scale),
+            'grade':   (None if unreadable
+                        else grading.grade(results, weights, scale)),
             'error':   None,
         })
 

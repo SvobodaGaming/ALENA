@@ -434,6 +434,12 @@ def _render_text_plag_for_report(path: str, text_plagiarism: dict, threshold: fl
     sims.sort(key=lambda x: -x[1])
 
     if not sims:
+        if (text_plagiarism.get('compared', {}) or {}).get(path, 0):
+            return (
+                '<p style="color:var(--success);font-weight:600;'
+                'font-size:var(--text-14);">'
+                'Заимствования не обнаружено (кандидаты отсеяны)</p>'
+            )
         return '<p style="color:var(--muted-soft);font-size:var(--text-14);">Нет данных.</p>'
 
     max_other, max_sim = sims[0]
@@ -577,7 +583,7 @@ def _render_feedback(report: dict, gost_results: list, max_sim: float,
                      threshold: float, weights: dict, scale: int,
                      no_text: bool = False) -> str:
     """Рекомендуемая оценка и готовый к копированию отзыв для одной работы."""
-    mark = grading.grade(gost_results, weights, scale)
+    mark = None if no_text else grading.grade(gost_results, weights, scale)
     student = {
         'fio':     _display_name(report),
         'group':   (report.get('student') or {}).get('group', ''),
@@ -590,7 +596,9 @@ def _render_feedback(report: dict, gost_results: list, max_sim: float,
     lines = grading.feedback_lines(student, thr_pct)
     plain = grading.feedback_text(student, thr_pct)
 
-    if mark['pct'] is None:
+    if mark is None:
+        pct_text, color = 'не выводится', 'var(--info)'
+    elif mark['pct'] is None:
         pct_text, color = '–', 'var(--info)'
     else:
         pct = mark['pct']
@@ -598,7 +606,7 @@ def _render_feedback(report: dict, gost_results: list, max_sim: float,
         color = 'var(--success)' if pct >= 85 else 'var(--attention)' if pct >= 60 else 'var(--danger)'
     in_points = (f' &nbsp;<span style="font-size:var(--text-13);color:var(--muted);">'
                  f'{mark["score"]:g} из {mark["scale"]}</span>'
-                 if mark['score'] is not None else '')
+                 if mark is not None and mark['score'] is not None else '')
 
     if lines:
         items = ''.join(f'<li>{_esc(l)}</li>' for l in lines)
@@ -608,7 +616,7 @@ def _render_feedback(report: dict, gost_results: list, max_sim: float,
                 'Замечаний по оформлению нет.</p>')
 
     costly = ''
-    if mark['lost']:
+    if mark is not None and mark['lost']:
         top = mark['lost'][0]
         costly = (f'<p class="flaw-note">Дороже всего обошлось: '
                   f'{_esc(top["name"])} – минус {top["weight"]:g}%.</p>')
@@ -902,8 +910,12 @@ def generate_html_report(reports: list, historical: list,
             img_badge = f'<span class="badge badge-blue">{review_count} на проверку</span>'
         else:
             img_badge = '<span style="color:var(--success);">–</span>'
-        mark = grading.grade(r.get('gost_results', []), weights, scale)
-        if mark['pct'] is None:
+        mark = (None if row_no_text
+                else grading.grade(r.get('gost_results', []), weights, scale))
+        if mark is None:
+            mark_badge = ('<span class="badge badge-blue" '
+                          'title="оценка не выводится: текст не извлечён">–</span>')
+        elif mark['pct'] is None:
             # Ни одного критерия – оценивать нечего; «0 %» читалось бы как двойка.
             mark_badge = '<span class="badge badge-blue">–</span>'
         else:

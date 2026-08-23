@@ -93,7 +93,7 @@ Start a check. `multipart/form-data`:
 |-------|------|-------|
 | `files` | file(s) | One or more `.pdf`, `.docx`, `.odt` or `.doc` files, or a `.zip` of them. Repeat the field for several files. DOCX, ODT and DOC are converted to PDF on the server before checking, so the criteria apply to every format identically; a file that cannot be converted is reported as a card with an error and the rest of the batch is checked as usual. The request body must stay under 600 MB – split a larger batch into several checks. (The web interface has no such limit: it uploads in chunks, up to `AU_MAX_UPLOAD_MB`.) |
 | `threshold` | float | Text-similarity threshold, `0.0`-`1.0` (default `0.6`). Values outside the range are clamped to it; anything unparsable (`abc`, `NaN`, `inf`, empty) falls back to the default instead of failing the request. |
-| `gost` | string | Optional comma-separated GOST check codes to evaluate, e.g. `S1,S3,F7,F9`. Omit the field to run all 20 checks; an empty value runs none. Codes: `S1`-`S9` (structural elements), `F1`-`F11` (formatting). |
+| `gost` | string | Optional comma-separated GOST check codes to evaluate, e.g. `S1,S3,F7,F9`. Omit the field to run all 21 checks; an empty value runs none. Codes: `S1`-`S9` (structural elements), `F1`-`F12` (formatting). |
 | `use_memory` | string | Optional. `0`/`false` skips plagiarism comparison against the stored fingerprint base (only files within the batch are compared). New reports are still added to the base. Default `1`. |
 | `weights` | string | Optional per-criterion weight for the recommended grade, `0`-`100` each: `S1:100,F1:20,F2:100`. Codes not listed keep `100`. The weights of the criteria actually selected are normalised to sum to 100. Omit the field to use the weights set by the administrator. |
 | `scale` | int | Optional grade scale, `2`-`100`. `100` (default) means the grade is a percentage; any other value also reports the grade in points of that scale. |
@@ -152,7 +152,7 @@ List the jobs visible to the caller, keyed by `job_id`:
               "details": "Лист задания не обнаружен" }
           ],
           "grade": {
-            "pct": 58, "score": 5.8, "scale": 10, "criteria": 20,
+            "pct": 58, "score": 5.8, "scale": 10, "criteria": 21,
             "lost": [{ "code": "F3", "name": "Основной текст 14 пт", "weight": 9.9 }]
           },
           "error": null }
@@ -179,7 +179,9 @@ than a share of the text.
 file to compare it with anything – a scan, or a PDF whose fonts carry no usable
 encoding. Such a work takes no part in the similarity matrix at all and its
 `plag` is `null`, not `0`: borrowing in it is *unknown*, not *absent*, and has
-to be checked by hand. `summary.no_text` counts them for the batch.
+to be checked by hand. Its `grade` is also `null`: a formatting mark is not
+reported for a document whose text could not be read. `summary.no_text` counts
+such works for the batch.
 `matches` carries at most the 500 most prominent matches and `matches_total`
 says how many there were: a course of screenshot-heavy reports produces tens of
 thousands, and the digest is re-sent on every poll of the check list. The full

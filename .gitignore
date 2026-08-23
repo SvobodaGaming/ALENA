@@ -10,15 +10,10 @@ venv/
 env/
 
 # Generated reports (runtime output)
-reports/*.html
-reports/*.pdf
+/reports/
 
 # Runtime state – not code. users.json holds password hashes and API keys.
-memory/store.json
-memory/users.json
-memory/jobs.json
-memory/login_log.json
-memory/settings.json
+/memory/
 
 # Uploaded/temporary files. Только рабочие каталоги: правило «*.zip» ловило
 # любой архив в любой папке проекта, включая нужные.

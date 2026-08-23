@@ -42,7 +42,7 @@
 |---|---|---|
 | 📝 | **Заимствование текста** | Шинглы из 5-грамм слов, мера Жаккара, настраиваемый порог. В отчёте – матрица совпадений и дословные общие фрагменты |
 | 🖼 | **Дублирование изображений** | Перцептуальный хеш pHash 12×12 (144 бита) в трёх масштабах кадрирования – обрезанный по краям скриншот всё равно опознаётся |
-| 📐 | **ГОСТ 7.32-2017** | 20 критериев: 9 структурных и 11 по оформлению – от полей страницы до подписей рисунков |
+| 📐 | **ГОСТ 7.32-2017** | 21 критерий: 9 структурных и 12 по оформлению – от полей страницы до подписей рисунков |
 | 🎓 | **Рекомендуемая оценка** | Веса критериев нормируются к 100; готовый отзыв студенту формулируется словами замечания, а не пунктами стандарта |
 | 🗂 | **База отпечатков** | Отпечатки живут между проверками и изолированы по преподавателям |
 | 👥 | **Учётные записи** | Роли, гранулярные права, журнал действий, политика паролей |
@@ -68,7 +68,7 @@
 flowchart LR
     A[ZIP / папка<br/>PDF · DOCX · ODT · DOC] --> B[LibreOffice<br/>всё → PDF]
     B --> C[Извлечение<br/>текст · шрифты · поля · изображения]
-    C --> D[ГОСТ<br/>20 критериев]
+    C --> D[ГОСТ<br/>21 критерий]
     C --> E[Текст<br/>шинглы 5-грамм]
     C --> F[Изображения<br/>pHash multi-crop]
     G[(База<br/>отпечатков)] --> E
@@ -131,6 +131,8 @@ gunicorn --workers=1 --threads=8 --timeout=300 -b 0.0.0.0:5000 app:app
 > Со вторым воркером куски одной партии попадают в разные процессы и загрузка
 > обрывается сообщением «Загрузка не найдена». Параллелизм даёт `--threads`.
 > Пример конфигурации nginx – в [`nginx.conf.txt`](nginx.conf.txt).
+> За одним nginx задайте `AU_TRUSTED_PROXY_COUNT=1` и запретите клиентам прямой
+> доступ к порту приложения; без прокси оставьте безопасное значение `0`.
 
 ### Командная строка, без сервера и учётных записей
 
@@ -152,6 +154,7 @@ python check_reports.py ./архив.zip
 | `SECRET_KEY` | Секрет сессий. **Обязателен в продакшене** – без него ключ генерируется при старте и каждый перезапуск разлогинивает всех |
 | `AU_API_KEY` | Ключ для `/api/v1`, выдаётся первому администратору при развёртывании |
 | `AU_HTTPS` | `1` за HTTPS: cookie сессии помечается `Secure` |
+| `AU_TRUSTED_PROXY_COUNT` | Число доверенных reverse proxy для определения IP клиента (по умолчанию `0`) |
 | `DATABASE_URL` | PostgreSQL. Пусто → JSON-хранилище в `memory/` |
 | `AU_MAX_UPLOAD_MB` | Предел одной партии, МБ (по умолчанию 5120) |
 | `AU_TMP_DIR` | Где разворачиваются загрузки. Проверьте, что это диск, а не tmpfs – иначе многогигабайтная партия пишется в RAM |
@@ -249,7 +252,7 @@ python check_reports.py ./архив.zip
 </details>
 
 <details>
-<summary><b>Оформление (F1–F11)</b></summary>
+<summary><b>Оформление (F1–F12)</b></summary>
 
 | Код | Критерий |
 |---|---|
@@ -264,6 +267,7 @@ python check_reports.py ./архив.zip
 | `F9` | Точки в конце заголовков |
 | `F10` | Ссылки на источники `[N]` |
 | `F11` | Поля страницы: 30 / 15 / 20 / 20 мм |
+| `F12` | Прописные заголовки структурных элементов |
 
 Титульный лист и лист задания освобождены от правил размера и полей, но не от
 правила гарнитуры: на них текст обычно выровнен по центру, а вот шрифт должен
@@ -321,6 +325,9 @@ curl -H "X-API-Key: $AU_API_KEY" http://localhost:5000/api/v1/jobs/<job_id>/expo
 иначе **JSON-файлы** в `memory/`. Переключение – вопрос одной переменной, а
 перенос данных в обе стороны делается через **Администрирование → Миграция
 базы**.
+
+В JSON-режиме каждая проверка хранится в `memory/jobs/<id>.json`. Старый общий
+`memory/jobs.json` переносится в этот формат автоматически при первом запуске.
 
 Импортёр разбирает дамп собственным парсером и **никогда его не исполняет** –
 «восстановить базу» не означает «выполнить произвольный SQL».
@@ -412,7 +419,7 @@ submitted in September is recognised in December.
 |---|---|---|
 | 📝 | **Text borrowing** | 5-gram word shingles, Jaccard similarity, configurable threshold. The report shows a match matrix and the verbatim shared passages |
 | 🖼 | **Duplicated images** | 12×12 perceptual hash (144-bit) at three crop scales – a screenshot trimmed at the edges is still recognised |
-| 📐 | **GOST 7.32-2017** | 20 criteria: 9 structural and 11 formatting – from page margins to figure captions |
+| 📐 | **GOST 7.32-2017** | 21 criteria: 9 structural and 12 formatting – from page margins to figure captions |
 | 🎓 | **Recommended grade** | Per-criterion weights normalised to 100; the student-facing feedback is phrased as a remark, not as a clause number |
 | 🗂 | **Fingerprint base** | Fingerprints persist between checks and are isolated per teacher |
 | 👥 | **Accounts** | Roles, granular permissions, audit log, password policy |
@@ -438,7 +445,7 @@ batch of scans would accuse itself of wholesale plagiarism.
 flowchart LR
     A[ZIP / folder<br/>PDF · DOCX · ODT · DOC] --> B[LibreOffice<br/>everything → PDF]
     B --> C[Extraction<br/>text · fonts · margins · images]
-    C --> D[GOST<br/>20 criteria]
+    C --> D[GOST<br/>21 criteria]
     C --> E[Text<br/>5-gram shingles]
     C --> F[Images<br/>multi-crop pHash]
     G[(Fingerprint<br/>base)] --> E
@@ -501,6 +508,9 @@ gunicorn --workers=1 --threads=8 --timeout=300 -b 0.0.0.0:5000 app:app
 > second worker, chunks of one batch reach different processes and the upload
 > fails with «Загрузка не найдена». Concurrency comes from `--threads`.
 > A sample nginx config is in [`nginx.conf.txt`](nginx.conf.txt).
+> Behind one nginx proxy, set `AU_TRUSTED_PROXY_COUNT=1` and prevent clients
+> from reaching the application port directly; keep the safe default `0`
+> without a proxy.
 
 ### Command line – no server, no accounts
 
@@ -522,6 +532,7 @@ Everything is an environment variable; the full annotated list is in
 | `SECRET_KEY` | Session secret. **Required in production** – without it a key is generated at startup and every restart logs everyone out |
 | `AU_API_KEY` | Key for `/api/v1`, assigned to the first administrator at bootstrap |
 | `AU_HTTPS` | `1` behind HTTPS: the session cookie is marked `Secure` |
+| `AU_TRUSTED_PROXY_COUNT` | Number of trusted reverse proxies used to resolve the client IP (default `0`) |
 | `DATABASE_URL` | PostgreSQL. Empty → JSON store in `memory/` |
 | `AU_MAX_UPLOAD_MB` | Largest single batch, MB (default 5120) |
 | `AU_TMP_DIR` | Where uploads are staged. Check it is on disk, not tmpfs – otherwise a multi-gigabyte batch is written straight into RAM |
@@ -620,7 +631,7 @@ apply.
 </details>
 
 <details>
-<summary><b>Formatting (F1–F11)</b></summary>
+<summary><b>Formatting (F1–F12)</b></summary>
 
 | Code | Criterion |
 |---|---|
@@ -635,6 +646,7 @@ apply.
 | `F9` | No full stop at the end of headings |
 | `F10` | Source references in brackets `[N]` |
 | `F11` | Page margins: 30 / 15 / 20 / 20 mm |
+| `F12` | Uppercase structural-element headings |
 
 Title pages and assignment sheets are exempt from the size and margin rules but
 not from the typeface rule: their text is usually centred, but the font must
@@ -693,6 +705,9 @@ and sees only its data.
 Every persistence module works the same way: **PostgreSQL** when `DATABASE_URL`
 is set, otherwise **JSON files** in `memory/`. Switching is one variable, and
 moving data either way is done in **Администрирование → Миграция базы**.
+
+In JSON mode each check is stored in `memory/jobs/<id>.json`. The legacy shared
+`memory/jobs.json` is migrated to this layout automatically on first start.
 
 The importer parses the dump with its own parser and **never executes it** –
 "restore the base" is not "run arbitrary SQL".

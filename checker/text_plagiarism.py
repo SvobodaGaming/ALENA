@@ -1,5 +1,7 @@
 """Text plagiarism detection via word n-gram (shingle) Jaccard similarity."""
 import hashlib
+import itertools
+import math
 import re
 from collections import defaultdict
 
@@ -12,6 +14,7 @@ MIN_PASSAGE_WORDS = 8   # min words to display a common passage
 # сканов обвинялась в списывании целиком. Теперь они выводятся из сравнения и
 # помечаются отдельно: заимствование в них проверяют глазами.
 MIN_COMPARE_WORDS = 30
+PREFILTER_SAMPLE_SIZE = 128
 
 
 def normalize_text(text: str) -> str:
@@ -87,8 +90,62 @@ def _jaccard(a: set, b: set) -> float:
     if not a or not b:
         return 0.0
     inter = len(a & b)
-    union = len(a | b)
+    union = len(a) + len(b) - inter
     return inter / union if union else 0.0
+
+
+def _shingle_sample(shingles: set) -> set:
+    """Up to 128 hashes for the cheap first pass over a candidate."""
+    if len(shingles) <= PREFILTER_SAMPLE_SIZE:
+        return shingles
+    return set(itertools.islice(shingles, PREFILTER_SAMPLE_SIZE))
+
+
+def _candidate_jaccard(a: set, sample_a: set, b: set, sample_b: set,
+                       threshold: float):
+    """Exact Jaccard for a viable candidate, otherwise ``None`` early.
+
+    The 128-value sample is checked first. We then inspect only as much of the
+    smaller set as needed to prove that the required intersection is
+    unreachable. Unlike rejecting on a missing sample overlap, this has no
+    false negatives at ``threshold``.
+    """
+    if not a or not b:
+        return None
+    if len(a) <= len(b):
+        source, sample, other = a, sample_a, b
+    else:
+        source, sample, other = b, sample_b, a
+
+    def _can_reach(intersection: int, remaining: int) -> bool:
+        upper_intersection = min(len(other), intersection + remaining)
+        upper_union = len(a) + len(b) - upper_intersection
+        upper_similarity = (upper_intersection / upper_union
+                            if upper_union else 0.0)
+        return upper_similarity >= threshold
+
+    if not _can_reach(0, len(source)):
+        return None
+
+    checked = intersection = 0
+    for value in sample:
+        checked += 1
+        if value in other:
+            intersection += 1
+    if not _can_reach(intersection, len(source) - checked):
+        return None
+
+    for value in source:
+        if value in sample:
+            continue
+        checked += 1
+        if value in other:
+            intersection += 1
+        if not _can_reach(intersection, len(source) - checked):
+            return None
+
+    union = len(a) + len(b) - intersection
+    return intersection / union if union else 0.0
 
 
 def _find_passages(words1: list, words2: list) -> list:
@@ -153,84 +210,117 @@ def check_text_plagiarism(reports: list, threshold: float = 0.6,
                  сравнения – они не участвуют ни в одной паре
         threshold
     """
-    norm_texts: dict    = {}
-    shingles_map: dict  = {}
-    is_historical: dict = {}
-    student_key: dict   = {}
-    anonymous_key: dict = {}
-    no_text: set        = set()
+    try:
+        threshold = float(threshold)
+    except (TypeError, ValueError):
+        threshold = 0.6
+    if not math.isfinite(threshold) or not 0.0 <= threshold <= 1.0:
+        threshold = 0.6
 
-    for r in reports:
-        path = r['path']
-        norm = r.get('normalized_text') or normalize_text(r.get('full_text', ''))
-        norm_texts[path]    = norm
-        shingles_map[path]  = _shingles(norm)
-        is_historical[path] = r.get('is_historical', False)
-        anonymous_key[path] = anonymous_work_key(r)
+    records = []
+    no_text: set = set()
+    for report in reports:
+        path = report['path']
+        norm = (report.get('normalized_text')
+                or normalize_text(report.get('full_text', '')))
         if len(norm.split()) < MIN_COMPARE_WORDS:
             no_text.add(path)
-        s = r.get('student', {})
-        name = str(s.get('name') or '').strip().lower()
-        group = str(s.get('group') or '').strip().lower()
-        student_key[path] = f'{name}|{group}' if name else ''
+        student = report.get('student', {})
+        name = str(student.get('name') or '').strip().lower()
+        group = str(student.get('group') or '').strip().lower()
+        records.append({
+            'path': path,
+            'norm': norm,
+            'historical': bool(report.get('is_historical', False)),
+            'student': f'{name}|{group}' if name else '',
+            'anonymous': anonymous_work_key(report),
+        })
 
-    paths = list(shingles_map.keys())
+    current = [record for record in records if not record['historical']]
+    historical = [record for record in records if record['historical']]
+    current_sets = {
+        record['path']: (_shingles(record['norm'])
+                         if record['path'] not in no_text else set())
+        for record in current
+    }
+    current_samples = {path: _shingle_sample(shingles)
+                       for path, shingles in current_sets.items()}
+
+    paths = [record['path'] for record in records]
     matrix = {p: {p: 1.0} for p in paths}
     flagged = []
-
-    m = len(paths)
-    total_pairs = m * (m - 1) // 2
+    compared = defaultdict(int)
+    total_pairs = (len(current) * (len(current) - 1) // 2
+                   + len(current) * len(historical))
     done_pairs = 0
 
-    for i in range(len(paths)):
+    def _compare(first, first_set, first_sample,
+                 second, second_set, second_sample, prefilter):
+        p1, p2 = first['path'], second['path']
+        if p1 in no_text or p2 in no_text:
+            return
+        if (first['historical'] != second['historical']
+                and first['anonymous']
+                and first['anonymous'] == second['anonymous']):
+            return
+        if first['student'] and first['student'] == second['student']:
+            return
+
+        compared[p1] += 1
+        compared[p2] += 1
+
+        sim = (_candidate_jaccard(
+            first_set, first_sample, second_set, second_sample, threshold)
+            if prefilter and threshold > 0
+            else _jaccard(first_set, second_set))
+        if sim is None:
+            return
+        matrix[p1][p2] = sim
+        matrix[p2][p1] = sim
+        if sim < threshold:
+            return
+
+        passages = _find_passages(first['norm'].split(), second['norm'].split())
+        flagged.append({
+            'report1': p1,
+            'report2': p2,
+            'similarity': sim,
+            'passages': [passage['text'][:300] for passage in passages],
+        })
+
+    # The current batch is bounded by the upload and must be compared exactly.
+    for i, first in enumerate(current):
         if on_progress is not None:
             on_progress(done_pairs, total_pairs)
-            done_pairs += m - 1 - i
-        for j in range(i + 1, len(paths)):
-            p1, p2 = paths[i], paths[j]
+        for second in current[i + 1:]:
+            _compare(
+                first, current_sets[first['path']],
+                current_samples[first['path']],
+                second, current_sets[second['path']],
+                current_samples[second['path']], False,
+            )
+        done_pairs += len(current) - 1 - i
 
-            # Несравнённые пары в матрицу не пишем: она квадратична по числу
-            # отчётов, и на базе в тысячу работ миллион нулей – это сотня
-            # мегабайт впустую. Читатели матрицы берут отсутствующую ячейку
-            # за ноль.
-
-            # Skip: текста нет ни у одной из сторон – сравнивать нечего
-            if p1 in no_text or p2 in no_text:
-                continue
-
-            # Skip: both historical (compared in prior sessions)
-            if is_historical[p1] and is_historical[p2]:
-                continue
-
-            # The same unidentified file from an earlier session is not a
-            # source of plagiarism. Other anonymous pairs remain comparable.
-            if (is_historical[p1] != is_historical[p2]
-                    and anonymous_key[p1]
-                    and anonymous_key[p1] == anonymous_key[p2]):
-                continue
-
-            # Skip: same student (same name + group → comparing with themselves)
-            if student_key[p1] and student_key[p1] == student_key[p2]:
-                continue
-
-            sim = _jaccard(shingles_map[p1], shingles_map[p2])
-            matrix[p1][p2] = sim
-            matrix[p2][p1] = sim
-
-            if sim >= threshold:
-                w1 = norm_texts[p1].split()
-                w2 = norm_texts[p2].split()
-                passages = _find_passages(w1, w2)
-                flagged.append({
-                    'report1':    p1,
-                    'report2':    p2,
-                    'similarity': sim,
-                    'passages':   [p['text'][:300] for p in passages],
-                })
+    # Expand one historical report at a time and release its full shingle set
+    # before moving to the next record. A thousand-report base no longer means
+    # a thousand Python sets resident at once.
+    for old in historical:
+        if on_progress is not None:
+            on_progress(done_pairs, total_pairs)
+        old_set = (_shingles(old['norm'])
+                   if old['path'] not in no_text else set())
+        old_sample = _shingle_sample(old_set)
+        for fresh in current:
+            _compare(
+                fresh, current_sets[fresh['path']],
+                current_samples[fresh['path']],
+                old, old_set, old_sample, True,
+            )
+        done_pairs += len(current)
 
     if on_progress is not None:
         on_progress(total_pairs, total_pairs)
 
     flagged.sort(key=lambda x: -x['similarity'])
     return {'pairs': flagged, 'matrix': matrix, 'threshold': threshold,
-            'no_text': sorted(no_text)}
+            'no_text': sorted(no_text), 'compared': dict(compared)}

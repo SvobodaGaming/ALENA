@@ -75,6 +75,20 @@ def _min_distance(hashes_a: list, hashes_b: list) -> int:
     return min(ha - hb for ha in hashes_a for hb in hashes_b)
 
 
+def _coerce_hashes(values: list) -> list:
+    """Stored hexadecimal hashes to ImageHash objects, accepting live values."""
+    out = []
+    for value in values or []:
+        if isinstance(value, imagehash.ImageHash):
+            parsed = value
+        else:
+            parsed = imagehash.hex_to_hash(str(value))
+        if parsed.hash.shape != (HASH_SIZE, HASH_SIZE):
+            raise ValueError('unexpected perceptual hash size')
+        out.append(parsed)
+    return out
+
+
 def _to_b64(img: Image.Image) -> str:
     thumb = img.copy()
     thumb.thumbnail(THUMB_SIZE, Image.LANCZOS)
@@ -121,114 +135,138 @@ def check_image_plagiarism(reports: list, on_progress=None) -> dict:
     """
     from checker.text_plagiarism import anonymous_work_key
 
-    all_imgs = []
-
     def _sk(r: dict) -> str:
         s = r.get('student', {})
         name = str(s.get('name') or '').strip().lower()
         group = str(s.get('group') or '').strip().lower()
         return f'{name}|{group}' if name else ''
 
-    for r in reports:
-        is_hist   = r.get('is_historical', False)
-        sk        = _sk(r)
-        anonymous = anonymous_work_key(r)
+    report_meta = [{
+        'report': r,
+        'path': r['path'],
+        'is_hist': bool(r.get('is_historical', False)),
+        'student_key': _sk(r),
+        'anonymous': anonymous_work_key(r),
+    } for r in reports]
 
-        if is_hist:
-            for img_info in r.get('precomputed_images', []):
-                all_imgs.append({
-                    'report':      r['path'],
-                    'page':        img_info['page'],
-                    'hashes':      img_info['hashes'],
-                    'thumb':       img_info.get('thumb'),
-                    'is_hist':     True,
-                    'is_ui':       img_info.get('is_ui', False),
-                    'student_key': sk,
-                    'anonymous':   anonymous,
-                })
-        else:
-            for img_info in r.get('images', []):
-                if not img_info.get('hashes'):
-                    continue
-                all_imgs.append({
-                    'report':      r['path'],
-                    'page':        img_info.get('page', 0),
-                    'hashes':      img_info['hashes'],
-                    'thumb':       img_info.get('thumb'),
-                    'is_hist':     False,
-                    'is_ui':       img_info.get('is_ui', False),
-                    'student_key': sk,
-                    'anonymous':   anonymous,
-                })
+    current_imgs = []
+    historical_reports = []
+    historical_count = 0
+    for meta in report_meta:
+        report = meta['report']
+        if meta['is_hist']:
+            historical_reports.append(meta)
+            historical_count += sum(
+                1 for item in report.get('precomputed_images', [])
+                if isinstance(item, dict) and item.get('hashes')
+            )
+            continue
+        for img_info in report.get('images', []):
+            if not img_info.get('hashes'):
+                continue
+            try:
+                hashes = _coerce_hashes(img_info['hashes'])
+            except Exception:
+                continue
+            if not hashes:
+                continue
+            current_imgs.append({
+                'report': meta['path'],
+                'page': img_info.get('page', 0),
+                'hashes': hashes,
+                'thumb': img_info.get('thumb'),
+                'is_hist': False,
+                'is_ui': img_info.get('is_ui', False),
+                'student_key': meta['student_key'],
+                'anonymous': meta['anonymous'],
+            })
 
     pairs = []
     seen: set = set()
 
-    m = len(all_imgs)
-    total_pairs = m * (m - 1) // 2
+    m = len(current_imgs)
+    total_pairs = m * (m - 1) // 2 + m * historical_count
     done_pairs = 0
 
-    for i in range(len(all_imgs)):
+    def _compare(a, b):
+        if a['report'] == b['report']:
+            return
+        if (a['is_hist'] != b['is_hist']
+                and a['anonymous']
+                and a['anonymous'] == b['anonymous']):
+            return
+        if a['student_key'] and a['student_key'] == b['student_key']:
+            return
+
+        key = tuple(sorted([(a['report'], a['page']),
+                            (b['report'], b['page'])]))
+        if key in seen:
+            return
+
+        pair_is_ui = bool(a.get('is_ui') or b.get('is_ui'))
+        if pair_is_ui:
+            # Full-image hashes only: crops of a shared UI match trivially and
+            # would drown the report in false positives.
+            dist = a['hashes'][0] - b['hashes'][0]
+            if dist > MAX_HAMMING:
+                return
+            is_crop = False
+            ui_review = dist > UI_MAX_HAMMING
+        else:
+            dist = _min_distance(a['hashes'], b['hashes'])
+            if dist > MAX_HAMMING:
+                return
+            exact_dist = a['hashes'][0] - b['hashes'][0]
+            is_crop = exact_dist > MAX_HAMMING
+            ui_review = False
+
+        seen.add(key)
+        pairs.append({
+            'report1': a['report'],
+            'page1': a['page'],
+            'img1': a.get('thumb') or '',
+            'report2': b['report'],
+            'page2': b['page'],
+            'img2': b.get('thumb') or '',
+            'distance': dist,
+            'is_crop': is_crop,
+            'is_ui': pair_is_ui,
+            'ui_review': ui_review,
+        })
+
+    for i, first in enumerate(current_imgs):
         if on_progress is not None:
             on_progress(done_pairs, total_pairs)
-            done_pairs += m - 1 - i
-        for j in range(i + 1, len(all_imgs)):
-            a, b = all_imgs[i], all_imgs[j]
+        for second in current_imgs[i + 1:]:
+            _compare(first, second)
+        done_pairs += m - 1 - i
 
-            if a['report'] == b['report']:
+    # Historical hash strings are expanded one image at a time. There is no
+    # historical-vs-historical loop: those pairs were handled in prior jobs.
+    for meta in (historical_reports if current_imgs else []):
+        for img_info in meta['report'].get('precomputed_images', []):
+            if on_progress is not None:
+                on_progress(done_pairs, total_pairs)
+            if not isinstance(img_info, dict) or not img_info.get('hashes'):
                 continue
-
-            if a['is_hist'] and b['is_hist']:
-                continue
-
-            if (a['is_hist'] != b['is_hist']
-                    and a['anonymous']
-                    and a['anonymous'] == b['anonymous']):
-                continue
-
-            # Skip: same student (same name + group)
-            if a['student_key'] and a['student_key'] == b['student_key']:
-                continue
-
-            key = tuple(sorted([(a['report'], a['page']), (b['report'], b['page'])]))
-            if key in seen:
-                continue
-
-            pair_is_ui = bool(a.get('is_ui') or b.get('is_ui'))
-
-            if pair_is_ui:
-                # Full-image hashes only: crops of a shared UI match trivially
-                # and would drown the report in false positives.
-                dist = a['hashes'][0] - b['hashes'][0]
-                if dist > MAX_HAMMING:
-                    continue
-                is_crop = False
-                ui_review = dist > UI_MAX_HAMMING
-            else:
-                dist = _min_distance(a['hashes'], b['hashes'])
-                if dist > MAX_HAMMING:
-                    continue
-                exact_dist = a['hashes'][0] - b['hashes'][0]
-                is_crop = (exact_dist > MAX_HAMMING) and (dist <= MAX_HAMMING)
-                ui_review = False
-
-            seen.add(key)
-
-            def _thumb(entry):
-                return entry.get('thumb') or ''
-
-            pairs.append({
-                'report1':  a['report'],
-                'page1':    a['page'],
-                'img1':     _thumb(a),
-                'report2':  b['report'],
-                'page2':    b['page'],
-                'img2':     _thumb(b),
-                'distance':  dist,
-                'is_crop':   is_crop,
-                'is_ui':     pair_is_ui,
-                'ui_review': ui_review,
-            })
+            try:
+                hashes = _coerce_hashes(img_info.get('hashes') or [])
+            except Exception:
+                hashes = []
+            if hashes:
+                old = {
+                    'report': meta['path'],
+                    'page': img_info.get('page', 0),
+                    'hashes': hashes,
+                    'thumb': img_info.get('thumb'),
+                    'is_hist': True,
+                    'is_ui': img_info.get('is_ui', False),
+                    'student_key': meta['student_key'],
+                    'anonymous': meta['anonymous'],
+                }
+                for fresh in current_imgs:
+                    _compare(fresh, old)
+            done_pairs += m
 
     if on_progress is not None:
         on_progress(total_pairs, total_pairs)

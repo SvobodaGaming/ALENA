@@ -49,6 +49,7 @@ from flask import (Flask, Blueprint, request, jsonify, render_template,
                    send_file, abort, send_from_directory, session,
                    redirect, url_for, g, flash)
 from werkzeug.exceptions import HTTPException
+from werkzeug.middleware.proxy_fix import ProxyFix
 
 try:
     from weasyprint import HTML as WeasyHTML
@@ -68,7 +69,32 @@ from checker.reporter         import generate_html_report
 APP_TITLE = branding.APP_TITLE
 APP_FULL_NAME = branding.APP_FULL_NAME
 
+
+def _trusted_proxy_count() -> int:
+    raw = os.environ.get('AU_TRUSTED_PROXY_COUNT', '').strip() or '0'
+    try:
+        count = int(raw)
+    except ValueError as exc:
+        raise RuntimeError(
+            'AU_TRUSTED_PROXY_COUNT must be a non-negative integer'
+        ) from exc
+    if count < 0:
+        raise RuntimeError(
+            'AU_TRUSTED_PROXY_COUNT must be a non-negative integer'
+        )
+    return count
+
+
+TRUSTED_PROXY_COUNT = _trusted_proxy_count()
 app = Flask(__name__)
+app.wsgi_app = ProxyFix(
+    app.wsgi_app,
+    x_for=TRUSTED_PROXY_COUNT,
+    x_proto=0,
+    x_host=0,
+    x_port=0,
+    x_prefix=0,
+)
 
 # Предел одного запроса. Партия отчётов приходит кусками, поэтому её общий
 # объём этим не ограничен – см. UPLOAD_MAX_TOTAL.
@@ -89,7 +115,7 @@ app.config['SECRET_KEY'] = _secret
 app.config.update(
     SESSION_COOKIE_HTTPONLY=True,       # cookie недоступна скриптам страницы
     SESSION_COOKIE_SAMESITE='Lax',      # не уходит по запросам с чужих сайтов
-    # За TLS ставится AU_HTTPS=1 (в nginx.conf.txt так и настроено).
+    # За TLS поставьте AU_HTTPS=1 в окружении процесса.
     SESSION_COOKIE_SECURE=os.environ.get('AU_HTTPS', '').strip() in ('1', 'true', 'yes'),
     PERMANENT_SESSION_LIFETIME=timedelta(hours=12),
     MAX_FORM_MEMORY_SIZE=2 * 1024 * 1024,
@@ -275,7 +301,7 @@ def _migrate_legacy_ownership():
             job_store.save(jid, data)
 
 
-GOST_SCHEMA = 2   # bumped whenever the meaning of the check codes changes
+GOST_SCHEMA = 3   # bumped whenever the meaning of the check codes changes
 
 
 def _migrate_settings():
@@ -436,8 +462,7 @@ def _load_user():
 
 
 def _client_ip() -> str:
-    fwd = request.headers.get('X-Forwarded-For', '')
-    return fwd.split(',')[0].strip() if fwd else (request.remote_addr or '')
+    return request.remote_addr or ''
 
 
 def login_required(f):
@@ -1959,7 +1984,7 @@ def _update(job_id: str, _force: bool = False, **kwargs):
 
     В памяти пишем всегда – страница берёт статус оттуда. На диск (или в
     PostgreSQL) сбрасываем не чаще раза в секунду: на партии из сотни отчётов
-    прогресс меняется сотни раз, и переписывать jobs.json на каждый шаг дороже
+    прогресс меняется сотни раз, и писать файл проверки на каждый шаг дороже
     самой проверки. Смена статуса сохраняется немедленно – по ней восстанавливают
     историю после перезапуска.
     """
@@ -2126,7 +2151,7 @@ def _process_job(job_id: str, tmp_dir: str, threshold: float,
     threading.Thread(target=_beat, args=(job_id, stop_beat), daemon=True).start()
     try:
         from checker.memory_store import (load_store, to_virtual_report,
-                                          add_report, student_id, NO_STUDENT)
+                                          add_reports, student_id, NO_STUDENT)
 
         # 0. Unpack what was uploaded and bring every format to PDF.
         pdf_paths, origins, failures = _collect_docs(job_id, tmp_dir)
@@ -2228,19 +2253,13 @@ def _process_job(job_id: str, tmp_dir: str, threshold: float,
         )
         (REPORTS_DIR / f'{job_id}.html').write_text(html, encoding='utf-8')
 
-        # 8. Persist fingerprints to this teacher's base. Каждая запись
-        #    сохраняется сразу, номер версии выбирается неделимо: две проверки,
-        #    идущие рядом, больше не затирают отпечатки друг друга.
+        # 8. Persist fingerprints to this teacher's base. The JSON backend
+        #    replaces its growing file once per batch, not once per report;
+        #    version assignment remains atomic inside memory_store.
         _update(job_id, progress=95, step='Сохранение отпечатков в базу…')
-        saved = 0
-        for i, r in enumerate(reports):
-            # Не _tick: он прервал бы проверку на полпути по отметке об отмене,
-            # и часть отпечатков осела бы в базе от работы, которую отменили.
-            _update(job_id, progress=95 + round(4 * (i + 1) / n),
-                    step=f'Сохранение отпечатков: {i+1} из {n}…')
-            if not r.get('error'):
-                add_report(r, job_id, owner)
-                saved += 1
+        saveable = [r for r in reports if not r.get('error')]
+        add_reports(saveable, job_id, owner)
+        saved = len(saveable)
 
         not_read = (f' Не удалось прочитать: {len(failures)}.' if failures else '')
         _update(job_id,

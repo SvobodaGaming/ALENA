@@ -93,6 +93,10 @@ GOST_CHECKS = [
     ('F11', 'Поля страницы', 'format',
      'Левое 30, правое 15, верхнее и нижнее 20 мм. Титульный лист и задание '
      'не измеряются: на них текст обычно выровнен по центру.'),
+    ('F12', 'Прописные заголовки структурных элементов', 'format',
+     'Заголовки «РЕФЕРАТ», «СОДЕРЖАНИЕ», «ВВЕДЕНИЕ», «ЗАКЛЮЧЕНИЕ» и '
+     'списка источников набирают прописными буквами '
+     '(ГОСТ 7.32-2017 п.6.2.2).'),
 ]
 
 ALL_CODES = [c[0] for c in GOST_CHECKS]
@@ -123,10 +127,39 @@ FLAW_TEXT = {
     'F9':  'Точка в конце заголовка',
     'F10': 'Нет ссылок на источники в квадратных скобках – [1]',
     'F11': 'Неверные поля страницы – левое 30, правое 15, верхнее и нижнее 20 мм',
+    'F12': 'Заголовки структурных элементов должны быть набраны прописными буквами',
 }
 
 
 # ─────────────────────────  Shared text helpers  ─────────────────────────
+
+_CONTENTS_HEADING = r'(?:СОДЕРЖАНИЕ|ОГЛАВЛЕНИЕ)'
+_REFERENCES_HEADING = (
+    r'(?:СПИСОК\s+(?:ИСПОЛЬЗОВАННЫХ\s+|ИСПОЛЬЗУЕМЫХ\s+)?'
+    r'(?:ИСТОЧНИКОВ|ЛИТЕРАТУРЫ|ССЫЛОК)|БИБЛИОГРАФИЯ|ЛИТЕРАТУРА)'
+)
+_STRUCTURAL_HEADING = (
+    rf'(?:РЕФЕРАТ|{_CONTENTS_HEADING}|ВВЕДЕНИЕ|ЗАКЛЮЧЕНИЕ|'
+    rf'{_REFERENCES_HEADING})'
+)
+
+
+def _line_heading_matches(text: str, heading: str,
+                          allow_dot: bool = False) -> list:
+    """Standalone heading matches, preserving the spelling found in the PDF."""
+    ending = r'\.?' if allow_dot else ''
+    return list(re.finditer(
+        rf'^[^\S\r\n]*(?:{heading}){ending}[^\S\r\n]*$',
+        text or '', re.MULTILINE | re.IGNORECASE,
+    ))
+
+
+def _is_contents_page(text: str) -> bool:
+    # The heading is normally the first line; limiting the prefix avoids
+    # excluding a body page that merely mentions the table of contents.
+    return bool(_line_heading_matches(
+        (text or '')[:500], _CONTENTS_HEADING, allow_dot=True))
+
 
 def _ordinary_pages(report: dict) -> list:
     """Page metadata without the title page, the «задание» sheet and the
@@ -139,45 +172,146 @@ def _ordinary_pages(report: dict) -> list:
         text = texts[idx] if idx < len(texts) else ''
         if meta.get('is_title') or meta.get('is_task'):
             continue
-        if re.search(r'\b(СОДЕРЖАНИЕ|ОГЛАВЛЕНИЕ)\b', text[:200]):
+        if _is_contents_page(text):
             continue
         out.append(meta)
     return out
 
 
+def _non_front_page_texts(report: dict) -> list:
+    """``(page, text)`` pairs without title and task sheets."""
+    texts = report.get('text_by_page') or []
+    pages = report.get('pages') or []
+    if texts:
+        metadata = {m.get('page'): m for m in pages}
+        out = []
+        for page, text in enumerate(texts, 1):
+            meta = metadata.get(page, {})
+            if meta.get('is_title') or meta.get('is_task'):
+                continue
+            out.append((page, text))
+        return out
+
+    full_text = report.get('full_text', '')
+    return [(1, full_text)] if full_text else []
+
+
+def _ordinary_page_texts(report: dict) -> list:
+    """``(page, text)`` pairs without title, task and contents pages."""
+    return [(page, text) for page, text in _non_front_page_texts(report)
+            if not _is_contents_page(text)]
+
+
 def _body_text(report: dict) -> str:
     """Text of the ordinary pages. Excluding the contents page matters: its
     lines look exactly like headings and would inflate every heading count."""
-    texts = report.get('text_by_page') or []
-    keep = {m['page'] for m in _ordinary_pages(report)}
-    if not keep:
-        return report.get('full_text', '')
-    return '\n'.join(t for i, t in enumerate(texts, 1) if i in keep)
+    return '\n'.join(text for _, text in _ordinary_page_texts(report))
+
+
+def _heading_text(report: dict, heading: str, body: bool = True) -> str:
+    """Last standalone occurrence of a heading, or an empty string."""
+    text = _body_text(report) if body else report.get('full_text', '')
+    matches = _line_heading_matches(text, heading, allow_dot=True)
+    return matches[-1].group(0).strip() if matches else ''
 
 
 def _section_text(text: str, heading: str) -> str:
-    """Text from the last occurrence of `heading` up to the next ALL-CAPS one.
+    """Text from the last heading line up to the next structural heading.
 
     The last occurrence, not the first: in a document that still contains its
     table of contents the first «ВВЕДЕНИЕ» is the contents line, and slicing
     from there returns the rest of the contents instead of the section.
     """
-    matches = list(re.finditer(rf'\b{heading}\b', text))
+    matches = _line_heading_matches(text, heading, allow_dot=True)
     if not matches:
         return ''
     rest = text[matches[-1].end():]
-    nxt = re.search(r'\n\s*[А-ЯЁ][А-ЯЁ\s]{5,}\n', rest)
-    return rest[:nxt.start()] if nxt else rest[:4000]
+    known = _line_heading_matches(rest, _STRUCTURAL_HEADING, allow_dot=True)
+    caps = list(re.finditer(
+        r'^[^\S\r\n]*[А-ЯЁA-Z][А-ЯЁA-Z \t]{5,}[^\S\r\n]*$',
+        rest, re.MULTILINE,
+    ))
+    starts = [m.start() for m in known[:1] + caps[:1]]
+    return rest[:min(starts)] if starts else rest[:4000]
 
 
 def _before_references(text: str) -> str:
     """Everything up to the bibliography. Its entries («1. ГОСТ 7.32-2017.»)
     look exactly like numbered headings ending in a dot."""
-    m = re.search(
-        r'\b(СПИСОК\s+(?:ИСПОЛЬЗОВАННЫХ\s+|ИСПОЛЬЗУЕМЫХ\s+)?'
-        r'(?:ИСТОЧНИКОВ|ЛИТЕРАТУРЫ|ССЫЛОК)|БИБЛИОГРАФИЯ|ЛИТЕРАТУРА)\b',
-        text, re.IGNORECASE)
+    m = re.search(rf'\b{_REFERENCES_HEADING}\b', text, re.IGNORECASE)
     return text[:m.start()] if m else text
+
+
+def _body_pages_before_references(report: dict) -> list:
+    """Ordinary page texts, truncated at the references section."""
+    out = []
+    for page, text in _ordinary_page_texts(report):
+        m = re.search(rf'\b{_REFERENCES_HEADING}\b', text, re.IGNORECASE)
+        out.append((page, text[:m.start()] if m else text))
+        if m:
+            break
+    return out
+
+
+_TOP_CHAPTER_RE = re.compile(
+    r'^(\d+)(\.)?[ \t]+[А-ЯЁA-Z][^\n]{2,}$'
+)
+_NUMBERED_ITEM_RE = re.compile(r'^(\d+)\.[ \t]+\S.{2,}$')
+_NAMED_CHAPTER_RE = re.compile(r'^ГЛАВА[ \t]+(\d+)\b', re.IGNORECASE)
+
+
+def _chapter_lines(report: dict) -> list:
+    """Numbered-line context used by both S6 and F9.
+
+    A top-level chapter must have running text later on the same page. Adjacent
+    ``N. ...`` lines whose numbers increase by one are a list, not headings.
+    """
+    all_lines = []
+
+    for page, text in _body_pages_before_references(report):
+        page_lines = []
+        for index, line in enumerate(text.splitlines()):
+            stripped = line.strip()
+            if not stripped or re.fullmatch(r'\d+', stripped):
+                continue
+            chapter = _TOP_CHAPTER_RE.match(stripped)
+            item = _NUMBERED_ITEM_RE.match(stripped)
+            named = _NAMED_CHAPTER_RE.match(stripped)
+            rec = {
+                'key': (page, index),
+                'page': page,
+                'line': stripped,
+                'chapter': chapter,
+                'item': item,
+                'named': named,
+                'has_text_after': False,
+                'in_list': False,
+            }
+            page_lines.append(rec)
+            all_lines.append(rec)
+
+        has_running_text = False
+        for rec in reversed(page_lines):
+            rec['has_text_after'] = has_running_text
+            is_other_heading = bool(
+                rec['chapter'] or rec['item'] or rec['named']
+                or re.fullmatch(r'\d+(?:\.\d+)+\.?[ \t]+\S.+', rec['line'])
+                or _line_heading_matches(
+                    rec['line'], _STRUCTURAL_HEADING, allow_dot=True)
+            )
+            if not is_other_heading:
+                has_running_text = True
+
+    # Blanks and page numbers do not break a list; ordinary extracted text does.
+    # Treating arbitrary text as a wrapped item would hide real short chapters.
+    # The flattened order still catches adjacent items across a page boundary.
+    for first, second in zip(all_lines, all_lines[1:]):
+        a, b = first['item'], second['item']
+        if a and b and int(b.group(1)) == int(a.group(1)) + 1:
+            first['in_list'] = True
+            second['in_list'] = True
+
+    return all_lines
 
 
 def _font_totals(counts: dict) -> tuple:
@@ -227,6 +361,7 @@ def check_gost(report: dict, enabled=None) -> list:
         _heading_no_dot(report),
         _cite_format(report),
         _margins(report),
+        _uppercase_structural_headings(report),
     ]
     results = [c.to_dict() for c in checks]
     if enabled is not None:
@@ -287,11 +422,10 @@ def _task_sheet(report: dict) -> Check:
 
 def _abstract(report: dict) -> Check:
     """п.5.3, Реферат. Обязателен для отчёта о НИР и ВКР."""
-    full_text = report.get('full_text', '')
-    if not re.search(r'\bРЕФЕРАТ\b', full_text):
+    if not _heading_text(report, 'РЕФЕРАТ'):
         return Check('S3', 'Реферат', False,
-                     'Структурный элемент «РЕФЕРАТ» отсутствует (ГОСТ 7.32 п.5.3). '
-                     'Для отчёта по практике он обычно не требуется – критерий '
+                      'Структурный элемент «РЕФЕРАТ» отсутствует (ГОСТ 7.32 п.5.3). '
+                      'Для отчёта по практике он обычно не требуется – критерий '
                      'можно снять', 'warning')
 
     body = _section_text(_body_text(report), 'РЕФЕРАТ')
@@ -310,10 +444,10 @@ def _abstract(report: dict) -> Check:
 def _toc(report: dict) -> Check:
     """п.5.4, Содержание."""
     full_text = report.get('full_text', '')
-    if not re.search(r'\b(СОДЕРЖАНИЕ|ОГЛАВЛЕНИЕ)\b', full_text):
+    if not _heading_text(report, _CONTENTS_HEADING, body=False):
         return Check('S4', 'Содержание', False,
-                     'Структурный элемент «СОДЕРЖАНИЕ» отсутствует (ГОСТ 7.32 п.5.4)')
-    body = _section_text(full_text, r'(?:СОДЕРЖАНИЕ|ОГЛАВЛЕНИЕ)')
+                      'Структурный элемент «СОДЕРЖАНИЕ» отсутствует (ГОСТ 7.32 п.5.4)')
+    body = _section_text(full_text, _CONTENTS_HEADING)
     with_pages = re.findall(r'\.{2,}\s*\d+\s*$|\s\d+\s*$', body, re.MULTILINE)
     if len(with_pages) < 3:
         return Check('S4', 'Содержание', False,
@@ -325,10 +459,9 @@ def _toc(report: dict) -> Check:
 
 def _introduction(report: dict) -> Check:
     """п.5.7, Введение: актуальность, цель, задачи."""
-    full_text = report.get('full_text', '')
-    if not re.search(r'\bВВЕДЕНИЕ\b', full_text):
+    if not _heading_text(report, 'ВВЕДЕНИЕ'):
         return Check('S5', 'Введение: актуальность, цель, задачи', False,
-                     'Структурный элемент «ВВЕДЕНИЕ» отсутствует (ГОСТ 7.32 п.5.7)')
+                      'Структурный элемент «ВВЕДЕНИЕ» отсутствует (ГОСТ 7.32 п.5.7)')
 
     body = _section_text(_body_text(report), 'ВВЕДЕНИЕ')
     parts = {
@@ -347,12 +480,14 @@ def _introduction(report: dict) -> Check:
 
 def _chapters(report: dict) -> Check:
     """п.6.4, Главы – нумерованные разделы «1 Название»."""
-    # Без библиографии: её записи «1. ГОСТ 7.32-2017.» неотличимы от заголовка
-    # главы с недопустимой точкой после номера.
-    text = _before_references(_body_text(report))
-    numbered = re.findall(r'^\s*(\d+)\s+[А-ЯЁA-Z][^\n]{2,}$', text, re.MULTILINE)
-    named = re.findall(r'^\s*ГЛАВА\s+(\d+)', text, re.MULTILINE | re.IGNORECASE)
-    dotted = re.findall(r'^\s*(\d+)\.\s+[А-ЯЁA-Z][^\n]{2,}$', text, re.MULTILINE)
+    lines = _chapter_lines(report)
+    candidates = [rec for rec in lines
+                  if rec['has_text_after'] and not rec['in_list']]
+    numbered = [rec['chapter'].group(1) for rec in candidates
+                if rec['chapter'] and not rec['chapter'].group(2)]
+    named = [rec['named'].group(1) for rec in candidates if rec['named']]
+    dotted = [rec['chapter'].group(1) for rec in candidates
+              if rec['chapter'] and rec['chapter'].group(2)]
 
     # Distinct numbers, so a chapter written both ways is not counted twice.
     total = len(set(numbered) | set(named))
@@ -386,7 +521,7 @@ def _subchapters(report: dict) -> Check:
 
 def _conclusion(report: dict) -> Check:
     """п.5.9, Заключение."""
-    if re.search(r'\bЗАКЛЮЧЕНИЕ\b', report.get('full_text', '')):
+    if _heading_text(report, 'ЗАКЛЮЧЕНИЕ'):
         return Check('S8', 'Заключение', True)
     return Check('S8', 'Заключение', False,
                  'Структурный элемент «ЗАКЛЮЧЕНИЕ» отсутствует (ГОСТ 7.32 п.5.9)')
@@ -629,15 +764,40 @@ def _table_captions(report: dict) -> Check:
 def _heading_no_dot(report: dict) -> Check:
     """п.6.2.3, Заголовки без точки в конце."""
     bad = []
-    for line in _before_references(_body_text(report)).split('\n'):
-        s = line.strip()
+    bad_keys = set()
+    for rec in _chapter_lines(report):
+        s = rec['line']
         if not s or not s.endswith('.'):
             continue
-        if len(s) < 120 and (
-            re.match(r'^\d+[\d.]*\s+', s) or
-            re.match(r'^[А-ЯЁ\s]{5,}$', s[:-1].strip())
-        ):
-            bad.append(s[:70])
+        numbered = bool(re.match(r'^\d+(?:\.\d+)*\.?\s+', s))
+        uppercase = bool(re.fullmatch(
+            r'[А-ЯЁA-Z][А-ЯЁA-Z \t]{4,}', s[:-1].strip()))
+        structural = bool(_line_heading_matches(
+            s, _STRUCTURAL_HEADING, allow_dot=True))
+        if len(s) >= 120 or not (numbered or uppercase or structural):
+            continue
+        if rec['in_list'] or not rec['has_text_after']:
+            continue
+        bad.append(s[:70])
+        bad_keys.add(rec['key'])
+
+    # Contents and references pages are intentionally excluded from chapter
+    # analysis, but their own structural headings still obey the no-dot rule.
+    for page, text in _non_front_page_texts(report):
+        lines = [(index, line.strip())
+                 for index, line in enumerate(text.splitlines())
+                 if line.strip() and not re.fullmatch(r'\d+', line.strip())]
+        for position, (index, line) in enumerate(lines):
+            key = (page, index)
+            if key in bad_keys or not line.endswith('.'):
+                continue
+            if not _line_heading_matches(
+                    line, _STRUCTURAL_HEADING, allow_dot=True):
+                continue
+            if not any(value for _, value in lines[position + 1:]):
+                continue
+            bad.append(line[:70])
+            bad_keys.add(key)
 
     if bad:
         return Check('F9', 'Точки в конце заголовков', False,
@@ -725,3 +885,30 @@ def _margins(report: dict) -> Check:
                      'Поля шире нормы, текст нигде не доходит до границы: ' +
                      ', '.join(indented) + ' (ГОСТ 7.32 п.6.1.1)', 'warning')
     return Check('F11', 'Поля страницы', True, summary)
+
+
+def _uppercase_structural_headings(report: dict) -> Check:
+    """п.6.2.2, structural headings are set in uppercase letters."""
+    specs = [
+        ('РЕФЕРАТ', True),
+        (_CONTENTS_HEADING, False),
+        ('ВВЕДЕНИЕ', True),
+        ('ЗАКЛЮЧЕНИЕ', True),
+        (_REFERENCES_HEADING, True),
+    ]
+    wrong = []
+    for pattern, body in specs:
+        found = _heading_text(report, pattern, body=body)
+        if found and found != found.upper():
+            expected = found.rstrip('.').upper()
+            wrong.append(f'«{found}» (нужно «{expected}»)')
+
+    if wrong:
+        return Check(
+            'F12', 'Прописные заголовки структурных элементов', False,
+            'Разделы найдены, но заголовки набраны не прописными: '
+            + ', '.join(wrong)
+            + ' (ГОСТ 7.32 п.6.2.2)',
+            'warning',
+        )
+    return Check('F12', 'Прописные заголовки структурных элементов', True)

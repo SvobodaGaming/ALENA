@@ -222,7 +222,7 @@
     if (st.no_text) {
       lines.push('Текст из файла не извлекается – скорее всего это скан или '
         + 'нестандартные шрифты. Заимствование автоматически не проверено, '
-        + 'нужна ручная проверка');
+        + 'рекомендуемая оценка за оформление не выводится; нужна ручная проверка');
     }
     if (st.plag != null && thr != null && st.plag >= thr) {
       lines.push(`Совпадение с другой работой – ${st.plag}% (допустимый порог ${thr}%)`);
@@ -237,7 +237,7 @@
     const body = lines.length
       ? 'Замечания по оформлению:\n' + lines.map(l => '• ' + l).join('\n')
       : 'Замечаний по оформлению нет.';
-    const g = st.grade || {};
+    const g = st.no_text ? {} : (st.grade || {});
     let tail = '';
     if (g.pct != null) {
       tail = `\n\nРекомендуемая оценка за оформление: ${g.pct}%`;
@@ -551,7 +551,7 @@
             <td><span class="code">не обработан: ${esc(st.error)}</span></td>${fb}</tr>`;
         }
         const a = gostTone(st.gost);
-        const g = st.grade || {};
+        const g = st.no_text ? {} : (st.grade || {});
         const mt2 = g.pct == null ? 'idle' : gostTone(g.pct);
         /* Работа без извлекаемого текста не сравнивалась ни с чем: «0 %»
            читалось бы как «проверено, чисто». */

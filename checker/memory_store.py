@@ -203,18 +203,39 @@ def add_report(report: dict, job_id: str, owner: str = '') -> int:
     тот же номер, и отпечаток первой затирался отпечатком второй. Возвращает
     присвоенный номер версии.
     """
-    key_base, entry = _entry_for(report, job_id, owner)
+    return add_reports([report], job_id, owner)[0]
+
+
+def add_reports(reports: list, job_id: str, owner: str = '') -> list:
+    """Persist a batch and return the assigned versions in report order.
+
+    The JSON backend reads and replaces ``store.json`` once for the whole job,
+    while the lock still makes version selection atomic against another job.
+    """
+    prepared = [_entry_for(report, job_id, owner) for report in reports]
+    if not prepared:
+        return []
 
     if db.DB_ENABLED:
-        return db.fp_insert_versioned(key_base, entry)
+        return [db.fp_insert_versioned(key_base, entry)
+                for key_base, entry in prepared]
 
     with _lock:
         store = _read_all()
-        version = max((v.get('version', 0) for v in store.values()
-                       if v.get('key_base') == key_base), default=0) + 1
-        store[f'{key_base}|v{version}'] = dict(entry, version=version)
+        latest = {}
+        for value in store.values():
+            key_base = value.get('key_base', '')
+            latest[key_base] = max(latest.get(key_base, 0),
+                                   value.get('version', 0))
+
+        versions = []
+        for key_base, entry in prepared:
+            version = latest.get(key_base, 0) + 1
+            latest[key_base] = version
+            store[f'{key_base}|v{version}'] = dict(entry, version=version)
+            versions.append(version)
         jsonstore.write_json(STORE_PATH, store)
-    return version
+    return versions
 
 
 def to_virtual_report(entry_key: str, entry: dict) -> dict:
@@ -222,21 +243,23 @@ def to_virtual_report(entry_key: str, entry: dict) -> dict:
     Convert a store entry into a report dict compatible with all checker modules.
     The 'path' is a virtual memory:// URI used as a stable unique key.
     """
-    import imagehash as ih
     from checker.text_plagiarism import text_fingerprint
 
     precomputed_images = []
-    for item in entry.get('image_data', []):
-        try:
-            hashes = [ih.hex_to_hash(h) for h in item['hashes']]
-            precomputed_images.append({
-                'page':   item.get('page', 0),
-                'hashes': hashes,
-                'thumb':  item.get('thumb'),
-                'is_ui':  item.get('is_ui', False),
-            })
-        except Exception:
-            pass
+    for item in entry.get('image_data', []) or []:
+        if not isinstance(item, dict):
+            continue
+        hashes = item.get('hashes') or []
+        if not isinstance(hashes, (list, tuple)) or not hashes:
+            continue
+        precomputed_images.append({
+            'page':   item.get('page', 0),
+            # Keep compact strings in memory. The image checker converts one
+            # historical report at a time and drops the ImageHash objects.
+            'hashes': [str(value) for value in hashes],
+            'thumb':  item.get('thumb'),
+            'is_ui':  item.get('is_ui', False),
+        })
 
     normalized_text = entry.get('normalized_text', '')
     return {

@@ -272,7 +272,9 @@ python check_reports.py ./архив.zip
 
 Титульный лист и лист задания освобождены от правил размера и полей, но не от
 правила гарнитуры: на них текст обычно выровнен по центру, а вот шрифт должен
-быть тем же.
+быть тем же. Если задание не уместилось на один лист, продолжение освобождено
+вместе с ним: своего заголовка на нём нет, а свёрстано оно по той же рамке –
+листы до первого структурного заголовка считаются титульным разделом.
 
 </details>
 
@@ -652,7 +654,10 @@ apply.
 
 Title pages and assignment sheets are exempt from the size and margin rules but
 not from the typeface rule: their text is usually centred, but the font must
-still be right.
+still be right. An assignment sheet that spills onto a second page is exempt
+along with it: the continuation carries no heading of its own but sits in the
+same frame, so every page before the first structural heading counts as front
+matter.
 
 </details>
 

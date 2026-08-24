@@ -41,6 +41,18 @@ TASK_HEAD_LINES = 20      # заголовок листа стоит вверх�
 TASK_HEAD_MAX = 60        # строка заголовка короче строки основного текста
 
 
+# Заголовок структурного элемента, с которого начинается собственно работа.
+# Титульный раздел кончается на нём: всё, что до, – титул, задание и прочие
+# бланки, свёрстанные по своей рамке.
+FRONT_END_RE = re.compile(
+    r'^[^\S\r\n]*(?:РЕФЕРАТ|СОДЕРЖАНИЕ|ОГЛАВЛЕНИЕ|ВВЕДЕНИЕ|АННОТАЦИЯ)'
+    r'\.?[^\S\r\n]*$', re.MULTILINE | re.IGNORECASE)
+# Титульный раздел длиннее этого не бывает: титул, задание на один-два листа,
+# календарный план. Если структурный заголовок нашёлся только на седьмом листе,
+# значит опознан он неверно, и молча снимать проверки с шести листов нельзя.
+FRONT_MAX_PAGES = 5
+
+
 def _is_task_page(text: str) -> bool:
     """A «задание на практику / на курсовую работу» sheet. Together with the
     title page it is exempt from the 14 pt rule – only the typeface counts.
@@ -56,6 +68,36 @@ def _is_task_page(text: str) -> bool:
     return any(TASK_HEAD_RE.match(ln) and not ln.endswith('.')
                and (len(ln) <= TASK_HEAD_MAX or ln.isupper())
                for ln in lines)
+
+
+def _front_matter_pages(pages_meta: list, texts: list) -> set:
+    """Номера листов титульного раздела, у которых своей приметы нет.
+
+    Задание редко умещается на один лист: перечень работ, календарный план,
+    сроки и подписи переезжают на следующий, а заголовка «ЗАДАНИЕ» там уже нет.
+    Свёрстан такой лист по-прежнему по рамке титульного раздела – в Word у неё
+    свои поля, обычно уже нормы, – и, меряя его наравне с текстом, проверка
+    ловила чужую рамку и объявляла нарушением работу, у которой с полями всё в
+    порядке.
+
+    Конвертация это обостряет: LibreOffice верстает чуть плотнее Word, и лист
+    задания, влезавший в один, переносится на второй именно после неё. Одна и
+    та же работа получала разные вердикты в DOCX и в PDF.
+
+    Продолжением считаются листы после последнего опознанного и до первого
+    листа со структурным заголовком – границы титульного раздела. Нет
+    структурного заголовка или стоит он слишком далеко – ничего не снимаем:
+    лучше лишняя придирка на одном листе, чем отменённая проверка на шести.
+    """
+    first_body = next((i for i, text in enumerate(texts)
+                       if FRONT_END_RE.search(text or '')), None)
+    if first_body is None or first_body > FRONT_MAX_PAGES:
+        return set()
+    anchor = max((i for i, m in enumerate(pages_meta[:first_body])
+                  if m['is_title'] or m['is_task']), default=None)
+    if anchor is None:
+        return set()
+    return {pages_meta[i]['page'] for i in range(anchor + 1, first_body)}
 
 
 def _table_bboxes(page) -> list:
@@ -119,6 +161,8 @@ def _merge_counts(target: dict, source: dict) -> None:
 
 HEAD_BAND_MM = 20      # колонтитул целиком лежит внутри обязательного поля
 HEAD_MAX_CHARS = 60    # и занимает строку короче строки основного текста
+# Строка оглавления: заголовок, отточие и номер страницы у правого края.
+LEADER_RE = re.compile(r'\.{4,}\s*\d{0,4}\s*$')
 
 
 def _text_lines(words: list) -> list:
@@ -148,6 +192,14 @@ def _content_bounds(page):
     строка, целиком лежащая в полосе поля; строка основного текста туда
     целиком не помещается, поэтому съехавшие поля по-прежнему видны.
 
+    Правый край меряется без строк оглавления. Номер страницы стоит в них по
+    таб-стопу, и стоит он там, куда его поставил редактор: Word прижимает
+    таб-стоп, заданный за границей набора, к самой границе, а LibreOffice
+    выносит номер за неё – ровно настолько, насколько таб-стоп просрочен.
+    Отточие тянется следом, и работа, у которой в Word номера стоят по краю
+    поля, после конвертации из DOCX объявлялась вылезшей в поле. Замер по
+    остальным строкам листа от этого расхождения не зависит.
+
     Returns None when the page has no qualifying words.
     """
     try:
@@ -169,8 +221,10 @@ def _content_bounds(page):
         content.append(ln)
     if not content:
         return None
+    # Если отточия на листе – единственный текст, мерить больше нечем.
+    right = [ln for ln in content if not LEADER_RE.search(ln['text'])] or content
     return (min(ln['x0'] for ln in content),
-            max(ln['x1'] for ln in content),
+            max(ln['x1'] for ln in right),
             min(ln['top'] for ln in content),
             max(ln['bottom'] for ln in content))
 
@@ -223,6 +277,7 @@ def extract_report(pdf_path: str, filename: str = '', error: str = '') -> dict:
                     'page':     i + 1,
                     'is_title': i == 0,
                     'is_task':  _is_task_page(text),
+                    'is_front': False,
                     'fonts':    _classify_fonts(page),
                     'margins':  None,
                 }
@@ -236,14 +291,24 @@ def extract_report(pdf_path: str, filename: str = '', error: str = '') -> dict:
                     }
                 pages_meta.append(meta)
 
+            # Листы задания, оставшиеся без заголовка после переноса.
+            # Отдельным признаком, а не is_task: лист задания в отчёте
+            # называется по первому опознанному, и продолжение не должно
+            # выдавать себя за него.
+            front = _front_matter_pages(pages_meta, result['text_by_page'])
+            for m in pages_meta:
+                if m['page'] in front:
+                    m['is_front'] = True
+
             # Титульный лист и задание не участвуют в статистике размера
             # шрифта и в измерении полей. Если особыми вышли все листы до
             # единого, разметка ошиблась – проверять было бы нечего, и три
             # критерия разом отвалились бы с «определить не удалось».
             if len(pages_meta) > 2 and all(m['is_title'] or m['is_task']
-                                           for m in pages_meta):
+                                           or m['is_front'] for m in pages_meta):
                 for m in pages_meta[1:]:
                     m['is_task'] = False
+                    m['is_front'] = False
 
             result['pages'] = pages_meta
             result['full_text'] = '\n'.join(result['text_by_page'])
@@ -260,7 +325,8 @@ def extract_report(pdf_path: str, filename: str = '', error: str = '') -> dict:
             fonts_all, fonts_body, fonts_aux, fonts_pagenum = {}, {}, {}, {}
             fonts_special = {}
             for meta in pages_meta:
-                special = meta['is_title'] or meta['is_task']
+                special = (meta['is_title'] or meta['is_task']
+                           or meta['is_front'])
                 for group, counts in meta['fonts'].items():
                     _merge_counts(fonts_all, counts)
                     if special:

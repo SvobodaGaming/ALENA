@@ -169,6 +169,17 @@ def _is_contents_page(text: str) -> bool:
         (text or '')[:500], _CONTENTS_HEADING, allow_dot=True))
 
 
+def _is_front(meta: dict) -> bool:
+    """Лист титульного раздела: титул, задание или его продолжение.
+
+    Продолжение приходит из разбора отдельным признаком (`is_front`): своей
+    приметы в тексте у него нет, а рамка и шрифт на нём титульные, и от
+    проверок он освобождён наравне с самим заданием.
+    """
+    return bool(meta.get('is_title') or meta.get('is_task')
+                or meta.get('is_front'))
+
+
 def _ordinary_pages(report: dict) -> list:
     """Page metadata without the title page, the «задание» sheet and the
     table of contents – the pages whose headings and margins are meaningful."""
@@ -178,7 +189,7 @@ def _ordinary_pages(report: dict) -> list:
     for meta in pages:
         idx = meta['page'] - 1
         text = texts[idx] if idx < len(texts) else ''
-        if meta.get('is_title') or meta.get('is_task'):
+        if _is_front(meta):
             continue
         if _is_contents_page(text):
             continue
@@ -195,7 +206,7 @@ def _non_front_page_texts(report: dict) -> list:
         out = []
         for page, text in enumerate(texts, 1):
             meta = metadata.get(page, {})
-            if meta.get('is_title') or meta.get('is_task'):
+            if _is_front(meta):
                 continue
             out.append((page, text))
         return out
@@ -895,11 +906,11 @@ def _cite_format(report: dict) -> Check:
 def _margins(report: dict) -> Check:
     """п.6.1.1, Поля: лев.30 / пр.15 / верх.20 / ниж.20 мм.
 
-    Измеряется постранично, титульный лист и задание пропускаются: там текст
-    обычно выровнен по центру и левое поле измеряется неверно.
+    Измеряется постранично, титульный раздел пропускается: там текст обычно
+    выровнен по центру, левое поле измеряется неверно, да и рамка у титульного
+    листа с заданием своя – в Word это отдельный раздел со своими полями.
     """
-    skip = {m['page'] for m in (report.get('pages') or [])
-            if m.get('is_title') or m.get('is_task')}
+    skip = {m['page'] for m in (report.get('pages') or []) if _is_front(m)}
     all_pages = report.get('margins_by_page') or []
     # Если после пропусков не осталось ничего, меряем по всем листам: лучше
     # учесть титульный, чем молча отменить проверку полей.

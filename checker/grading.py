@@ -110,7 +110,11 @@ def flaws(gost_results: list) -> list:
         code = c.get('code', '')
         out.append({
             'code':    code,
-            'text':    FLAW_TEXT.get(code) or c.get('name') or code,
+            # Критерий, проваленный не единственным возможным способом, сам
+            # называет замечание: у S6 «главы не обнаружены» и «точка после
+            # номера» – разные претензии под одним кодом.
+            'text':    (c.get('flaw') or FLAW_TEXT.get(code)
+                        or c.get('name') or code),
             'details': (c.get('details') or '').strip(),
         })
     return out

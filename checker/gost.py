@@ -25,12 +25,17 @@ PT_TOL  = 0.5         # rounding slack when reading sizes out of the PDF
 
 class Check:
     def __init__(self, code: str, name: str, passed: bool,
-                 details: str = '', severity: str = 'error'):
+                 details: str = '', severity: str = 'error', flaw: str = ''):
         self.code = code
         self.name = name
         self.passed = passed
         self.details = details
         self.severity = severity  # 'error' | 'warning'
+        # Замечание для отзыва, когда критерий проваливается не тем способом,
+        # который описан в FLAW_TEXT. У S6 их два: глав нет вовсе – и главы
+        # есть, но с точкой после номера; общий заголовок «работа не разбита
+        # на нумерованные главы» во втором случае просто неверен.
+        self.flaw = flaw
 
     def to_dict(self):
         return {
@@ -39,6 +44,7 @@ class Check:
             'passed': self.passed,
             'details': self.details,
             'severity': self.severity,
+            'flaw': self.flaw,
         }
 
 
@@ -66,7 +72,9 @@ GOST_CHECKS = [
      '«Ход работы» отдельно не проверяется: автоматически его не отличить от '
      'пересказа содержания.'),
     ('S6', 'Главы (нумерованные разделы)', 'structure',
-     'Разделы вида «1 Название» – без точки после номера.'),
+     'Разделы вида «1 Название» или «ГЛАВА 1 Название» – без точки после '
+     'номера. Пункты перечисления («1. Проанализировать…») главами не '
+     'считаются.'),
     ('S7', 'Подглавы (подразделы)', 'structure',
      'Подразделы вида «1.1 Название».'),
     ('S8', 'Заключение', 'structure',
@@ -254,11 +262,32 @@ def _section_text(text: str, heading: str) -> str:
     return rest[:min(starts)] if starts else rest[:4000]
 
 
+def _references_start(text: str):
+    """Позиция, с которой начинается список источников, или None.
+
+    Заголовок ищется отдельной строкой, а не где придётся в тексте:
+    «литература» и «библиография» – обычные слова, и на «учебно-методическая
+    и научная литература» в середине абзаца работа обрывалась на восьмой
+    странице. Дальше проверять было уже нечего: главы диссертации в такой
+    отрезок не попадали, и критерий сообщал, что глав в ней нет.
+    """
+    standalone = _line_heading_matches(text, _REFERENCES_HEADING,
+                                       allow_dot=True)
+    if standalone:
+        return standalone[0].start()
+    # Заголовок, слипшийся с первой записью списка, отдельной строкой не
+    # выйдет. Он всё же стоит в начале строки и набран прописными (п.6.2.2) –
+    # отсюда поиск с учётом регистра: так «Литература по теме исследования
+    # обширна» в начале абзаца за заголовок уже не сойдёт.
+    m = re.search(rf'^[^\S\r\n]*{_REFERENCES_HEADING}\b', text, re.MULTILINE)
+    return m.start() if m else None
+
+
 def _before_references(text: str) -> str:
     """Everything up to the bibliography. Its entries («1. ГОСТ 7.32-2017.»)
     look exactly like numbered headings ending in a dot."""
-    m = re.search(rf'\b{_REFERENCES_HEADING}\b', text, re.IGNORECASE)
-    return text[:m.start()] if m else text
+    start = _references_start(text)
+    return text if start is None else text[:start]
 
 
 _FIRST_CHAPTER_RE = re.compile(
@@ -294,9 +323,9 @@ def _body_pages_before_references(report: dict) -> list:
     """Ordinary page texts, truncated at the references section."""
     out = []
     for page, text in _ordinary_page_texts(report):
-        m = re.search(rf'\b{_REFERENCES_HEADING}\b', text, re.IGNORECASE)
-        out.append((page, text[:m.start()] if m else text))
-        if m:
+        start = _references_start(text)
+        out.append((page, text if start is None else text[:start]))
+        if start is not None:
             break
     return out
 
@@ -305,7 +334,17 @@ _TOP_CHAPTER_RE = re.compile(
     r'^(\d+)(\.)?[ \t]+[А-ЯЁA-Z][^\n]{2,}$'
 )
 _NUMBERED_ITEM_RE = re.compile(r'^(\d+)\.[ \t]+\S.{2,}$')
-_NAMED_CHAPTER_RE = re.compile(r'^ГЛАВА[ \t]+(\d+)\b', re.IGNORECASE)
+# Точка после номера ловится и здесь: «ГЛАВА 3. ПРАКТИЧЕСКАЯ ЧАСТЬ» нарушает
+# п.6.4.1 ровно так же, как «3. Практическая часть», и до сих пор проходила
+# мимо проверки. Заглядывание вперёд отсекает «ГЛАВА 1.1» – это подраздел.
+_NAMED_CHAPTER_RE = re.compile(r'^ГЛАВА[ \t]+(\d+)(\.)?(?![\d.])', re.IGNORECASE)
+
+# Сколько строк-продолжений допускается между соседними пунктами перечисления.
+# Пункт, перенесённый на вторую строку, разрывал соседство записей, и список
+# задач во введении читался как главы с точкой после номера. Раздел столько
+# текста между собой и следующим разделом не оставляет – а если оставляет
+# ровно столько, его заголовки и правда неотличимы от пунктов списка.
+_LIST_GAP = 6
 
 
 def _chapter_lines(report: dict) -> list:
@@ -334,6 +373,7 @@ def _chapter_lines(report: dict) -> list:
                 'named': named,
                 'has_text_after': False,
                 'in_list': False,
+                'is_heading': False,
             }
             page_lines.append(rec)
             all_lines.append(rec)
@@ -341,23 +381,30 @@ def _chapter_lines(report: dict) -> list:
         has_running_text = False
         for rec in reversed(page_lines):
             rec['has_text_after'] = has_running_text
-            is_other_heading = bool(
+            rec['is_heading'] = bool(
                 rec['chapter'] or rec['item'] or rec['named']
                 or re.fullmatch(r'\d+(?:\.\d+)+\.?[ \t]+\S.+', rec['line'])
                 or _line_heading_matches(
                     rec['line'], _STRUCTURAL_HEADING, allow_dot=True)
             )
-            if not is_other_heading:
+            if not rec['is_heading']:
                 has_running_text = True
 
-    # Blanks and page numbers do not break a list; ordinary extracted text does.
-    # Treating arbitrary text as a wrapped item would hide real short chapters.
-    # The flattened order still catches adjacent items across a page boundary.
-    for first, second in zip(all_lines, all_lines[1:]):
-        a, b = first['item'], second['item']
-        if a and b and int(b.group(1)) == int(a.group(1)) + 1:
-            first['in_list'] = True
-            second['in_list'] = True
+    # Пункты с номерами N и N+1 – перечисление, а не заголовки. Считать
+    # такими только соседние записи нельзя: пункт длиннее строки переносится,
+    # и его продолжение встаёт между номерами. Поэтому разрыв допускается, но
+    # короткий и без заголовков внутри. Blanks и номера страниц в all_lines не
+    # попадают, так что разрыв меряется содержательными строками, а список,
+    # перетёкший через границу страницы, остаётся списком.
+    numbered = [(i, rec) for i, rec in enumerate(all_lines) if rec['item']]
+    for (i, first), (j, second) in zip(numbered, numbered[1:]):
+        if int(second['item'].group(1)) != int(first['item'].group(1)) + 1:
+            continue
+        between = all_lines[i + 1:j]
+        if len(between) > _LIST_GAP or any(rec['is_heading'] for rec in between):
+            continue
+        first['in_list'] = True
+        second['in_list'] = True
 
     return all_lines
 
@@ -588,23 +635,33 @@ def _chapters(report: dict) -> Check:
     lines = _chapter_lines(report)
     candidates = [rec for rec in lines
                   if rec['has_text_after'] and not rec['in_list']]
-    numbered = [rec['chapter'].group(1) for rec in candidates
-                if rec['chapter'] and not rec['chapter'].group(2)]
-    named = [rec['named'].group(1) for rec in candidates if rec['named']]
-    dotted = [rec['chapter'].group(1) for rec in candidates
-              if rec['chapter'] and rec['chapter'].group(2)]
+    named = [rec['named'] for rec in candidates if rec['named']]
+    plain = [rec['chapter'] for rec in candidates if rec['chapter']]
 
-    # Distinct numbers, so a chapter written both ways is not counted twice.
-    total = len(set(numbered) | set(named))
+    # Стиль заголовков определяется раньше, чем проверяется точка. Работа,
+    # которая называет главы словом («ГЛАВА 2 ОБЗОР ТЕХНОЛОГИЙ»), нумерует
+    # словом их все, и голая строка «1. Проанализировать эволюцию подходов» в
+    # ней – пункт перечисления, а не глава с лишней точкой.
+    if named:
+        dotted = [f'ГЛАВА {m.group(1)}.' for m in named if m.group(2)]
+        numbers = {m.group(1) for m in named}
+    else:
+        dotted = [f'{m.group(1)}.' for m in plain if m.group(2)]
+        numbers = {m.group(1) for m in plain if not m.group(2)}
+
+    # Distinct numbers, so a chapter is not counted twice – ни как заголовок,
+    # повторённый в колонтитуле, ни как записанный сразу в двух видах.
+    dotted = list(dict.fromkeys(dotted))
     if dotted:
         return Check('S6', 'Главы (нумерованные разделы)', False,
-                     f'После номера главы стоит точка ({dotted[0]}.) – '
-                     f'не допускается (ГОСТ 7.32 п.6.4.1). Найдено: {len(dotted)}',
-                     'warning')
-    if total == 0:
+                     f'«{dotted[0]}» – не допускается (ГОСТ 7.32 п.6.4.1). '
+                     f'Таких заголовков: {len(dotted)}',
+                     'warning', flaw='После номера главы стоит точка')
+    if not numbers:
         return Check('S6', 'Главы (нумерованные разделы)', False,
                      'Нумерованные главы не обнаружены (ГОСТ 7.32 п.6.4)')
-    return Check('S6', 'Главы (нумерованные разделы)', True, f'Глав: {total}')
+    return Check('S6', 'Главы (нумерованные разделы)', True,
+                 f'Глав: {len(numbers)}')
 
 
 def _subchapters(report: dict) -> Check:
@@ -615,8 +672,8 @@ def _subchapters(report: dict) -> Check:
 
     if dotted and not subs:
         return Check('S7', 'Подглавы (подразделы)', False,
-                     f'После номера подраздела стоит точка ({dotted[0]}.) – '
-                     f'не допускается (ГОСТ 7.32 п.6.4.1)', 'warning')
+                     f'«{dotted[0]}.» – не допускается (ГОСТ 7.32 п.6.4.1)',
+                     'warning', flaw='После номера подраздела стоит точка')
     if not subs:
         return Check('S7', 'Подглавы (подразделы)', False,
                      'Подразделы вида «1.1 Название» не обнаружены', 'warning')
@@ -870,11 +927,26 @@ def _heading_no_dot(report: dict) -> Check:
     """п.6.2.3, Заголовки без точки в конце."""
     bad = []
     bad_keys = set()
-    for rec in _chapter_lines(report):
+    lines = _chapter_lines(report)
+    # Тот же разбор стиля, что и в S6. Работа, называющая разделы словом
+    # («ГЛАВА 2 ОБЗОР ТЕХНОЛОГИЙ»), заголовков вида «1. Текст.» не содержит:
+    # это пункты перечисления, пусть под каждым и стоит абзац пояснения. Их
+    # оформление – вопрос п.6.4.5, а не точки в конце заголовка, и замечание
+    # «заголовок с точкой» описывало бы работу неверно.
+    named_style = any(rec['named'] for rec in lines
+                      if rec['has_text_after'] and not rec['in_list'])
+    for rec in lines:
         s = rec['line']
         if not s or not s.endswith('.'):
             continue
-        numbered = bool(re.match(r'^\d+(?:\.\d+)*\.?\s+', s))
+        if named_style and rec['item'] and not rec['named']:
+            continue
+        # «200 % от размера средней заработной платы в регионе [242].» – не
+        # заголовок, а перенесённая строка абзаца. Одной цифры в начале
+        # строки для номера раздела мало, нужен его вид: признак тот же, по
+        # которому строка признаётся заголовком в _chapter_lines.
+        numbered = bool(rec['chapter'] or rec['item'] or rec['named']
+                        or re.fullmatch(r'\d+(?:\.\d+)+\.?[ \t]+\S.+', s))
         uppercase = bool(re.fullmatch(
             r'[А-ЯЁA-Z][А-ЯЁA-Z \t]{4,}', s[:-1].strip()))
         structural = bool(_line_heading_matches(

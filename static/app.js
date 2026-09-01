@@ -17,11 +17,11 @@
 
   /* ── Общее: тема, меню, всплывающие сообщения ── */
 
+  /* Сохранённая тема ставится в <head> ещё до отрисовки – здесь только
+     переключатель. */
   const themeBtn = $('#theme-btn');
   if (themeBtn) {
     const root = document.documentElement;
-    const saved = localStorage.getItem('alena-theme');
-    if (saved) root.dataset.theme = saved;
     themeBtn.onclick = () => {
       const dark = matchMedia('(prefers-color-scheme: dark)').matches;
       const cur = root.dataset.theme || (dark ? 'dark' : 'light');

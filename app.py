@@ -184,6 +184,34 @@ uploads: dict = {}
 uploads_lock = threading.Lock()
 
 
+# ────────────────────  Ссылки на статику  ────────────────────
+
+def _stamp(path: Path) -> str:
+    """Короткая метка редакции файла – время правки и размер."""
+    try:
+        st = path.stat()
+    except OSError:
+        return '0'
+    return f'{int(st.st_mtime):x}{st.st_size:x}'
+
+
+def _asset(filename: str) -> str:
+    """Ссылка на файл из static/ с меткой его редакции.
+
+    Метка меняется вместе с файлом, поэтому каждый выпуск программы получает
+    свой адрес стилей и скрипта. Это и позволяет отдавать их с годовым кэшем
+    (см. _security_headers): браузер не переспрашивает про них на каждом
+    переходе и при этом никогда не покажет вчерашнее оформление.
+    """
+    return url_for('static', filename=filename,
+                   v=_stamp(Path(app.static_folder) / filename))
+
+
+def _logo_url() -> str:
+    """То же самое для логотипа – он лежит рядом с app.py, не в static/."""
+    return url_for('logo', v=_stamp(Path(app.root_path) / 'au_logo.png'))
+
+
 @app.context_processor
 def inject_globals():
     """Every template gets the current account and the branding."""
@@ -196,6 +224,8 @@ def inject_globals():
         'ROLES':         accounts.ROLES,
         'STATES':        accounts.STATES,
         'can':           accounts.can,
+        'asset':         _asset,
+        'logo_url':      _logo_url,
     }
 
 
@@ -410,6 +440,23 @@ def _security_headers(response):
     # страница показала бы давно законченную проверку как идущую.
     if request.path.startswith(('/api/', '/status/', '/jobs')):
         response.headers.setdefault('Cache-Control', 'no-store')
+    elif request.endpoint in ('static', 'logo'):
+        # Стили, скрипт, шрифты и логотип меняются только с выпуском
+        # программы. Flask по умолчанию помечает их 'no-cache', и браузер
+        # переспрашивал про каждый из них на каждом переходе: десяток
+        # обращений к серверу подряд, из-за которых страница успевала
+        # мелькнуть без оформления.
+        if request.args.get('v'):
+            # В ссылке есть метка редакции (см. _asset): этот адрес
+            # принадлежит только текущей версии файла и не устареет.
+            response.headers['Cache-Control'] = \
+                'public, max-age=31536000, immutable'
+        else:
+            # Шрифты запрашивает сам app.css по относительной ссылке, без
+            # метки. Месяц – достаточно долго, чтобы не тревожить сервер, и
+            # достаточно коротко, чтобы заменённый файл разошёлся сам;
+            # переименование файла обновляет его сразу.
+            response.headers['Cache-Control'] = 'public, max-age=2592000'
     return response
 
 

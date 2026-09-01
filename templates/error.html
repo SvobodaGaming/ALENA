@@ -4,14 +4,18 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Доступ закрыт – {{ app_title }}</title>
-  <link rel="stylesheet" href="{{ url_for('static', filename='app.css') }}">
-  <link rel="icon" href="{{ url_for('logo') }}">
+  {# Тема – до первой отрисовки, чтобы страница не мигала светлой. #}
+  <script>try{var t=localStorage.getItem('alena-theme');if(t)document.documentElement.dataset.theme=t}catch(e){}</script>
+  <link rel="preload" href="{{ url_for('static', filename='fonts/manrope-cyrillic.woff2') }}" as="font" type="font/woff2" crossorigin>
+  <link rel="preload" href="{{ url_for('static', filename='fonts/manrope-latin.woff2') }}" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="{{ asset('app.css') }}">
+  <link rel="icon" href="{{ logo_url() }}">
 </head>
 <body>
 <div class="centered">
   <div class="auth-card">
     <div class="auth-top">
-      <img class="rail-mark" src="{{ url_for('logo') }}" alt="" width="34" height="34">
+      <img class="rail-mark" src="{{ logo_url() }}" alt="" width="34" height="34">
       <div>
         <div class="rail-name">Ошибка {{ code }}</div>
         <div class="rail-sub">Действие не выполнено</div>

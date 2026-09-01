@@ -1,4 +1,4 @@
-FROM python:3.11-slim
+FROM python:3.14-slim
 
 # WeasyPrint needs Pango + Cairo. PyMuPDF ships its own MuPDF.
 RUN apt-get update && apt-get install -y --no-install-recommends \

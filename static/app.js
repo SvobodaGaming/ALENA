@@ -34,6 +34,17 @@
   const burger = $('#burger');
   if (burger) burger.onclick = () => $('#rail').classList.toggle('open');
 
+  /* Число проверок в меню приходит уже посчитанным со страницей – здесь его
+     только поправляют экраны, где оно меняется без перехода на другую. */
+  const navCount = $('#nav-count');
+  const setNavCount = n => {
+    if (!navCount) return;
+    navCount.textContent = n > 0 ? n : '';
+    navCount.hidden = !(n > 0);
+  };
+  const bumpNavCount = d =>
+    setNavCount((parseInt(navCount ? navCount.textContent : '', 10) || 0) + d);
+
   function toast(text) {
     const t = document.createElement('div');
     t.className = 'toast';
@@ -370,8 +381,7 @@
     function render() {
       const list = visible();
       const ul = $('#job-list');
-      const badge = $('#nav-count');
-      if (badge) badge.textContent = Object.keys(records).length;
+      setNavCount(Object.keys(records).length);
 
       if (!list.length) {
         ul.innerHTML = '<li class="empty">' + (query
@@ -1155,6 +1165,7 @@
       }
 
       runTitle.textContent = 'Идёт проверка';
+      bumpNavCount(1);        // проверка уже в истории, а страница не менялась
       watch(jobId, true);
     });
   }

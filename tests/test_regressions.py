@@ -1,11 +1,12 @@
 import io
 import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 import imagehash
 
-from checker import accounts, job_store, memory_store, sqlmigrate, teams
+from checker import accounts, db, job_store, memory_store, sqlmigrate, teams
 from checker.image_plagiarism import check_image_plagiarism
 from checker.reporter import _anchor, _report_anchors, generate_html_report
 from checker.text_plagiarism import (
@@ -631,6 +632,87 @@ class JobDateTests(unittest.TestCase):
         }
         with patch.object(job_store, 'load_all', return_value=records):
             self.assertEqual(job_store.expired(1), ['old'])
+
+
+class ChecksCountTests(unittest.TestCase):
+    """Число проверок у пункта «Проверки»: приходит с любой страницей и
+    считается хранилищем, а не чтением всей истории."""
+
+    def setUp(self):
+        self._dir = tempfile.TemporaryDirectory()
+        self.addCleanup(self._dir.cleanup)
+        root = Path(self._dir.name)
+        for item in (patch.object(db, 'DB_ENABLED', False),
+                     patch.object(job_store, 'STORE_PATH', root / 'jobs.json'),
+                     patch.object(job_store, 'STORE_DIR', root / 'jobs')):
+            item.start()
+            self.addCleanup(item.stop)
+
+    def test_count_is_scoped_to_owner_and_follows_deletion(self):
+        job_store.save('one', {'owner': 'teacher', 'status': 'done'})
+        job_store.save('two', {'owner': 'teacher', 'status': 'done'})
+        job_store.save('three', {'owner': 'other', 'status': 'done'})
+
+        self.assertEqual(job_store.count(), 3)
+        self.assertEqual(job_store.count('teacher'), 2)
+        self.assertEqual(job_store.count('other'), 1)
+
+        job_store.delete('two')
+        # Запомненный владелец не должен пережить саму проверку.
+        self.assertEqual(job_store.count('teacher'), 1)
+        self.assertEqual(job_store.count(), 2)
+
+    def test_repeated_count_does_not_reread_the_checks(self):
+        """Владелец у проверки не меняется, поэтому её файл читается один раз –
+        иначе значок в меню обходил бы всю историю на каждой странице."""
+        job_store.save('one', {'owner': 'teacher', 'status': 'done'})
+        self.assertEqual(job_store.count('teacher'), 1)
+
+        real_read = job_store.jsonstore.read_json
+        reads = []
+
+        def counting_read(path, default=None):
+            reads.append(Path(path).name)
+            return real_read(path, default)
+
+        with patch.object(job_store.jsonstore, 'read_json', counting_read):
+            self.assertEqual(job_store.count('teacher'), 1)
+        self.assertNotIn('one.json', reads)
+
+        job_store.save('two', {'owner': 'teacher', 'status': 'done'})
+        self.assertEqual(job_store.count('teacher'), 2)
+
+    def test_badge_is_rendered_on_pages_other_than_checks(self):
+        web.app.config.update(TESTING=True)
+        client = web.app.test_client()
+        with client.session_transaction() as session:
+            session['login'] = 'teacher'
+
+        with (patch.object(web.accounts, 'get_user', return_value=_user()),
+              patch.object(web.job_store, 'count', return_value=7) as count,
+              patch.object(web.job_store, 'load_all',
+                           side_effect=AssertionError('история прочитана целиком')),
+              patch('checker.memory_store.load_store', return_value={})):
+            page = client.get('/base')
+
+        html = page.get_data(as_text=True)
+        self.assertEqual(page.status_code, 200)
+        self.assertIn('id="nav-count"', html)
+        self.assertIn('>7</span>', html)
+        count.assert_called_once_with('teacher')
+
+    def test_badge_is_hidden_when_there_are_no_checks(self):
+        web.app.config.update(TESTING=True)
+        client = web.app.test_client()
+        with client.session_transaction() as session:
+            session['login'] = 'teacher'
+
+        with (patch.object(web.accounts, 'get_user', return_value=_user()),
+              patch.object(web.job_store, 'count', return_value=0),
+              patch('checker.memory_store.load_store', return_value={})):
+            html = client.get('/base').get_data(as_text=True)
+
+        self.assertIn('id="nav-count" hidden', html)
 
 
 if __name__ == '__main__':

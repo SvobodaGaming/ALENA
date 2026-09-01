@@ -226,6 +226,7 @@ def inject_globals():
         'can':           accounts.can,
         'asset':         _asset,
         'logo_url':      _logo_url,
+        'checks_count':  _checks_count,
     }
 
 
@@ -692,6 +693,26 @@ def _sees_all(user) -> bool:
 def _scope(user):
     """Owner filter for storage queries: None means 'everything'."""
     return None if _sees_all(user) else user['login']
+
+
+def _checks_count() -> int:
+    """Сколько проверок видит текущая запись – число для значка в меню.
+
+    Значок стоит в общем каркасе страницы, то есть считать приходится на
+    каждой. Поэтому число берётся у хранилища отдельным подсчётом, а не
+    чтением всей истории: разбирать каждую проверку целиком ради одного
+    числа слишком дорого. В пределах запроса считаем один раз.
+    """
+    user = getattr(g, 'user', None)
+    if not user:
+        return 0
+    if 'checks_count' not in g:
+        try:
+            g.checks_count = job_store.count(_scope(user))
+        except Exception:
+            # История недоступна – это не повод ронять страницу целиком.
+            g.checks_count = 0
+    return g.checks_count
 
 
 def _base_scope(user):

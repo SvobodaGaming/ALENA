@@ -23,6 +23,10 @@ STORE_PATH = Path(__file__).parent.parent / 'memory' / 'jobs.json'
 STORE_DIR = Path(__file__).parent.parent / 'memory' / 'jobs'
 _lock = threading.Lock()
 _ID_RE = re.compile(r'^[A-Za-z0-9_-]{1,128}$')
+# Путь файла проверки → её владелец: см. `_owners_unlocked`. Ключ – путь, а не
+# id: в тестах каталог хранилища подменяется, и одинаковые id из разных
+# каталогов не должны считаться одной проверкой.
+_owner_cache = {}
 
 _STAMP = '%d.%m.%Y %H:%M'
 _STAMP_RE = re.compile(r'^\d{2}\.\d{2}\.\d{4} \d{2}:\d{2}$')
@@ -95,7 +99,41 @@ def _read_all_unlocked() -> dict:
             data = jsonstore.read_json(path, None)
             if isinstance(data, dict):
                 store[path.stem] = data
+                _owner_cache[str(path)] = data.get('owner', '')
     return store
+
+
+def _owners_unlocked() -> dict:
+    """id проверки → её владелец.
+
+    Владелец у проверки не меняется за всю её жизнь, поэтому её файл читается
+    один раз, а дальше сверяется только список имён в каталоге. Это и
+    позволяет показывать число проверок на каждой странице, не разбирая всю
+    историю заново.
+    """
+    _migrate_legacy_unlocked()
+    owners = {}
+    legacy = jsonstore.read_json(STORE_PATH, {})
+    if isinstance(legacy, dict):
+        for job_id, data in legacy.items():
+            if isinstance(data, dict):
+                owners[job_id] = data.get('owner', '')
+    fresh = {}
+    if STORE_DIR.exists():
+        for path in STORE_DIR.glob('*.json'):
+            key = str(path)
+            owner = _owner_cache.get(key)
+            if owner is None:
+                data = jsonstore.read_json(path, None)
+                if not isinstance(data, dict):
+                    continue
+                owner = data.get('owner', '')
+            fresh[key] = owner
+            owners[path.stem] = owner
+    # Удалённые проверки не должны копиться в памяти процесса.
+    _owner_cache.clear()
+    _owner_cache.update(fresh)
+    return owners
 
 
 def save(job_id: str, data: dict) -> None:
@@ -116,6 +154,21 @@ def load_all(owner=None) -> dict:
     if owner is None:
         return store
     return {k: v for k, v in store.items() if v.get('owner', '') == owner}
+
+
+def count(owner=None) -> int:
+    """Сколько проверок в истории – всех или одного владельца.
+
+    Отдельно от `load_all`: для одного числа в меню незачем читать и разбирать
+    каждую проверку целиком.
+    """
+    if db.DB_ENABLED:
+        return db.jobs_count(owner)
+    with _lock, _process_lock():
+        owners = _owners_unlocked()
+    if owner is None:
+        return len(owners)
+    return sum(1 for value in owners.values() if value == owner)
 
 
 def get(job_id: str):

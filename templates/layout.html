@@ -50,10 +50,13 @@
 
     <div class="rail-nav">
       <div class="nav-cap">Работа</div>
+      {# Число проверок приходит уже со страницей: раньше его вписывал app.js,
+         и потому его видели только на самом экране «Проверки». #}
+      {% set n_checks = checks_count() %}
       <a class="nav-item" href="{{ url_for('index') }}" {% if page == 'checks' %}aria-current="page"{% endif %}>
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M9 11l3 3 8-8"/><path d="M20 12v7a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h9"/></svg>
         Проверки
-        <span class="nav-badge mono" id="nav-count"></span>
+        <span class="nav-badge mono" id="nav-count"{% if not n_checks %} hidden{% endif %}>{{ n_checks or '' }}</span>
       </a>
       <a class="nav-item" href="{{ url_for('overview') }}" {% if page == 'overview' %}aria-current="page"{% endif %}>
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 3v18h18"/><path d="M7 14l4-5 3 3 5-7"/></svg>

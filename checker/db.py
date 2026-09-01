@@ -282,6 +282,18 @@ def jobs_load_all(owner=None) -> dict:
     return out
 
 
+def jobs_count(owner=None) -> int:
+    """How many checks are in the history – without fetching them."""
+    sql = "SELECT count(*) FROM jobs"
+    params = ()
+    if owner is not None:
+        sql += " WHERE data->>'owner' = %s"
+        params = (owner,)
+    with _conn() as conn, conn.cursor() as cur:
+        cur.execute(sql, params)
+        return cur.fetchone()[0]
+
+
 def jobs_get(job_id: str):
     with _conn() as conn, conn.cursor() as cur:
         cur.execute("SELECT data FROM jobs WHERE job_id = %s", (job_id,))

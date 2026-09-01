@@ -251,7 +251,7 @@ a {
 }
 a:hover { color: var(--brand-hover); text-decoration-color: var(--brand-hover); }
 /* Ссылки-кнопки и пункты меню подчёркивание не наследуют. */
-a.btn, a.btn-new, a.nav-item, a.who, a.chip, .card__title a, .job a { text-decoration: none; }
+a.btn, a.btn-new, a.nav-item, a.who, a.chip, .job a { text-decoration: none; }
 
 strong, b { font-weight: 700; }
 code, kbd, samp, pre { font-family: var(--font-mono); font-size: .92em; }
@@ -377,7 +377,6 @@ a:focus-visible { border-radius: 2px; }
   font-size: var(--text-30); font-weight: 700; letter-spacing: -.03em; line-height: var(--leading-tight);
 }
 .tile-foot { display: flex; align-items: baseline; gap: var(--space-2); font-size: var(--text-12); color: var(--muted); }
-.tile-spark { margin-top: var(--space-1); height: 26px; }
 
 /* Две панели */
 .panes { display: grid; grid-template-columns: 340px minmax(0,1fr); gap: var(--space-3); margin-top: var(--space-4); align-items: start; }

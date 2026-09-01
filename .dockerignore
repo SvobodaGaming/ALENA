@@ -24,6 +24,12 @@ htmlcov/
 venv/
 env/
 
+# Tests, CI configuration and linter settings: not needed at runtime
+tests/
+.github/
+ruff.toml
+requirements-dev.txt
+
 # Editor and OS metadata
 .idea/
 .vscode/

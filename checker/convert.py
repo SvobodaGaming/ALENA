@@ -55,11 +55,6 @@ def available() -> bool:
     return bool(converter())
 
 
-def is_source(name: str) -> bool:
-    """Требует ли файл конвертации."""
-    return name.lower().endswith(SOURCE_EXTS)
-
-
 def _tail(out: bytes) -> str:
     """Последняя строка вывода LibreOffice – в ней причина отказа."""
     text = (out or b'').decode('utf-8', 'replace').strip()

@@ -116,7 +116,6 @@ GOST_CHECKS = [
 
 ALL_CODES = [c[0] for c in GOST_CHECKS]
 CHECK_NAMES = {c[0]: c[1] for c in GOST_CHECKS}
-CHECK_HINTS = {c[0]: c[3] for c in GOST_CHECKS}
 
 # Те же нарушения, но названные так, как их пишут в замечании студенту:
 # коротко, в лицо работе, без ссылок на пункты стандарта. Отсюда собирается
@@ -186,23 +185,6 @@ def _is_front(meta: dict) -> bool:
     """
     return bool(meta.get('is_title') or meta.get('is_task')
                 or meta.get('is_front'))
-
-
-def _ordinary_pages(report: dict) -> list:
-    """Page metadata without the title page, the «задание» sheet and the
-    table of contents – the pages whose headings and margins are meaningful."""
-    pages = report.get('pages') or []
-    texts = report.get('text_by_page') or []
-    out = []
-    for meta in pages:
-        idx = meta['page'] - 1
-        text = texts[idx] if idx < len(texts) else ''
-        if _is_front(meta):
-            continue
-        if _is_contents_page(text):
-            continue
-        out.append(meta)
-    return out
 
 
 def _non_front_page_texts(report: dict) -> list:

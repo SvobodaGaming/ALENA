@@ -17,8 +17,6 @@ from checker.image_plagiarism import image_meta
 
 # Points per mm
 PT_PER_MM = 2.834645669
-A4_W_PT = 595.28
-A4_H_PT = 841.89
 
 
 def _median(values: list) -> float:

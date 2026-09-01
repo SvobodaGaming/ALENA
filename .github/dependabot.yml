@@ -1,0 +1,33 @@
+version: 2
+
+updates:
+  # Библиотеки разбора PDF и Flask. Обновления собираются в один pull request:
+  # набор тестов всё равно прогоняется целиком, а десять отдельных запросов в
+  # неделю читать никто не станет.
+  - package-ecosystem: pip
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    groups:
+      python:
+        patterns: ['*']
+
+  # Версии самих actions в .github/workflows. Их проверяет тот же прогон.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    groups:
+      actions:
+        patterns: ['*']
+
+  # Базовый образ python:3.11-slim в Dockerfile: сюда приходят заплатки
+  # безопасности к самой системе, а не к нашим зависимостям.
+  - package-ecosystem: docker
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday

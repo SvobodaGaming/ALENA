@@ -2,7 +2,10 @@
 Persistent fingerprint store for cross-session plagiarism detection.
 
 Backed by PostgreSQL when DATABASE_URL is set, otherwise by a JSON file:
-  { "<name>|<group>|v<N>": { ...entry... }, ... }
+  { "<owner>|<name>|<group>|v<N>": { ...entry... }, ... }
+
+Ключ начинается с владельца: базы двух преподавателей не пересекаются даже при
+полном тёзке в одной группе (см. _student_key).
 
 Each entry stores: student info, normalized text, image hashes + thumbnails.
 PIL images are NOT stored, only compact hashes (144 bits × 3 crops) and a
@@ -194,20 +197,14 @@ def _entry_for(report: dict, job_id: str, owner: str) -> tuple:
     }
 
 
-def add_report(report: dict, job_id: str, owner: str = '') -> int:
-    """Записать работу в базу отпечатков новой версией (v1, v2, …).
+def add_reports(reports: list, job_id: str, owner: str = '') -> list:
+    """Записать партию работ в базу отпечатков и вернуть присвоенные номера
+    версий (v1, v2, …) в порядке работ.
 
     Номер версии выбирается и запись сохраняется одним неделимым действием.
     Раньше вызывающий читал базу, считал `max(версий)+1` по своему снимку и
     сохранял: две проверки одного преподавателя, идущие рядом, выбирали один и
-    тот же номер, и отпечаток первой затирался отпечатком второй. Возвращает
-    присвоенный номер версии.
-    """
-    return add_reports([report], job_id, owner)[0]
-
-
-def add_reports(reports: list, job_id: str, owner: str = '') -> list:
-    """Persist a batch and return the assigned versions in report order.
+    тот же номер, и отпечаток первой затирался отпечатком второй.
 
     The JSON backend reads and replaces ``store.json`` once for the whole job,
     while the lock still makes version selection atomic against another job.

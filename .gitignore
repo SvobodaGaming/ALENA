@@ -14,13 +14,11 @@ env/
 
 # Runtime state – not code. users.json holds password hashes and API keys.
 /memory/
-/tmp
 
-# Uploaded/temporary files. Только рабочие каталоги: правило «*.zip» ловило
-# любой архив в любой папке проекта, включая нужные.
-uploads/
+# Рабочие каталоги, если AU_TMP_DIR указывает внутрь проекта. Только каталоги:
+# правило «*.zip» ловило любой архив в любой папке проекта, включая нужные.
 tmp/
-uploads/*.zip
+uploads/
 
 # Environment (contains passwords – never commit)
 .env

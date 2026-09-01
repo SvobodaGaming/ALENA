@@ -1,0 +1,32 @@
+name: codeql
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    # Раз в неделю: база правил CodeQL пополняется, и уязвимость находят в коде,
+    # который с прошлого прогона не менялся.
+    - cron: '17 4 * * 1'
+
+permissions:
+  contents: read
+
+jobs:
+  analyze:
+    runs-on: ubuntu-latest
+    permissions:
+      security-events: write   # без него результат некуда положить
+      actions: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: github/codeql-action/init@v3
+        with:
+          languages: python
+          # Расширенный набор: приложение принимает загрузки файлов, ходит в
+          # базу и рендерит HTML – именно те дорожки, которые ищут эти запросы.
+          queries: security-and-quality
+
+      - uses: github/codeql-action/analyze@v3

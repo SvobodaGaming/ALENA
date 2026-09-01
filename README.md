@@ -8,10 +8,11 @@
 
 *Проверка студенческих отчётов: заимствования, дубли изображений и ГОСТ 7.32-2017 – за один проход*
 
+[![Tests](https://github.com/mxd3v-tech/ALENA/actions/workflows/tests.yml/badge.svg)](https://github.com/mxd3v-tech/ALENA/actions/workflows/tests.yml)
 [![Python](https://img.shields.io/badge/Python-3.11%2B-3776AB?logo=python&logoColor=white)](https://www.python.org/)
 [![Flask](https://img.shields.io/badge/Flask-3.x-000000?logo=flask&logoColor=white)](https://flask.palletsprojects.com/)
 [![PostgreSQL](https://img.shields.io/badge/PostgreSQL-опционально-4169E1?logo=postgresql&logoColor=white)](https://www.postgresql.org/)
-[![Docker](https://img.shields.io/badge/Docker-compose-2496ED?logo=docker&logoColor=white)](https://docs.docker.com/compose/)
+[![Docker Hub](https://img.shields.io/docker/image-size/mxd3v-tech/alena/latest?logo=docker&logoColor=white&label=Docker%20Hub&color=2496ED)](https://hub.docker.com/r/mxd3v-tech/alena)
 [![License](https://img.shields.io/badge/License-AGPL--3.0-blue.svg)](LICENSE)
 
 **Русский** · [English](#english)
@@ -64,19 +65,28 @@
 
 ## Как это работает
 
-```mermaid
-flowchart LR
-    A[ZIP / папка<br/>PDF · DOCX · ODT · DOC] --> B[LibreOffice<br/>всё → PDF]
-    B --> C[Извлечение<br/>текст · шрифты · поля · изображения]
-    C --> D[ГОСТ<br/>22 критерия]
-    C --> E[Текст<br/>шинглы 5-грамм]
-    C --> F[Изображения<br/>pHash multi-crop]
-    G[(База<br/>отпечатков)] --> E
-    G --> F
-    D --> H[HTML-отчёт<br/>+ PDF]
-    E --> H
-    F --> H
-    H --> G
+```text
+   ZIP или папка: PDF, DOCX, ODT, DOC
+                    |
+                    v
+LibreOffice: все форматы приводятся к PDF
+                    |
+                    v
+Извлечение: текст, шрифты, поля, изображения
+        |           |            |
+        v           v            v
+      ГОСТ        Текст     Изображения
+   22 критерия  5-граммы       pHash
+        |           |            |
+        |           +-----+------+
+        |                 |
+        |  База отпечатков: читается перед
+        |  сравнением, пополняется после
+        |                 |
+        +--------+--------+
+                 |
+                 v
+    HTML-отчёт, при желании PDF
 ```
 
 **Почему всё приводится к PDF.** Половина критериев ГОСТ измеряется на
@@ -107,7 +117,12 @@ docker compose up --build
 его при первом входе.
 
 Образ уже содержит LibreOffice, шрифты Microsoft и библиотеки WeasyPrint –
-ничего доустанавливать не нужно.
+ничего доустанавливать не нужно. Собирать его самому не обязательно: сборки с
+ветки `main` выкладываются на Docker Hub.
+
+```bash
+docker pull mxd3v-tech/alena:latest
+```
 
 ### Локально
 
@@ -130,16 +145,8 @@ gunicorn --workers=1 --threads=8 --timeout=300 -b 0.0.0.0:5000 app:app
 > Частичные загрузки и состояние идущих проверок лежат в памяти процесса.
 > Со вторым воркером куски одной партии попадают в разные процессы и загрузка
 > обрывается сообщением «Загрузка не найдена». Параллелизм даёт `--threads`.
-> Пример конфигурации nginx – в [`nginx.conf.txt`](nginx.conf.txt).
 > За одним nginx задайте `AU_TRUSTED_PROXY_COUNT=1` и запретите клиентам прямой
 > доступ к порту приложения; без прокси оставьте безопасное значение `0`.
-
-### Командная строка, без сервера и учётных записей
-
-```bash
-python check_reports.py ./папка_с_отчётами -o отчёт.html --threshold 0.5
-python check_reports.py ./архив.zip
-```
 
 ---
 
@@ -155,7 +162,7 @@ python check_reports.py ./архив.zip
 | `AU_API_KEY` | Ключ для `/api/v1`, выдаётся первому администратору при развёртывании |
 | `AU_HTTPS` | `1` за HTTPS: cookie сессии помечается `Secure` |
 | `AU_TRUSTED_PROXY_COUNT` | Число доверенных reverse proxy для определения IP клиента (по умолчанию `0`) |
-| `DATABASE_URL` | PostgreSQL. Пусто → JSON-хранилище в `memory/` |
+| `DATABASE_URL` | PostgreSQL. Пусто: JSON-хранилище в `memory/` |
 | `AU_MAX_UPLOAD_MB` | Предел одной партии, МБ (по умолчанию 5120) |
 | `AU_TMP_DIR` | Где разворачиваются загрузки. Проверьте, что это диск, а не tmpfs – иначе многогигабайтная партия пишется в RAM |
 | `AU_SOFFICE` | Путь к LibreOffice, если он вне `PATH` |
@@ -163,7 +170,7 @@ python check_reports.py ./архив.zip
 
 Настройки уровня приложения – порог сходства по умолчанию, набор критериев,
 веса для оценки, шкала, срок хранения проверок, политика паролей и блокировки –
-задаются в интерфейсе: **Администрирование → Настройки**.
+задаются в интерфейсе: **Администрирование**, раздел **Настройки**.
 
 ---
 
@@ -326,8 +333,8 @@ curl -H "X-API-Key: $AU_API_KEY" http://localhost:5000/api/v1/jobs/<job_id>/expo
 
 Каждый модуль работает одинаково: **PostgreSQL**, если задан `DATABASE_URL`,
 иначе **JSON-файлы** в `memory/`. Переключение – вопрос одной переменной, а
-перенос данных в обе стороны делается через **Администрирование → Миграция
-базы**.
+перенос данных в обе стороны делается через **Администрирование**, раздел
+**Миграция базы**.
 
 В JSON-режиме каждая проверка хранится в `memory/jobs/<id>.json`. Старый общий
 `memory/jobs.json` переносится в этот формат автоматически при первом запуске.
@@ -358,17 +365,39 @@ curl -H "X-API-Key: $AU_API_KEY" http://localhost:5000/api/v1/jobs/<job_id>/expo
 
 ## Разработка
 
-Регрессионные тесты запускаются без дополнительных зависимостей:
-`python -m unittest discover -s tests -v`. Для сквозной проверки реальных PDF
-используется `check_reports.py`; синтаксис отдельно ловит `python -m py_compile`.
-Конфигурации линтера и отдельного шага сборки в проекте нет.
+```bash
+python -m unittest discover -s tests -t .              # весь набор
+python -m unittest tests.test_gost -v                  # один файл
+pip install -r requirements-dev.txt && ruff check .    # линтер
+```
+
+Тестам не нужны ни сеть, ни PostgreSQL, ни LibreOffice: хранилища подменяются
+временным каталогом, PDF для разбора собирается на лету через PyMuPDF, а
+работа для проверок ГОСТа задаётся словарём. Написаны они на стандартном
+`unittest` – сверх `requirements.txt` не требуется ничего.
+
+Критерии ГОСТа проверяются дифференциально: эталонная работа из
+[`tests/fixtures.py`](tests/fixtures.py) проходит все 22 критерия, а каждый
+тест портит в ней ровно одну вещь и требует падения именно того критерия,
+который эту вещь стережёт. Такой тест переживает правку формулировок и порогов
+внутри проверки.
+
+GitHub Actions гоняет набор и линтер на каждый push и pull request
+([`tests.yml`](.github/workflows/tests.yml)), а с ветки `main` собирает образ и
+выкладывает его на Docker Hub ([`docker.yml`](.github/workflows/docker.yml)) –
+после отдельного прогона тестов. Публикации нужны два секрета репозитория:
+`DOCKERHUB_USERNAME` и `DOCKERHUB_TOKEN`. Набор правил линтера
+([`ruff.toml`](ruff.toml)) намеренно узкий: он ищет ошибки, а не расхождения со
+вкусами – в проекте свой сложившийся стиль.
 
 Комментарии в коде объясняют **почему**, а не что делает строка, и часто
 называют ошибку, ради которой код написан. Новый критерий ГОСТ – это строка в
 таблице `GOST_CHECKS`, функция `_check_*` в `check_gost()` и запись в
-`FLAW_TEXT`; всё остальное выводится из таблицы. При добавлении сохраняемого
-поля его нужно провести по обоим хранилищам – по колонкам PostgreSQL и по
-словарю JSON, – и по кортежам в `checker/sqlmigrate.py`.
+`FLAW_TEXT`; всё остальное выводится из таблицы. Он обязан пройти на эталонной
+работе: если падает – либо критерий строже стандарта, либо эталон пора
+дополнить. При добавлении сохраняемого поля его нужно провести по обоим
+хранилищам – по колонкам PostgreSQL и по словарю JSON, – и по кортежам в
+`checker/sqlmigrate.py`.
 
 ---
 
@@ -381,13 +410,15 @@ curl -H "X-API-Key: $AU_API_KEY" http://localhost:5000/api/v1/jobs/<job_id>/expo
 
 <div align="center">
 
-<img src="au_logo.png" alt="ALYONA" width="120">
+<img src="au_logo.png" alt="ALENA" width="120">
 
-# <a name="english"></a>АЛЁНА / ALYONA
+# <a name="english"></a>АЛЁНА / ALENA
 
 **А**втоматический **Л**овец **Ё**рничества, **Н**ебрежности и **А**утентичности
-*– "Automatic Catcher of Mockery, Sloppiness and Authenticity", an acronym
-spelling out the Russian given name Alyona*
+
+*The Russian acronym spells out the given name Alena. It carries over letter for
+letter: **A**utomatic **L**ocator of **E**vasion, **N**egligence and
+**A**uthenticity.*
 
 *Student report checking: borrowing, duplicated images and GOST 7.32-2017 – in a single pass*
 
@@ -403,7 +434,7 @@ spelling out the Russian given name Alyona*
 
 ## What it is
 
-A teacher uploads a folder or ZIP of a group's work – ALYONA returns one
+A teacher uploads a folder or ZIP of a group's work – ALENA returns one
 self-contained HTML report showing, per student: what was copied, which images
 repeat, which GOST clauses are violated, and what formatting grade follows.
 
@@ -444,19 +475,28 @@ batch of scans would accuse itself of wholesale plagiarism.
 
 ## How it works
 
-```mermaid
-flowchart LR
-    A[ZIP / folder<br/>PDF · DOCX · ODT · DOC] --> B[LibreOffice<br/>everything → PDF]
-    B --> C[Extraction<br/>text · fonts · margins · images]
-    C --> D[GOST<br/>22 criteria]
-    C --> E[Text<br/>5-gram shingles]
-    C --> F[Images<br/>multi-crop pHash]
-    G[(Fingerprint<br/>base)] --> E
-    G --> F
-    D --> H[HTML report<br/>+ PDF]
-    E --> H
-    F --> H
-    H --> G
+```text
+   ZIP or folder: PDF, DOCX, ODT, DOC
+                    |
+                    v
+ LibreOffice: every format becomes a PDF
+                    |
+                    v
+Extraction: text, fonts, margins, images
+        |           |            |
+        v           v            v
+      GOST        Text        Images
+   22 criteria   5-grams       pHash
+        |           |            |
+        |           +-----+------+
+        |                 |
+        | Fingerprint base: read before the
+        | comparison, appended to after it
+        |                 |
+        +--------+--------+
+                 |
+                 v
+    HTML report, PDF on request
 ```
 
 **Why everything becomes a PDF.** Half the GOST criteria are measured on a
@@ -487,7 +527,12 @@ the password looks like a default, the account is asked to change it at first
 login.
 
 The image already contains LibreOffice, the Microsoft fonts and the WeasyPrint
-libraries – nothing else to install.
+libraries – nothing else to install. Building it yourself is optional: every
+build from `main` is published to Docker Hub.
+
+```bash
+docker pull mxd3v-tech/alena:latest
+```
 
 ### Local
 
@@ -510,17 +555,9 @@ gunicorn --workers=1 --threads=8 --timeout=300 -b 0.0.0.0:5000 app:app
 > In-flight chunked uploads and live job state live in process memory. With a
 > second worker, chunks of one batch reach different processes and the upload
 > fails with «Загрузка не найдена». Concurrency comes from `--threads`.
-> A sample nginx config is in [`nginx.conf.txt`](nginx.conf.txt).
 > Behind one nginx proxy, set `AU_TRUSTED_PROXY_COUNT=1` and prevent clients
 > from reaching the application port directly; keep the safe default `0`
 > without a proxy.
-
-### Command line – no server, no accounts
-
-```bash
-python check_reports.py ./reports_folder -o report.html --threshold 0.5
-python check_reports.py ./archive.zip
-```
 
 ---
 
@@ -536,7 +573,7 @@ Everything is an environment variable; the full annotated list is in
 | `AU_API_KEY` | Key for `/api/v1`, assigned to the first administrator at bootstrap |
 | `AU_HTTPS` | `1` behind HTTPS: the session cookie is marked `Secure` |
 | `AU_TRUSTED_PROXY_COUNT` | Number of trusted reverse proxies used to resolve the client IP (default `0`) |
-| `DATABASE_URL` | PostgreSQL. Empty → JSON store in `memory/` |
+| `DATABASE_URL` | PostgreSQL. Empty: JSON store in `memory/` |
 | `AU_MAX_UPLOAD_MB` | Largest single batch, MB (default 5120) |
 | `AU_TMP_DIR` | Where uploads are staged. Check it is on disk, not tmpfs – otherwise a multi-gigabyte batch is written straight into RAM |
 | `AU_SOFFICE` | Path to LibreOffice if it is outside `PATH` |
@@ -544,7 +581,8 @@ Everything is an environment variable; the full annotated list is in
 
 Application-level settings – the default similarity threshold, the criteria set,
 grade weights and scale, retention period, password and lockout policy – are set
-in the UI under **Администрирование → Настройки** (Administration → Settings).
+in the UI under **Администрирование**, section **Настройки** (Administration,
+Settings).
 
 ---
 
@@ -711,7 +749,8 @@ and sees only its data.
 
 Every persistence module works the same way: **PostgreSQL** when `DATABASE_URL`
 is set, otherwise **JSON files** in `memory/`. Switching is one variable, and
-moving data either way is done in **Администрирование → Миграция базы**.
+moving data either way is done in **Администрирование**, section **Миграция
+базы** (Administration, Database migration).
 
 In JSON mode each check is stored in `memory/jobs/<id>.json`. The legacy shared
 `memory/jobs.json` is migrated to this layout automatically on first start.
@@ -742,17 +781,39 @@ All of it is already assembled in the [`Dockerfile`](Dockerfile).
 
 ## Development
 
-Run the dependency-free regression suite with
-`python -m unittest discover -s tests -v`. Use `check_reports.py` over a folder
-of PDFs for an end-to-end document check; `python -m py_compile` catches syntax
-errors separately. There is no linter config or separate build step.
+```bash
+python -m unittest discover -s tests -t .              # the whole suite
+python -m unittest tests.test_gost -v                  # a single file
+pip install -r requirements-dev.txt && ruff check .    # linter
+```
+
+The tests need no network, no PostgreSQL and no LibreOffice: the stores are
+redirected to a temporary directory, the PDF under test is built on the fly with
+PyMuPDF, and the report the GOST checks read is a plain dict. They are written
+against the standard-library `unittest` and need nothing beyond
+`requirements.txt`.
+
+The GOST criteria are tested differentially: the reference report in
+[`tests/fixtures.py`](tests/fixtures.py) passes all 22 criteria, and each test
+breaks exactly one thing in it and demands that precisely the criterion guarding
+that thing fails. Such a test survives rewording and re-tuning inside the check.
+
+GitHub Actions runs the suite and the linter on every push and pull request
+([`tests.yml`](.github/workflows/tests.yml)); from `main` it builds the image and
+publishes it to Docker Hub ([`docker.yml`](.github/workflows/docker.yml)) after a
+separate test run. Publishing needs two repository secrets,
+`DOCKERHUB_USERNAME` and `DOCKERHUB_TOKEN`. The linter rule set
+([`ruff.toml`](ruff.toml)) is deliberately narrow: it looks for bugs, not for
+disagreements about taste – the project has a settled style of its own.
 
 Comments explain **why**, not what the line does, and often name the bug the code
 exists to prevent. A new GOST criterion is one row in the `GOST_CHECKS` table, a
 `_check_*` function wired into `check_gost()`, and a `FLAW_TEXT` entry –
-everything else is derived from the table. A newly persisted field must be
-carried through both backends – the PostgreSQL column list and the JSON dict –
-and through the column tuples in `checker/sqlmigrate.py`.
+everything else is derived from the table. It must pass on the reference report:
+if it fails there, either the criterion is stricter than the standard or the
+reference is due an update. A newly persisted field must be carried through both
+backends – the PostgreSQL column list and the JSON dict – and through the column
+tuples in `checker/sqlmigrate.py`.
 
 ---
 

@@ -17,6 +17,9 @@ services:
     restart: unless-stopped
 
   web:
+    # Готовый образ с Docker Hub. `docker compose up` соберёт его сам, если
+    # локально такого нет; `--build` пересобирает всегда.
+    image: mxd3v-tech/alena:latest
     build: .
     ports:
       - "${PORT:-5000}:5000"

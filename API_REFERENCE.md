@@ -9,7 +9,8 @@ Every `/api/v1/*` endpoint returns JSON, including errors.
 Two interchangeable methods are accepted:
 
 - **API key (machine-to-machine):** send the header `X-API-Key: <key>`. Keys
-  belong to an account and are issued in **Пользователи** → *Выдать ключ API*.
+  belong to an account and are issued in **Пользователи** with the *Выдать ключ
+API* action.
   The account must have the permission «Пользоваться API по ключу» (`use_api`);
   without it the key is rejected. `AU_API_KEY` from the environment is assigned
   to the first administrator when the instance bootstraps.

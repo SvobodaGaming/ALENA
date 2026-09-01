@@ -1,0 +1,46 @@
+name: tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# Новый push в ту же ветку отменяет предыдущий прогон: очередь не забивается
+# проверками кода, который уже переписан.
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install -r requirements-dev.txt
+      - run: ruff check --output-format=github .
+
+  tests:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # Нижняя заявленная граница и текущая версия. Между ними ломается
+        # обычно не наш код, а поведение библиотек разбора PDF.
+        python-version: ['3.11', '3.13']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+      - run: pip install -r requirements.txt
+      # Ни PostgreSQL, ни LibreOffice тестам не нужны: хранилища подменяются
+      # временным каталогом, а PDF для разбора собирается на лету через PyMuPDF.
+      - run: python -m unittest discover -s tests -t . -v

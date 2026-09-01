@@ -185,7 +185,6 @@ def build(reports: list, historical: list, text_plag: dict, img_plag: dict,
 
     return {
         'group':       groups[0] if groups else '–',
-        'groups':      groups,
         'gost':        round(sum(s['gost'] for s in scored) / len(scored)) if scored else 0,
         'plag':        max(plags, default=0),
         'no_text':     sum(1 for s in students if s.get('no_text')),

@@ -734,8 +734,7 @@ def _all_jobs(user):
 @app.route('/')
 @login_required
 def index():
-    return render_template('checks.html', page='checks',
-                           gost_checks=GOST_CHECKS, flaw_text=FLAW_TEXT)
+    return render_template('checks.html', page='checks', flaw_text=FLAW_TEXT)
 
 
 @app.route('/overview')

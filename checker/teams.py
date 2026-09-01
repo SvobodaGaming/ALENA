@@ -77,24 +77,6 @@ def create_team(name: str, members=()) -> dict:
     return team
 
 
-def set_members(team_id: str, members) -> bool:
-    team = get_team(team_id)
-    if team is None:
-        return False
-    team['members'] = _clean_members(members)
-    save_team(team)
-    return True
-
-
-def rename(team_id: str, name: str) -> bool:
-    team = get_team(team_id)
-    if team is None or not name.strip():
-        return False
-    team['name'] = name.strip()[:NAME_MAX]
-    save_team(team)
-    return True
-
-
 def drop_member(login: str) -> int:
     """Убрать логин из всех групп. Возвращает число затронутых групп.
 

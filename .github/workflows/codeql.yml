@@ -20,13 +20,13 @@ jobs:
       security-events: write   # без него результат некуда положить
       actions: read
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: github/codeql-action/init@v3
+      - uses: github/codeql-action/init@v4
         with:
           languages: python
           # Расширенный набор: приложение принимает загрузки файлов, ходит в
           # базу и рендерит HTML – именно те дорожки, которые ищут эти запросы.
           queries: security-and-quality
 
-      - uses: github/codeql-action/analyze@v3
+      - uses: github/codeql-action/analyze@v4

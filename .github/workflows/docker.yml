@@ -3,27 +3,23 @@ name: docker
 on:
   push:
     branches: [main]
-    tags: ['v*']
+    tags: ["v*"]
   workflow_dispatch:
 
 permissions:
   contents: read
 
 env:
-  IMAGE: mxd3v-tech/alena
+  IMAGE: mxd3v/alena
 
 jobs:
-  # Отдельный прогон тестов перед публикацией. Он дублирует workflow «tests»,
-  # и это намеренно: связывать два workflow через workflow_run значит собирать
-  # образ по определению из ветки по умолчанию и терять отчёт о причине отказа.
-  # Набор идёт треть секунды – дешевле, чем выложенный сломанный образ.
   verify:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: "3.11"
           cache: pip
       - run: pip install -r requirements.txt
       - run: python -m unittest discover -s tests -t .
@@ -31,7 +27,6 @@ jobs:
   publish:
     needs: verify
     runs-on: ubuntu-latest
-    # В форке секретов Docker Hub нет, и job упал бы на входе.
     if: github.repository_owner == 'mxd3v-tech'
     steps:
       - uses: actions/checkout@v4
